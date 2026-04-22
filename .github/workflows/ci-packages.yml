@@ -1,0 +1,57 @@
+name: CI — Packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/core/**"
+      - "packages/adapter-evm/**"
+      - "apps/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  pull_request:
+    paths:
+      - "packages/core/**"
+      - "packages/adapter-evm/**"
+      - "apps/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+jobs:
+  build-lint-test:
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build --filter='!@sage/contracts'
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm -r typecheck --filter='!@sage/contracts' --filter='!@sage/demo-agents'
+
+      - name: Test
+        run: pnpm -r test --filter='!@sage/contracts'
+
+      - name: Format check
+        run: pnpm format:check

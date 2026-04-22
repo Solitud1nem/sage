@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+
+# Foundry
+packages/contracts/cache/
+packages/contracts/out/
+packages/contracts/broadcast/
+
+# Coverage
+coverage/
+lcov.info
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Turbo (if added later)
+.turbo/
+
+# Changesets
+.changeset/*.md
+!.changeset/config.json
+
+# Gas snapshots (tracked explicitly when needed)
+# .gas-snapshot
+
+# Project meta-docs (local only)
+AGENTS.md
+BACKLOG.md
+CLAUDE.md
+GOTCHAS.md
+IDEAS.md
+PLANNING.md
+PRD.md
+TASKS.md

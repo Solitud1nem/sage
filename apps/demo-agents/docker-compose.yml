@@ -1,0 +1,27 @@
+services:
+  orchestrator:
+    build:
+      context: ../../
+      dockerfile: apps/demo-agents/Dockerfile
+    ports:
+      - "3000:3000"
+    env_file: .env
+    command: ["node", "--import", "tsx", "apps/demo-agents/src/orchestrator/server.ts"]
+
+  summarizer:
+    build:
+      context: ../../
+      dockerfile: apps/demo-agents/Dockerfile
+    ports:
+      - "3001:3001"
+    env_file: .env
+    command: ["node", "--import", "tsx", "apps/demo-agents/src/summarizer/agent.ts"]
+
+  translator:
+    build:
+      context: ../../
+      dockerfile: apps/demo-agents/Dockerfile
+    ports:
+      - "3002:3002"
+    env_file: .env
+    command: ["node", "--import", "tsx", "apps/demo-agents/src/translator/agent.ts"]

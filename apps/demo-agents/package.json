@@ -1,0 +1,23 @@
+{
+  "name": "@sage/demo-agents",
+  "version": "0.0.1",
+  "description": "Reference implementation — Orchestrator, Summarizer, Translator demo agents",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev:orchestrator": "tsx src/orchestrator/server.ts",
+    "dev:summarizer": "tsx src/summarizer/agent.ts",
+    "dev:translator": "tsx src/translator/agent.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sage/adapter-evm": "workspace:*",
+    "@sage/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

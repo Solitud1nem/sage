@@ -1,0 +1,16 @@
+{
+  "name": "@sage/contracts",
+  "version": "0.0.1",
+  "description": "Sage protocol smart contracts — AgentRegistry + TaskEscrow",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vvv",
+    "test:fuzz": "forge test --match-path 'test/fuzz/**' -vvv",
+    "test:invariants": "forge test --match-path 'test/invariants/**' -vvv",
+    "snapshot": "forge snapshot",
+    "fmt": "forge fmt",
+    "fmt:check": "forge fmt --check",
+    "slither": "slither src/ --config-file slither.config.json"
+  }
+}
