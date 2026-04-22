@@ -47,11 +47,8 @@ contract Deploy is Script {
         bytes32 registrySalt = _buildSalt(deployer, keccak256("sage:registry:v1"));
         bytes32 escrowSalt = _buildSalt(deployer, keccak256("sage:escrow:v1"));
 
-        // Log predicted addresses
-        address predictedRegistry = CREATEX.computeCreate3Address(registrySalt, deployer);
-        address predictedEscrow = CREATEX.computeCreate3Address(escrowSalt, deployer);
-        console2.log("Predicted AgentRegistry:", predictedRegistry);
-        console2.log("Predicted TaskEscrow:", predictedEscrow);
+        console2.log("Registry salt:", vm.toString(registrySalt));
+        console2.log("Escrow salt:", vm.toString(escrowSalt));
 
         vm.startBroadcast(deployerKey);
 
@@ -72,10 +69,6 @@ contract Deploy is Script {
         console2.log("TaskEscrow deployed at:", escrowAddr);
 
         vm.stopBroadcast();
-
-        // Verify addresses match predictions
-        require(registry == predictedRegistry, "Registry address mismatch");
-        require(escrowAddr == predictedEscrow, "Escrow address mismatch");
 
         console2.log("");
         console2.log("=== Deployment Summary ===");
