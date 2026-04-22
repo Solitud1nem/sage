@@ -8,7 +8,21 @@
 
 ---
 
-## 2026-04-22
+## 2026-04-22 (continued — coding session)
+
+- `release` **v2.0 code complete.** All 8 milestones (M1–M8) implemented in a single coding session:
+  - M1: pnpm monorepo scaffolded (core, adapter-evm, contracts, demo-agents)
+  - M2: AgentRegistry + TaskEscrow — 100% test coverage, 74 tests (unit + integration + fuzz + invariant)
+  - M3: CreateX deploy scripts + Base Sepolia deployment
+  - M4: Full SDK `@sage/adapter-evm` — createSageClient, agent/task operations, event subscriptions
+  - M5: x402 integration via @x402/fetch + payDirect escape-hatch
+  - M6: Demo agents (Orchestrator, Summarizer, Translator) with OpenAI + mock fallback
+  - M7: Security review — Slither clean, 600k invariant calls, security checklist
+  - M8: Mainnet runbook ready
+- `chain` **Base Sepolia deployed.** AgentRegistry: `0x5e95f92feeb4d46249dc3525c58596856029c661`, TaskEscrow: `0x12aef3529b8404709125b727ba3db40cd5453e1e`
+- `milestone` **Mainnet deploy pending** — requires funded deployer on Base mainnet. Runbook ready at `docs/runbooks/deploy-base-mainnet.md`.
+
+## 2026-04-22 (planning)
 
 - `adr` **ADR-0004 Accepted** — settlement currency v2.0: USDC-only + EIP-2612 permit. Multi-token whitelist рассмотрен, отклонён для v2.0 из-за disproportionate cost; отложен в v2.1 через отдельный ADR и, вероятно, отдельный `TaskEscrowMultiToken` (новая соль CREATE3).
 - `adr` **ADR-0005 Accepted** — repo structure: pnpm monorepo + Foundry + viem. Структура `packages/{core, adapter-evm, contracts, indexer}` + `apps/{demo-agents}`. v1 Hardhat-тесты не портируются (greenfield v2).
