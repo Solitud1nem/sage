@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "build": "forge build",
+    "export-abi": "node -e \"const fs=require('fs'),p='out/';['AgentRegistry','TaskEscrow'].forEach(c=>{const a=JSON.parse(fs.readFileSync(p+c+'.sol/'+c+'.json','utf8')).abi;fs.writeFileSync('../adapter-evm/src/abi/'+c.replace(/([A-Z])/g,(m,g,i)=>i?'-'+g.toLowerCase():g.toLowerCase())+'.ts','export const '+c[0].toLowerCase()+c.slice(1)+'Abi = '+JSON.stringify(a,null,2)+' as const;\\n')})\"",
     "test": "forge test -vvv",
     "test:fuzz": "forge test --match-path 'test/fuzz/**' -vvv",
     "test:invariants": "forge test --match-path 'test/invariants/**' -vvv",

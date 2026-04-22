@@ -5,4 +5,32 @@
  * Primary chain: Base (chain ID 8453).
  */
 
+// Re-export core types for convenience
 export { SAGE_PROTOCOL_VERSION } from '@sage/core';
+export type {
+  AgentId,
+  AgentRecord,
+  AgentProfile,
+  TaskId,
+  TaskRecord,
+  TaskSpec,
+  TaskStatus,
+  AgentClient,
+  TaskClient,
+  ChainAdapter,
+} from '@sage/core';
+
+// Client
+export { createSageClient } from './client.js';
+export type { CreateSageClientOptions, SageClient } from './client.js';
+
+// Chain configs
+export { base, baseSepolia } from './chains/base.js';
+export type { ChainConfig } from './chains/base.js';
+
+// Events
+export { createEventSubscriptions } from './events.js';
+export type { SageEventSubscriptions, UnwatchFn } from './events.js';
+
+// ABIs (for advanced usage)
+export { agentRegistryAbi, taskEscrowAbi } from './abi/index.js';
