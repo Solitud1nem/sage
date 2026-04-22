@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@sage/adapter-evm": "workspace:*",
-    "@sage/core": "workspace:*"
+    "@sage/core": "workspace:*",
+    "viem": "^2.0.0"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
