@@ -1,0 +1,62 @@
+name: CI — Contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/contracts/**"
+  pull_request:
+    paths:
+      - "packages/contracts/**"
+
+jobs:
+  build-and-test:
+    name: Forge Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/contracts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build
+        run: forge build --sizes
+
+      - name: Test
+        run: forge test -vvv
+
+      - name: Gas snapshot
+        run: forge snapshot
+
+      - name: Format check
+        run: forge fmt --check
+
+  slither:
+    name: Slither Analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/contracts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build
+        run: forge build
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
+        with:
+          target: packages/contracts
+          fail-on: high
