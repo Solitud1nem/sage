@@ -6,3 +6,9 @@
  */
 
 export const SAGE_PROTOCOL_VERSION = '2.0.0' as const;
+
+// Types
+export * from './types/index.js';
+
+// Interfaces
+export * from './interfaces/index.js';
