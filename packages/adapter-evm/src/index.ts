@@ -28,6 +28,14 @@ export type { CreateSageClientOptions, SageClient } from './client.js';
 export { base, baseSepolia } from './chains/base.js';
 export type { ChainConfig } from './chains/base.js';
 
+// x402 pay-per-call
+export { createX402Client } from './x402.js';
+export type { X402Client, CallAgentOptions, CallAgentResult } from './x402.js';
+
+// Direct payment escape-hatch
+export { createPayDirectClient } from './pay-direct.js';
+export type { PayDirectClient, PayDirectParams } from './pay-direct.js';
+
 // Events
 export { createEventSubscriptions } from './events.js';
 export type { SageEventSubscriptions, UnwatchFn } from './events.js';
