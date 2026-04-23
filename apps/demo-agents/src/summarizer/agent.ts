@@ -6,10 +6,13 @@
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
 import { taskId } from '@sage/core';
-import { taskEscrowAbi } from '@sage/adapter-evm';
+import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
 
 const config = loadConfig(3001);
 const { sage, publicClient, account } = createSageFromConfig(config);
+const escrowAddress = config.chain === 'mainnet'
+  ? base.contracts.taskEscrow
+  : baseSepolia.contracts.taskEscrow;
 
 async function summarize(text: string): Promise<string> {
   if (config.openaiApiKey) {
@@ -67,7 +70,7 @@ const agent = new BaseAgent({
     console.error('[Summarizer] Watching for TaskCreated events...');
 
     publicClient.watchContractEvent({
-      address: '0x12aef3529b8404709125b727ba3db40cd5453e1e',
+      address: escrowAddress,
       abi: taskEscrowAbi,
       eventName: 'TaskCreated',
       onLogs(logs) {
