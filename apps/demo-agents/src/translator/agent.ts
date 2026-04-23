@@ -49,7 +49,12 @@ async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, e
   console.error(`[Translator] Task ${id} assigned to us, accepting...`);
 
   try {
-    await sage.tasks.acceptTask(id);
+    const acceptHash = await sage.tasks.acceptTask(id);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: acceptHash as `0x${string}` });
+    if (receipt.status === 'reverted') {
+      console.error(`[Translator] Task ${id} accept reverted (another agent got it first)`);
+      return;
+    }
     console.error(`[Translator] Task ${id} accepted, working...`);
 
     const task = await sage.tasks.getTask(id);

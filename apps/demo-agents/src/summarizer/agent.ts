@@ -46,16 +46,28 @@ async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, e
   console.error(`[Summarizer] Task ${id} assigned to us, accepting...`);
 
   try {
-    await sage.tasks.acceptTask(id);
-    console.error(`[Summarizer] Task ${id} accepted, working...`);
+    const acceptHash = await sage.tasks.acceptTask(id);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: acceptHash as `0x${string}` });
+    if (receipt.status === 'reverted') {
+      console.error(`[Summarizer] Task ${id} accept reverted (another agent got it first)`);
+      return;
+    }
+    console.error(`[Summarizer] Task ${id} accepted (tx: ${acceptHash}), working...`);
+
+    // Wait for state propagation before reading/writing
+    await new Promise(r => setTimeout(r, 2000));
 
     const task = await sage.tasks.getTask(id);
-    if (!task) return;
+    if (!task) {
+      console.error(`[Summarizer] Task ${id} not found after accept — skipping`);
+      return;
+    }
+    console.error(`[Summarizer] Task ${id} status: ${task.status}, specUri: ${task.specUri.slice(0,50)}`);
 
-    // In real scenario, fetch specUri content. Here we use specUri as input.
     const result = await summarize(task.specUri);
     const resultUri = `data:text/plain,${encodeURIComponent(result)}`;
 
+    console.error(`[Summarizer] Task ${id} submitting completeTask...`);
     await sage.tasks.completeTask(id, resultUri);
     console.error(`[Summarizer] Task ${id} completed`);
   } catch (err) {

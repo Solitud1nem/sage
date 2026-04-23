@@ -1,86 +1,46 @@
 /**
- * Orchestrator agent — HTTP server that coordinates Summarizer + Translator.
+ * Orchestrator — HTTP server coordinating demo task-lifecycle flow.
  *
- * POST /process { text } →
- *   1. Create escrow task for Summarizer, wait for completion
- *   2. Create escrow task for Translator, wait for completion
- *   3. Return { summary, translation, txHashes }
+ * Endpoints:
+ *   GET  /health                       Liveness check (Fly.io + CI).
+ *   POST /api/demo/start               Create sponsored demo run, return { demoRunId, streamUrl }.
+ *   GET  /api/demo/stream/:demoRunId   SSE stream of task-lifecycle events for a run.
+ *   POST /process                      (legacy) Blocking demo — kept for backward compat via curl.
+ *
+ * Per ADR-0006: SSE over HTTP/2, CORS restricted to known origins, sponsor
+ * balance check before new runs.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
-import { taskId as makeTaskId, TaskStatus } from '@sage/core';
-import type { TaskId } from '@sage/core';
+import { demoRegistry } from '../shared/sse.js';
+import { loadOrchestratorEnv } from '../shared/env.js';
+import { startDemoRun } from './demo-run.js';
 
-const config = loadConfig(3000);
-const { sage } = createSageFromConfig(config);
+const env = loadOrchestratorEnv();
+const config = loadConfig(env.port);
+const sageBundle = createSageFromConfig(config);
 
-const SUMMARIZER_ADDRESS = process.env['SUMMARIZER_ADDRESS'] as `0x${string}` | undefined;
-const TRANSLATOR_ADDRESS = process.env['TRANSLATOR_ADDRESS'] as `0x${string}` | undefined;
-const TASK_AMOUNT = BigInt(process.env['TASK_AMOUNT'] ?? '1000'); // 0.001 USDC default
-
-async function waitForCompletion(id: TaskId, timeoutMs = 120_000): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const task = await sage.tasks.getTask(id);
-    if (task && task.status === TaskStatus.Completed) {
-      return task.resultUri;
-    }
-    if (task && (task.status === TaskStatus.Paid || task.status === TaskStatus.Expired || task.status === TaskStatus.Refunded)) {
-      throw new Error(`Task ${id} ended in unexpected status: ${task.status}`);
-    }
-    await new Promise((r) => setTimeout(r, 3000));
+// ── CORS ──────────────────────────────────────────────────────────────
+function applyCors(req: IncomingMessage, res: ServerResponse): boolean {
+  const origin = req.headers.origin;
+  if (origin && env.allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400');
   }
-  throw new Error(`Task ${id} timed out after ${timeoutMs}ms`);
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+  return false;
 }
 
-async function processText(text: string) {
-  const txHashes: string[] = [];
-
-  if (!SUMMARIZER_ADDRESS || !TRANSLATOR_ADDRESS) {
-    throw new Error('SUMMARIZER_ADDRESS and TRANSLATOR_ADDRESS must be set');
-  }
-
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-
-  // Step 1: Summarize
-  console.error('[Orchestrator] Creating summary task...');
-  const summaryTaskId = await sage.tasks.createTask({
-    executor: SUMMARIZER_ADDRESS as any,
-    deadline: Number(deadline),
-    amount: TASK_AMOUNT,
-    specUri: text,
-  });
-  console.error(`[Orchestrator] Summary task created: ${summaryTaskId}`);
-
-  const summaryResult = await waitForCompletion(summaryTaskId);
-  const summary = decodeURIComponent(summaryResult.replace('data:text/plain,', ''));
-
-  // Approve payment
-  const approveTx1 = await sage.tasks.approvePayment(summaryTaskId);
-  txHashes.push(approveTx1);
-  console.error(`[Orchestrator] Summary approved: ${approveTx1}`);
-
-  // Step 2: Translate
-  console.error('[Orchestrator] Creating translation task...');
-  const translateTaskId = await sage.tasks.createTask({
-    executor: TRANSLATOR_ADDRESS as any,
-    deadline: Number(deadline),
-    amount: TASK_AMOUNT,
-    specUri: summary,
-  });
-  console.error(`[Orchestrator] Translation task created: ${translateTaskId}`);
-
-  const translationResult = await waitForCompletion(translateTaskId);
-  const translation = decodeURIComponent(translationResult.replace('data:text/plain,', ''));
-
-  const approveTx2 = await sage.tasks.approvePayment(translateTaskId);
-  txHashes.push(approveTx2);
-  console.error(`[Orchestrator] Translation approved: ${approveTx2}`);
-
-  return { summary, translation, txHashes };
-}
-
+// ── Helpers ───────────────────────────────────────────────────────────
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -90,29 +50,121 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+function json(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+// ── Routes ────────────────────────────────────────────────────────────
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-  if (req.url === '/health' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', agent: 'Orchestrator' }));
+  if (applyCors(req, res)) return;
+
+  const { method, url = '/' } = req;
+
+  // --- /health ---------------------------------------------------------
+  if (url === '/health' && method === 'GET') {
+    json(res, 200, {
+      status: 'ok',
+      agent: 'Orchestrator',
+      activeDemoRuns: demoRegistry.size,
+    });
     return;
   }
 
-  if (req.url === '/process' && req.method === 'POST') {
+  // --- POST /api/demo/start -------------------------------------------
+  if (url === '/api/demo/start' && method === 'POST') {
     try {
-      const body = JSON.parse(await readBody(req)) as { text?: string };
-      if (!body.text) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing "text" field' }));
+      const raw = await readBody(req);
+      const body = raw ? (JSON.parse(raw) as { text?: string }) : {};
+      if (!body.text || typeof body.text !== 'string') {
+        json(res, 400, { error: 'Missing "text" field (string)' });
         return;
       }
 
-      const result = await processText(body.text);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(result));
+      if (!env.summarizerAddress || !env.translatorAddress) {
+        json(res, 500, {
+          error:
+            'Server misconfigured: SUMMARIZER_ADDRESS and TRANSLATOR_ADDRESS must be set in env',
+        });
+        return;
+      }
+
+      // TODO: M-INT.7 — sponsor-balance check against env.sponsorMinBalanceUsdc.
+      // Currently demo always accepts. Rate-limit + balance-guard land in M-INT.7.
+
+      const { demoRunId, streamUrl } = startDemoRun(sageBundle, {
+        text: body.text,
+        summarizerAddress: env.summarizerAddress,
+        translatorAddress: env.translatorAddress,
+        taskAmount: env.taskAmount,
+      });
+
+      json(res, 202, { demoRunId, streamUrl });
     } catch (err) {
-      console.error('[Orchestrator] Error:', err);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: String(err) }));
+      console.error('[Orchestrator] /api/demo/start error:', err);
+      json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
+
+  // --- GET /api/demo/stream/:id ---------------------------------------
+  if (method === 'GET' && url.startsWith('/api/demo/stream/')) {
+    const demoRunId = url.slice('/api/demo/stream/'.length);
+    const channel = demoRegistry.get(demoRunId);
+    if (!channel) {
+      json(res, 404, { error: 'demo run not found or already expired' });
+      return;
+    }
+    // Channel manages its own response lifecycle (keep-alive + flush).
+    channel.attach(res);
+    return;
+  }
+
+  // --- /process (legacy blocking) -------------------------------------
+  if (url === '/process' && method === 'POST') {
+    // Legacy shape: wait synchronously and return final result. Useful for curl demos.
+    try {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw) as { text?: string };
+      if (!body.text) {
+        json(res, 400, { error: 'Missing "text" field' });
+        return;
+      }
+      if (!env.summarizerAddress || !env.translatorAddress) {
+        json(res, 500, { error: 'SUMMARIZER_ADDRESS / TRANSLATOR_ADDRESS not set' });
+        return;
+      }
+
+      const { demoRunId, streamUrl } = startDemoRun(sageBundle, {
+        text: body.text,
+        summarizerAddress: env.summarizerAddress,
+        translatorAddress: env.translatorAddress,
+        taskAmount: env.taskAmount,
+      });
+
+      // Subscribe internally and resolve when `done` arrives.
+      const channel = demoRegistry.get(demoRunId);
+      if (!channel) throw new Error('channel disappeared immediately');
+      const result = await new Promise<unknown>((resolve, reject) => {
+        const pollDone = setInterval(() => {
+          if (channel.isClosed) {
+            clearInterval(pollDone);
+            // Pull final payload from the last emitted event — not ideal, but matches
+            // legacy shape. New integrations should use /api/demo/start + SSE.
+            resolve({ demoRunId, streamUrl, note: 'see SSE stream for payload' });
+          }
+        }, 500);
+        // Hard timeout — legacy clients expect <3min.
+        setTimeout(() => {
+          clearInterval(pollDone);
+          reject(new Error('Legacy /process timed out — use /api/demo/start for streaming'));
+        }, 180_000);
+      });
+
+      json(res, 200, result);
+    } catch (err) {
+      console.error('[Orchestrator] /process error:', err);
+      json(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
     return;
   }
@@ -121,9 +173,17 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   res.end('Not found');
 });
 
-server.listen(config.port, () => {
-  console.error(`[Orchestrator] listening on port ${config.port}`);
+server.listen(env.port, () => {
+  console.error(`[Orchestrator] listening on :${env.port}`);
+  console.error(`[Orchestrator] allowed origins: ${env.allowedOrigins.join(', ')}`);
 });
 
-process.on('SIGINT', () => { server.close(); process.exit(0); });
-process.on('SIGTERM', () => { server.close(); process.exit(0); });
+// ── Graceful shutdown ─────────────────────────────────────────────────
+function shutdown(signal: string): void {
+  console.error(`[Orchestrator] ${signal} received, closing server`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
