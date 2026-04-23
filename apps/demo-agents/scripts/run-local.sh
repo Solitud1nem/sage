@@ -10,7 +10,7 @@ source /mnt/d/Sage/packages/contracts/.env
 DEPLOYER=$(cast wallet address $DEPLOYER_PRIVATE_KEY)
 
 export PRIVATE_KEY=$DEPLOYER_PRIVATE_KEY
-export RPC_URL=https://mainnet.base.org
+export RPC_URL="${RPC_URL:-https://mainnet.base.org}"
 export NODE_PATH="$DIR/node_modules:/mnt/d/Sage/node_modules"
 
 echo "Deployer: $DEPLOYER"
