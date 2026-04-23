@@ -41,8 +41,8 @@ export const base: ChainConfig = {
   rpc: 'https://mainnet.base.org',
   explorer: 'https://basescan.org',
   contracts: {
-    agentRegistry: '0x0000000000000000000000000000000000000000', // TBD after mainnet deploy
-    taskEscrow: '0x0000000000000000000000000000000000000000',    // TBD after mainnet deploy
+    agentRegistry: '0x5e95F92FeEb4D46249DC3525C58596856029c661',
+    taskEscrow: '0x12aeF3529b8404709125b727bA3Db40cD5453E1e',
     usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     eas: '0x4200000000000000000000000000000000000021',
     easSchemaRegistry: '0x4200000000000000000000000000000000000020',
