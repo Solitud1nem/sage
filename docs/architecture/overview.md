@@ -15,6 +15,7 @@
 
 | Chain | Chain ID | Status | RPC | Explorer | AgentRegistry | TaskEscrow |
 |-------|----------|--------|-----|----------|---------------|------------|
+| Base | 8453 | **Deployed** | https://mainnet.base.org | https://basescan.org | `0x5e95F92FeEb4D46249DC3525C58596856029c661` | `0x12aeF3529b8404709125b727bA3Db40cD5453E1e` |
 | Base Sepolia | 84532 | Deployed | https://sepolia.base.org | https://sepolia.basescan.org | `0x5e95f92feeb4d46249dc3525c58596856029c661` | `0x12aef3529b8404709125b727ba3db40cd5453e1e` |
 
 ## Money flow (TBD)
