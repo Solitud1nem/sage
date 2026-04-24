@@ -55,14 +55,21 @@ async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, e
       console.error(`[Translator] Task ${id} accept reverted (another agent got it first)`);
       return;
     }
-    console.error(`[Translator] Task ${id} accepted, working...`);
+    console.error(`[Translator] Task ${id} accepted (tx: ${acceptHash}), working...`);
+
+    await new Promise(r => setTimeout(r, 2000));
 
     const task = await sage.tasks.getTask(id);
-    if (!task) return;
+    if (!task) {
+      console.error(`[Translator] Task ${id} not found after accept — skipping`);
+      return;
+    }
+    console.error(`[Translator] Task ${id} status: ${task.status}, specUri: ${task.specUri.slice(0,50)}`);
 
     const result = await translate(task.specUri);
     const resultUri = `data:text/plain,${encodeURIComponent(result)}`;
 
+    console.error(`[Translator] Task ${id} submitting completeTask...`);
     await sage.tasks.completeTask(id, resultUri);
     console.error(`[Translator] Task ${id} completed`);
   } catch (err) {
