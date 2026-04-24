@@ -96,13 +96,16 @@ Four integration points:
 - Orchestrator balance-check: if sponsor balance < $5 USDC → reject new tasks with HTTP 503.
 - Logging to Cloudflare Logs for audit.
 
-### M-INT.8 — Polish + deploy (1 day)
-- Preview + prod envs on Cloudflare Pages.
-- PostHog events: `demo_started`, `task_completed`, `wallet_connected`, `try_with_wallet_converted`.
-- Sentry error tracking on client and orchestrator.
-- Smoke-test full flow on prod URL.
+### M-INT.8 — Polish + deploy (1 day) — ✅ code-side complete
+- Cookie-consent banner gates PostHog; lazy-import keeps `posthog-js` out of the initial bundle.
+- Sentry client/server/edge configs (`@sentry/nextjs`); DSN via `NEXT_PUBLIC_SENTRY_DSN`, no-op when absent.
+- Centralised `siteConfig` in `lib/site-config.ts` — single source of truth for domain + GitHub. Nav/footer read from it; env overrides via `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_GITHUB_URL`.
+- Metadata routes: `app/icon.tsx` (favicon), `app/opengraph-image.tsx` (1200×630 branded OG), `app/robots.ts`, `app/sitemap.ts`.
+- `.github/workflows/deploy-web.yml` — builds + publishes to Cloudflare Pages via wrangler-action.
+- Runbook `docs/runbooks/deploy-frontend-cloudflare-pages.md`.
+- **Operational (user-action):** Cloudflare Pages project create, `NEXT_PUBLIC_*` env vars, custom domain DNS, Worker route `api.sage.xyz/*`.
 
-**Total: 10–12 days solo.**
+**Total: 10–12 days solo. Code complete — deploy remains operational.**
 
 ## Data-flow examples
 

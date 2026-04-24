@@ -1,9 +1,13 @@
 'use client';
 
-import { BASE_MAINNET, txUrl } from '@/chains/base';
 import type { DemoResult } from '@/hooks/use-demo-stream';
 
-export function ResultPanel({ result }: { result: DemoResult }) {
+interface ResultPanelProps {
+  result: DemoResult;
+  explorerUrl: string | null;
+}
+
+export function ResultPanel({ result, explorerUrl }: ResultPanelProps) {
   return (
     <section className="relative rounded-[14px] border border-border bg-surface overflow-hidden animate-[demo-reveal_360ms_ease-out]">
       <div
@@ -36,17 +40,23 @@ export function ResultPanel({ result }: { result: DemoResult }) {
           <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
             Payments:
           </span>
-          {result.txHashes.map((tx, i) => (
-            <a
-              key={tx}
-              href={txUrl(BASE_MAINNET.chainId, tx)}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-[12px] text-cyan hover:underline underline-offset-4"
-            >
-              #{i + 1} {tx.slice(0, 8)}…{tx.slice(-4)} ↗
-            </a>
-          ))}
+          {result.txHashes.map((tx, i) =>
+            explorerUrl ? (
+              <a
+                key={tx}
+                href={`${explorerUrl}/tx/${tx}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-[12px] text-cyan hover:underline underline-offset-4"
+              >
+                #{i + 1} {tx.slice(0, 8)}…{tx.slice(-4)} ↗
+              </a>
+            ) : (
+              <span key={tx} className="font-mono text-[12px] text-cyan">
+                #{i + 1} {tx.slice(0, 8)}…{tx.slice(-4)}
+              </span>
+            ),
+          )}
         </div>
       )}
     </section>

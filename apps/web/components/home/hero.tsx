@@ -68,7 +68,7 @@ export function Hero() {
             <dt className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
               {item.label}
             </dt>
-            <dd className={item.mono ? 'font-mono text-cyan' : 'text-text'}>
+            <dd className={'mono' in item && item.mono ? 'font-mono text-cyan' : 'text-text'}>
               {'href' in item && item.href ? (
                 <a
                   href={item.href}

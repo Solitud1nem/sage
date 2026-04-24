@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { ConnectKitButton } from 'connectkit';
 
+import { siteConfig } from '@/lib/site-config';
+
 const links = [
   { href: '/#how-it-works', label: 'How it works' },
   { href: '/#integrate', label: 'Integrate' },
@@ -34,9 +36,10 @@ export function Nav() {
 
         <div className="flex items-center gap-3">
           <a
-            href="https://github.com"
+            href={siteConfig.github}
             target="_blank"
             rel="noreferrer"
+            aria-label="Sage on GitHub"
             className="hidden sm:inline-flex items-center gap-2 h-9 px-3 rounded-md border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>

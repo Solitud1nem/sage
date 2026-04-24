@@ -5,7 +5,8 @@ import { ConnectKitButton } from 'connectkit';
 import { formatUnits } from 'viem';
 import { useAccount, useReadContract } from 'wagmi';
 
-import { BASE_MAINNET } from '@/chains/base';
+import { useOrchestratorInfo } from '@/hooks/use-orchestrator-info';
+import { useSageChain } from '@/hooks/use-sage-chain';
 import { usdcAbi } from '@/lib/abi/task-escrow';
 import type { DemoStatus } from '@/hooks/use-demo-stream';
 
@@ -133,29 +134,55 @@ function BriefInput({
 }
 
 function WatchMeta() {
+  const orchestrator = useOrchestratorInfo();
+  const wallet = useSageChain();
+
+  const backendChain = orchestrator.chainName ?? 'unknown';
+  const walletOnDifferentChain =
+    orchestrator.status === 'ok' &&
+    orchestrator.chainId !== null &&
+    wallet.chainId !== orchestrator.chainId;
+
   return (
     <>
       <dl className="mt-5 grid grid-cols-3 gap-4 text-[12px]">
         <Meta label="Amount" value="0.001 USDC" />
         <Meta label="Deadline" value="1 hour" />
-        <Meta label="Agent" value="from AgentRegistry" />
+        <Meta
+          label="Runs on"
+          value={orchestrator.status === 'unreachable' ? 'orchestrator offline' : backendChain}
+          warn={orchestrator.status !== 'ok'}
+        />
       </dl>
       <p className="mt-3 text-[11px] text-text-subtle font-mono">
-        sponsored by protocol · demo runs on {BASE_MAINNET.displayName} mainnet
+        sponsored by protocol · no wallet signatures required
       </p>
+      {walletOnDifferentChain && (
+        <p className="mt-2 text-[11px] text-text-subtle">
+          Your wallet is on a different chain — that's fine for Watch live, the orchestrator pays
+          on its own chain. To sign yourself, switch mode to <span className="text-text-muted">Try with wallet</span>.
+        </p>
+      )}
+      {orchestrator.status === 'unreachable' && (
+        <p className="mt-2 text-[11px] font-mono" style={{ color: '#F472B6' }}>
+          Orchestrator at <span className="text-text-muted">NEXT_PUBLIC_ORCHESTRATOR_URL</span>{' '}
+          not responding. Run backend locally (see local-dev-setup runbook) or wait for prod deploy.
+        </p>
+      )}
     </>
   );
 }
 
 function WalletMeta() {
   const { address, isConnected } = useAccount();
+  const chain = useSageChain();
   const { data: balance } = useReadContract({
-    chainId: BASE_MAINNET.chainId,
-    address: BASE_MAINNET.contracts.usdc,
+    chainId: chain.chainId,
+    address: chain.contracts.usdc,
     abi: usdcAbi,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
-    query: { enabled: Boolean(address) },
+    query: { enabled: Boolean(address) && chain.isSupported },
   });
 
   const usdc = typeof balance === 'bigint' ? balance : 0n;
@@ -168,14 +195,20 @@ function WalletMeta() {
         <Meta
           label="USDC balance"
           value={isConnected ? `${formatUnits(usdc, 6)} USDC` : '—'}
-          warn={isConnected && !hasEnough}
+          warn={isConnected && chain.isSupported && !hasEnough}
         />
         <Meta label="Signatures" value="2 permits + 2 approvals" />
       </dl>
-      {isConnected && !hasEnough && (
+      {isConnected && !chain.isSupported && (
         <p className="mt-3 text-[11px] font-mono" style={{ color: '#F472B6' }}>
-          Insufficient USDC on {BASE_MAINNET.displayName}. You need at least 0.002 USDC to run
-          both stages.
+          Unsupported chain ({chain.chainId}). Switch to Base mainnet (8453) or Base Sepolia (84532)
+          to run the demo.
+        </p>
+      )}
+      {isConnected && chain.isSupported && !hasEnough && (
+        <p className="mt-3 text-[11px] font-mono" style={{ color: '#F472B6' }}>
+          Insufficient USDC on {chain.displayName}. You need at least 0.002 USDC to run both
+          stages.
         </p>
       )}
       {!isConnected && (

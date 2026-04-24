@@ -53,6 +53,12 @@ export interface DemoState {
   result: DemoResult | null;
   error: string | null;
   demoRunId: string | null;
+  /** Chain that transactions in this run landed on. */
+  chainId: number | null;
+  /** Explorer base URL (Basescan / Sepolia.basescan etc). */
+  explorerUrl: string | null;
+  /** Human label for the chain (e.g. "Base", "Base Sepolia"). */
+  chainName: string | null;
 }
 
 const INITIAL_STEPS: Record<StepName, StepStatus> = {
@@ -72,6 +78,9 @@ const INITIAL_STATE: DemoState = {
   result: null,
   error: null,
   demoRunId: null,
+  chainId: null,
+  explorerUrl: null,
+  chainName: null,
 };
 
 export function useDemoStream() {
@@ -101,12 +110,22 @@ export function useDemoStream() {
         );
       }
 
-      const { demoRunId, streamUrl } = (await res.json()) as {
+      const startResponse = (await res.json()) as {
         demoRunId: string;
         streamUrl: string;
+        chainId?: number;
+        chainName?: string;
+        explorerUrl?: string;
       };
+      const { demoRunId, streamUrl } = startResponse;
 
-      setState((prev) => ({ ...prev, demoRunId }));
+      setState((prev) => ({
+        ...prev,
+        demoRunId,
+        chainId: startResponse.chainId ?? null,
+        chainName: startResponse.chainName ?? null,
+        explorerUrl: startResponse.explorerUrl ?? null,
+      }));
 
       const es = new EventSource(`${ORCHESTRATOR_URL}${streamUrl}`);
       esRef.current = es;

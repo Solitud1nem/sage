@@ -6,7 +6,7 @@
  */
 
 export interface SageChainConfig {
-  chainId: number;
+  chainId: 8453 | 84532;
   name: string;
   displayName: string;
   explorer: string;
@@ -58,22 +58,22 @@ export const BASE_SEPOLIA: SageChainConfig = {
 };
 
 /** All chains Sage is deployed to, keyed by chainId. */
-export const SAGE_CHAINS: Record<number, SageChainConfig> = {
-  [BASE_MAINNET.chainId]: BASE_MAINNET,
-  [BASE_SEPOLIA.chainId]: BASE_SEPOLIA,
-};
+export const SAGE_CHAINS = {
+  8453: BASE_MAINNET,
+  84532: BASE_SEPOLIA,
+} as const satisfies Record<8453 | 84532, SageChainConfig>;
 
 /** Default chain for landing + demo. */
 export const DEFAULT_CHAIN = BASE_MAINNET;
 
 /** Basescan tx URL helper. */
-export function txUrl(chainId: number, hash: string): string {
-  const cfg = SAGE_CHAINS[chainId] ?? DEFAULT_CHAIN;
+export function txUrl(chainId: number | 8453 | 84532, hash: string): string {
+  const cfg = SAGE_CHAINS[chainId as 8453 | 84532] ?? DEFAULT_CHAIN;
   return `${cfg.explorer}/tx/${hash}`;
 }
 
 /** Basescan address URL helper. */
-export function addressUrl(chainId: number, address: string): string {
-  const cfg = SAGE_CHAINS[chainId] ?? DEFAULT_CHAIN;
+export function addressUrl(chainId: number | 8453 | 84532, address: string): string {
+  const cfg = SAGE_CHAINS[chainId as 8453 | 84532] ?? DEFAULT_CHAIN;
   return `${cfg.explorer}/address/${address}`;
 }

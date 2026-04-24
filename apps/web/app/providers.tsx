@@ -6,7 +6,7 @@
  * PostHog is initialized separately after cookie-consent (not here).
  */
 
-import { ConnectKitProvider, getDefaultConfig } from 'connectkit';
+import { ConnectKitProvider } from 'connectkit';
 import { type PropsWithChildren, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
