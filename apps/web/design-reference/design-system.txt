@@ -1,0 +1,169 @@
+Source: Claude Design — Design System.html (rendered text, 2026-04-23)
+Full canonical specs. Every component and token lives here.
+
+=== SIDEBAR NAV ===
+FOUNDATIONS: Colors · Typography · Spacing · Radii · Motion · Gradient sweep
+COMPONENTS:  Buttons · Eyebrows & pills · Step card · Tx row · Task input · Step tracker · Result panel · Wallet list row
+
+=== HEADER ===
+Eyebrow: design system
+H1: Sage v1 tokens & components.
+Subhead: The complete surface area — colors, type, spacing, motion, and the component vocabulary used across Home, /demo, and the wallet modal. Tokens live in a single styles/tokens.css file.
+Right meta: v1 · pre-release | Base · 8453 | Geist + Geist Mono
+
+=== EXPORT BLOCK ===
+Download styles/tokens.css — 14 color tokens, 13 type sizes, 12 spacing stops, 3 durations.
+[Show :root { … }]  [Copy tokens.css ↓]
+
+:root { ... }  ← full token dump identical to styles/tokens.css (see separate file)
+
+=== 01 COLORS ===
+Headline: Locked palette. Do not introduce new hues — tint via color-mix instead.
+
+CANVAS & SURFACES
+  --bg             #0A0A0F
+  --surface        rgba(255,255,255,0.025)
+  --surface-2      rgba(255,255,255,0.05)
+  --border         rgba(255,255,255,0.08)
+  --border-hover   rgba(255,255,255,0.14)
+
+TEXT RAMP
+  --text           #EDEDF5
+  --text-muted     #8787A5
+  --text-subtle    #6E6E85
+
+ACCENTS
+  --cyan           #5EE3F5   · createTask
+  --purple         #A78BFA   · acceptTask · primary
+  --pink           #F472B6   · completeTask
+  --green          #6EE7B7   · approvePayment
+  --accent-glow    rgba(167,139,250,0.45)
+
+=== 02 TYPOGRAPHY ===
+Geist for UI. Geist Mono for addresses, amounts, logs.
+
+Display                      Geist 500 · clamp(48–84px) · tracking −0.025em · line-height 1.04
+                             example: "The settlement layer."
+
+H1 — section title           Geist 500 · clamp(36–52px) · −0.015em · 1.2
+                             example: "Four functions. One settlement path."
+
+H2 — feature heading         Geist 500 · clamp(26–32px) · −0.015em
+                             example: "Run a task against Base mainnet."
+
+H3 — card title              Geist 500 · 18px · −0.01em
+                             example: "Live on Base"
+
+Body                         Geist 400 · 16px · 1.55 · color: text-muted
+                             example: "Task-level escrow for AI agents. USDC-settled on Base…"
+
+Mono meta                    Geist Mono 400 · 13px · −0.005em · tnum
+                             example: "0x12aeF3…53E1e · block 18,402,117 · 2s ago"
+
+Eyebrow / label              Geist Mono 400 · 12px · +0.04em · sentence-case
+                             example: "01 — lifecycle"
+
+=== 03 SPACING & RADII ===
+4px base grid. Only these stops are used in layouts.
+
+SPACING · 4PX GRID
+  --sp-1   4
+  --sp-2   8
+  --sp-3   12
+  --sp-4   16
+  --sp-6   24
+  --sp-8   32
+  --sp-10  40
+  --sp-12  48
+  --sp-16  64
+  --sp-24  96
+
+RADII
+  --r-sm   6
+  --r-md   10
+  --r-lg   14
+  --r-xl   20
+  --r-pill 999
+
+=== 04 MOTION ===
+Three durations. Two easings. One pulse.
+
+  --dur-fast    120ms · hover micro
+  --dur-med     200ms · panel / tab
+  --dur-slow    360ms · result reveal
+  --ease-out    cubic-bezier(0.22, 1, 0.36, 1)
+  --ease-in-out cubic-bezier(0.65, 0, 0.35, 1)
+
+@keyframes pulse  1.6s ease-in-out infinite · live indicator
+
+=== 05 GRADIENT SWEEP ===
+Applied via background-clip: text. Static — never animated. Reserved for "autonomous work".
+
+  stop · 0%    #5EE3F5
+  stop · 55%   #A78BFA
+  stop · 100%  #F472B6
+
+  --grad-sweep: linear-gradient(90deg, #5EE3F5 0%, #A78BFA 55%, #F472B6 100%);
+
+=== 06 COMPONENTS ===
+Hover and click any card to inspect interaction states.
+
+───── PrimaryButton (purple · box-shadow on hover) ─────
+[Read the docs →]   default
+[Read the docs →]   hover (glow applied)
+spec: height 40 · radius 10 · weight 600
+
+───── OutlinedButton (secondary action) ─────
+[View on Basescan ↗]  default
+[View on Basescan ↗]  hover (border-hover 14% → 24%)
+
+───── Eyebrow (section label) ─────
+"01 — lifecycle"    (purple variant)
+"design system"     (text-subtle variant)
+spec: Geist Mono · 12 · +0.04em · color: purple or text-subtle
+
+───── StatusPill (availability indicator) ─────
+● Live on Base mainnet         (green dot, lit)
+○ Base Sepolia                 (muted variant)
+spec: height 26 · pill radius · dot 6px + glow
+
+───── StepCard (How-it-works node) ─────
+  02 —————————
+  agent commits
+  acceptTask()
+  "Registered agent accepts the task on-chain. Commitment is public and indexable."
+  → state  Accepted
+grid: 1/4 on desktop · arrow overlay between · accent on final state
+
+───── TxRow (live activity stream) ─────
+  ▲ 0x7a3f…e291   createTask       0.001 USDC
+  ▲ 0xf812…441d   acceptTask       0.001 USDC
+  ▲ 0x33c2…aa10   completeTask     ipfs://Qm…9f2
+  ▲ 0xab91…2e08   approvePayment   +0.001
+opacity step 0.92 · 0.82 · 0.72 · 0.6 · new rows slide-in 200ms
+
+───── TaskInputField (default · focused · with unit) ─────
+[____________________] USDC
+spec: bg: --bg · border · focus: purple 3px ring
+
+───── StepTracker (waiting · active · complete) ─────
+  ◯ createTask   →   ● acceptTask   →   ✓ completeTask   →   ◯ approvePayment
+  waiting             pulsing              complete                waiting
+states: dashed outline → pulsing solid → filled checkmark
+rail fills: cyan→purple→pink as steps complete
+
+───── ResultPanel (reveals after approvePayment) ─────
+  ✓ Task settled                                        [View on Basescan ↗]
+  Summary body text…
+  Gas used  214,803
+  USDC settled  +0.001
+transition: opacity 0 → 1, translateY 8 → 0 · duration --dur-slow
+header tint: green (signalling success)
+
+───── WalletListRow (ConnectKit pattern) ─────
+  [C]  Coinbase Wallet   smart wallet · passkey     [recommended]
+  [M]  MetaMask          injected · eip-6963        [installed]
+hover: purple 8% tint · icon 36 · radius 9 · sub in mono 11
+
+=== FOOTER ===
+Same as Home.

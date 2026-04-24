@@ -1,0 +1,86 @@
+Source: Claude Design — wallet-modal.html (rendered text + JS, 2026-04-23)
+
+=== CONTEXT BACKGROUND (behind modal scrim) ===
+Nav bar (faded): sage | How it works · Integrate · Demo · Docs
+Background hero visible through scrim: "The settlement layer for autonomous work." (gradient sweep preserved)
+
+=== MODAL ===
+Title: Connect a wallet
+Subtitle: Sign in to Sage to escrow USDC on Base.
+
+Wallet rows (each row: icon · name · metadata · status/chip):
+
+  [M]  MetaMask            injected · eip-6963                    [● Installed] (green)
+  [C]  Coinbase Wallet     smart wallet · passkey                 [recommended] (purple pill)
+  [W]  WalletConnect       600+ wallets · scan QR                 →
+  [R]  Rainbow             injected                               →
+  [⌘]  Browser wallet      any eip-1193 provider                  →
+
+Footer inside modal:
+  [B] Target network                                              Base · 8453
+
+Below modal: New to wallets? Learn more ↗          Sage · v1
+
+=== CONNECTING STATE (second state via toggle) ===
+Large icon: M
+Title: Opening MetaMask…
+Body: Approve the connection request in your wallet.
+
+Info box (i):
+  Sage will request read-only access. No signatures happen on connect —
+  you'll sign a separate EIP-2612 permit when you escrow.
+
+Actions: [Retry] [Pick another wallet]
+
+=== BOTTOM TOGGLE (preview both states) ===
+[① Wallet list] [② Connecting]
+
+=== STATE LOGIC (verbatim from mockup's inline JS — port to React useState) ===
+const setState = (s, wallet) => {
+  if (s === 'connecting') {
+    modal.classList.add('state-connecting');
+    title.textContent = 'Connecting';
+    if (wallet) {
+      connTitle.textContent = `Opening ${wallet}…`;
+      const map = {
+        'MetaMask':         ['icon-metamask','M'],
+        'Coinbase Wallet':  ['icon-coinbase','C'],
+        'WalletConnect':    ['icon-wc','W'],
+        'Rainbow':          ['icon-rainbow','R'],
+        'Browser wallet':   ['icon-injected','⌘'],
+      };
+      const [cls, ch] = map[wallet] || ['icon-metamask','M'];
+      connIcon.className = 'conn-icon ' + cls;
+      connIcon.textContent = ch;
+    }
+  } else {
+    modal.classList.remove('state-connecting');
+    title.textContent = 'Connect a wallet';
+  }
+};
+
+// Wallet buttons trigger state change
+document.querySelectorAll('.wallet-btn').forEach(btn => {
+  btn.addEventListener('click', () => setState('connecting', btn.dataset.wallet));
+});
+
+// Back button returns to default
+back.addEventListener('click', () => { setState('default'); syncToggle('default'); });
+document.getElementById('pick-another').addEventListener('click', () => {
+  setState('default'); syncToggle('default');
+});
+
+// Scrim toggle (only for preview in the mockup — real React impl won't need this)
+toggle.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  setState(b.dataset.state, 'MetaMask');
+  syncToggle(b.dataset.state);
+});
+
+=== REACT IMPL NOTES ===
+- Two states: "list" | "connecting"
+- State holds selected wallet (name + icon-variant)
+- For real integration, swap wallet-btn onClick to wagmi's useConnect().connect({ connector })
+- ConnectKit already provides the shell — we override tokens via CSS vars
+- Keep info-box copy exact: "Sage will request read-only access. No signatures happen on connect — you'll sign a separate EIP-2612 permit when you escrow."

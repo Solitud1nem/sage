@@ -6,9 +6,10 @@
   "type": "module",
   "scripts": {
     "build": "tsup",
-    "dev:orchestrator": "tsx src/orchestrator/server.ts",
-    "dev:summarizer": "tsx src/summarizer/agent.ts",
-    "dev:translator": "tsx src/translator/agent.ts",
+    "dev:orchestrator": "node --env-file-if-exists=.env.orchestrator --import tsx src/orchestrator/server.ts",
+    "dev:summarizer":   "node --env-file-if-exists=.env.summarizer   --import tsx src/summarizer/agent.ts",
+    "dev:translator":   "node --env-file-if-exists=.env.translator   --import tsx src/translator/agent.ts",
+    "bootstrap": "bash scripts/bootstrap-local.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
