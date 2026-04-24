@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
-import { BASE_MAINNET, txUrl } from '@/chains/base';
+import { txUrl } from '@/chains/base';
+import { useSageChain } from '@/hooks/use-sage-chain';
 import {
   formatEventPayload,
   relativeTime,
@@ -23,6 +24,7 @@ const methodColor: Record<string, string> = {
 };
 
 export function LiveStream() {
+  const chain = useSageChain();
   const { events, isLoading, error } = useLiveTxStream({ limit: 5 });
 
   return (
@@ -30,19 +32,26 @@ export function LiveStream() {
       <div className="flex items-center gap-4 mb-8">
         <StatusPill>Live tx stream</StatusPill>
         <span className="font-mono text-[11px] text-text-subtle">
-          {BASE_MAINNET.displayName} mainnet
+          {chain.displayName} · {chain.chainId}
         </span>
       </div>
 
       <div className="rounded-[14px] border border-border bg-surface overflow-hidden">
-        {isLoading && events.length === 0 && <LoadingState />}
-        {!isLoading && events.length === 0 && !error && <EmptyState />}
+        {isLoading && events.length === 0 && <LoadingState chainName={chain.displayName} />}
+        {!isLoading && events.length === 0 && !error && (
+          <EmptyState chainName={chain.displayName} />
+        )}
         {error && <ErrorState error={error} />}
 
         {events.length > 0 && (
           <ul className="divide-y divide-border">
             {events.map((ev, i) => (
-              <TxRow key={`${ev.txHash}-${ev.eventName}`} event={ev} opacity={rowOpacity[i] ?? 0.6} />
+              <TxRow
+                key={`${ev.txHash}-${ev.eventName}`}
+                event={ev}
+                opacity={rowOpacity[i] ?? 0.6}
+                chainId={chain.chainId}
+              />
             ))}
           </ul>
         )}
@@ -50,15 +59,15 @@ export function LiveStream() {
         <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-canvas/40">
           <span className="text-[11px] text-text-subtle">
             Streaming from <span className="font-mono text-text-muted">AgentRegistry</span> +{' '}
-            <span className="font-mono text-text-muted">TaskEscrow</span> on Base mainnet.
+            <span className="font-mono text-text-muted">TaskEscrow</span> on {chain.displayName}.
           </span>
           <a
-            href={`${BASE_MAINNET.explorer}/address/${BASE_MAINNET.contracts.taskEscrow}`}
+            href={`${chain.explorer}/address/${chain.contracts.taskEscrow}`}
             target="_blank"
             rel="noreferrer"
             className="text-[11px] text-cyan hover:underline underline-offset-4"
           >
-            Basescan ↗
+            Explorer ↗
           </a>
         </div>
       </div>
@@ -66,7 +75,15 @@ export function LiveStream() {
   );
 }
 
-function TxRow({ event, opacity }: { event: LiveTxEvent; opacity: number }) {
+function TxRow({
+  event,
+  opacity,
+  chainId,
+}: {
+  event: LiveTxEvent;
+  opacity: number;
+  chainId: number;
+}) {
   const [, forceUpdate] = useState(0);
   useEffect(() => {
     const t = setInterval(() => forceUpdate((n) => n + 1), 15_000);
@@ -77,7 +94,7 @@ function TxRow({ event, opacity }: { event: LiveTxEvent; opacity: number }) {
   return (
     <li style={{ opacity }} className="transition-opacity duration-500">
       <a
-        href={txUrl(BASE_MAINNET.chainId, event.txHash)}
+        href={txUrl(chainId, event.txHash)}
         target="_blank"
         rel="noreferrer"
         className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-5 px-5 py-3 font-mono text-[12px] hover:bg-surface-2 transition-colors duration-150"
@@ -96,21 +113,21 @@ function TxRow({ event, opacity }: { event: LiveTxEvent; opacity: number }) {
   );
 }
 
-function LoadingState() {
+function LoadingState({ chainName }: { chainName: string }) {
   return (
     <div className="px-5 py-10 text-center">
       <p className="font-mono text-[12px] text-text-subtle">
-        Loading recent events from Base mainnet…
+        Loading recent events from {chainName}…
       </p>
     </div>
   );
 }
 
-function EmptyState() {
+function EmptyState({ chainName }: { chainName: string }) {
   return (
     <div className="px-5 py-10 text-center space-y-2">
       <p className="font-mono text-[12px] text-text-muted">
-        Awaiting first event on Base mainnet.
+        Awaiting first event on {chainName}.
       </p>
       <p className="text-[13px] text-text-subtle">
         Or{' '}

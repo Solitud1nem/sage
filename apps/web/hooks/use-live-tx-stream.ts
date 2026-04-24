@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePublicClient } from 'wagmi';
 import type { Abi, ContractEventName, Log } from 'viem';
 
-import { BASE_MAINNET } from '@/chains/base';
+import { useSageChain } from '@/hooks/use-sage-chain';
 import {
   EVENT_TO_METHOD,
   taskEscrowEventsAbi,
@@ -40,8 +40,10 @@ export function useLiveTxStream({
   events: LiveTxEvent[];
   isLoading: boolean;
   error: Error | null;
+  chainId: number;
 } {
-  const publicClient = usePublicClient({ chainId: BASE_MAINNET.chainId });
+  const chain = useSageChain();
+  const publicClient = usePublicClient({ chainId: chain.chainId });
   const [events, setEvents] = useState<LiveTxEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -49,6 +51,10 @@ export function useLiveTxStream({
   useEffect(() => {
     if (!publicClient) return;
     let cancelled = false;
+    // Reset when chain switches to avoid cross-chain pollution.
+    setEvents([]);
+    setIsLoading(true);
+    setError(null);
 
     // 1. Seed stream with recent history via getLogs.
     async function seed() {
@@ -56,7 +62,7 @@ export function useLiveTxStream({
         const head = await publicClient!.getBlockNumber();
         const fromBlock = head > historyBlocks ? head - historyBlocks : 0n;
         const logs = await publicClient!.getLogs({
-          address: BASE_MAINNET.contracts.taskEscrow,
+          address: chain.contracts.taskEscrow,
           events: taskEscrowEventsAbi,
           fromBlock,
           toBlock: head,
@@ -79,7 +85,7 @@ export function useLiveTxStream({
 
     // 2. Subscribe to new events going forward.
     const unwatch = publicClient.watchContractEvent({
-      address: BASE_MAINNET.contracts.taskEscrow,
+      address: chain.contracts.taskEscrow,
       abi: taskEscrowEventsAbi as Abi,
       onLogs(logs) {
         const fresh = logs
@@ -97,9 +103,9 @@ export function useLiveTxStream({
       cancelled = true;
       unwatch();
     };
-  }, [publicClient, limit, historyBlocks]);
+  }, [publicClient, limit, historyBlocks, chain.chainId, chain.contracts.taskEscrow]);
 
-  return { events, isLoading, error };
+  return { events, isLoading, error, chainId: chain.chainId };
 }
 
 function toLiveEvent(log: Log): LiveTxEvent | null {

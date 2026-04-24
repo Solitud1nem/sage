@@ -5,7 +5,7 @@ import type { Address } from 'viem';
 import { parseEventLogs } from 'viem';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 
-import { BASE_MAINNET } from '@/chains/base';
+import { useSageChain } from '@/hooks/use-sage-chain';
 import { TaskStatus, taskEscrowAbi } from '@/lib/abi/task-escrow';
 import { signUsdcPermit } from '@/lib/permit';
 import type {
@@ -61,13 +61,17 @@ const INITIAL_STATE: DemoState = {
   result: null,
   error: null,
   demoRunId: null,
+  chainId: null,
+  explorerUrl: null,
+  chainName: null,
 };
 
 export function useWalletDemo() {
   const [state, setState] = useState<DemoState>(INITIAL_STATE);
   const { address } = useAccount();
-  const publicClient = usePublicClient({ chainId: BASE_MAINNET.chainId });
-  const { data: walletClient } = useWalletClient({ chainId: BASE_MAINNET.chainId });
+  const chain = useSageChain();
+  const publicClient = usePublicClient({ chainId: chain.chainId });
+  const { data: walletClient } = useWalletClient({ chainId: chain.chainId });
   const eventIdRef = useRef(0);
   const cancelledRef = useRef(false);
 
@@ -78,6 +82,14 @@ export function useWalletDemo() {
           ...prev,
           status: 'error',
           error: 'Connect a wallet to continue.',
+        }));
+        return;
+      }
+      if (!chain.isSupported) {
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: `Chain ${chain.chainId} isn't a Sage deployment. Switch to Base mainnet or Base Sepolia.`,
         }));
         return;
       }
@@ -93,7 +105,13 @@ export function useWalletDemo() {
 
       cancelledRef.current = false;
       eventIdRef.current = 0;
-      setState({ ...INITIAL_STATE, status: 'running' });
+      setState({
+        ...INITIAL_STATE,
+        status: 'running',
+        chainId: chain.chainId,
+        chainName: chain.displayName,
+        explorerUrl: chain.explorer,
+      });
       logEvent('run_started', { mode: 'wallet', client: address });
 
       try {
@@ -144,16 +162,16 @@ export function useWalletDemo() {
         logEvent('stage_started', { stage: params.stage });
         activateStep('createTask');
 
-        const permit = await signUsdcPermit(publicClient!, walletClient!, {
-          usdcAddress: BASE_MAINNET.contracts.usdc,
+        const permit = await signUsdcPermit(publicClient as any, walletClient!, {
+          usdcAddress: chain.contracts.usdc,
           owner: params.client,
-          spender: BASE_MAINNET.contracts.taskEscrow,
+          spender: chain.contracts.taskEscrow,
           value: AMOUNT_PER_TASK,
           deadlineSeconds: 900, // 15 min permit window
         });
 
         const createTaskHash = await walletClient!.writeContract({
-          address: BASE_MAINNET.contracts.taskEscrow,
+          address: chain.contracts.taskEscrow,
           abi: taskEscrowAbi,
           functionName: 'createTask',
           args: [params.executor, BigInt(deadline), AMOUNT_PER_TASK, params.brief, permit],
@@ -201,7 +219,7 @@ export function useWalletDemo() {
         // --- Step 4 — approvePayment ----------------------------------
         activateStep('approvePayment');
         const approveHash = await walletClient!.writeContract({
-          address: BASE_MAINNET.contracts.taskEscrow,
+          address: chain.contracts.taskEscrow,
           abi: taskEscrowAbi,
           functionName: 'approvePayment',
           args: [taskId],
@@ -229,7 +247,7 @@ export function useWalletDemo() {
         while (Date.now() < timeout) {
           if (cancelledRef.current) throw new Error('cancelled');
           const task = (await publicClient!.readContract({
-            address: BASE_MAINNET.contracts.taskEscrow,
+            address: chain.contracts.taskEscrow,
             abi: taskEscrowAbi,
             functionName: 'getTask',
             args: [taskId],
@@ -248,7 +266,7 @@ export function useWalletDemo() {
         while (Date.now() < timeout) {
           if (cancelledRef.current) throw new Error('cancelled');
           const task = (await publicClient!.readContract({
-            address: BASE_MAINNET.contracts.taskEscrow,
+            address: chain.contracts.taskEscrow,
             abi: taskEscrowAbi,
             functionName: 'getTask',
             args: [taskId],
@@ -290,7 +308,7 @@ export function useWalletDemo() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [address, publicClient, walletClient],
+    [address, publicClient, walletClient, chain.chainId],
   );
 
   const reset = useCallback(() => {

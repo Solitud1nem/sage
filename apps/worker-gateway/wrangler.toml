@@ -1,0 +1,42 @@
+#
+# Sage gateway — Cloudflare Worker.
+#   /api/rpc        → Alchemy JSON-RPC proxy (key hidden via secret)
+#   /api/demo/*     → Fly.io orchestrator passthrough + rate limit on /api/demo/start
+#   /health         → passthrough to orchestrator /health
+#
+# Deploy:
+#   wrangler d1 create sage-rate-limits        # one-time, copy database_id into this file
+#   pnpm db:init                                # apply schema.sql
+#   wrangler secret put ALCHEMY_KEY             # per environment
+#   wrangler deploy
+#
+
+name = "sage-gateway"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ORCHESTRATOR_URL = "https://sage-demo-agents.fly.dev"
+ALCHEMY_BASE_URL = "https://base-mainnet.g.alchemy.com/v2"
+DAILY_LIMIT = "3"
+ALLOWED_ORIGINS = "https://sage-web.pages.dev,http://localhost:3000,http://localhost:3001"
+
+# D1 — rate limit counters.
+[[d1_databases]]
+binding = "DB"
+database_name = "sage-rate-limits"
+database_id = "397f247f-e53a-495e-9c9e-3aee244a158f"
+
+# Observability.
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
+# Secrets (set via `wrangler secret put`, not committed):
+#   ALCHEMY_KEY        — Alchemy API key for /api/rpc proxy
+
+# Custom domain routes — uncomment when sage.xyz DNS is set up:
+# [[routes]]
+# pattern = "api.sage.xyz/*"
+# zone_name = "sage.xyz"

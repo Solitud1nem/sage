@@ -16,7 +16,7 @@ const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID 
 const rpcBase = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://mainnet.base.org';
 const rpcBaseSepolia = 'https://sepolia.base.org';
 
-export const wagmiConfig = createConfig({
+export const wagmiConfig: ReturnType<typeof createConfig> = createConfig({
   chains: [base, baseSepolia],
   transports: {
     [base.id]: http(rpcBase),

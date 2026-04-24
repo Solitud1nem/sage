@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
+import { githubTreeUrl, siteConfig } from '@/lib/site-config';
 
 /**
  * Footer — mirrors apps/web/design-reference/Home.txt footer layout.
@@ -29,13 +30,13 @@ export function Footer() {
 
         <FooterColumn title="Developers" links={[
           { href: '/docs', label: 'Docs' },
-          { href: 'https://github.com', label: '@sage/core', external: true },
-          { href: 'https://github.com', label: '@sage/adapter-evm', external: true },
+          { href: githubTreeUrl(siteConfig.packages.core), label: '@sage/core', external: true },
+          { href: githubTreeUrl(siteConfig.packages.adapterEvm), label: '@sage/adapter-evm', external: true },
           { href: '/demo', label: '/demo' },
         ]} />
 
         <FooterColumn title="Community" links={[
-          { href: 'https://github.com', label: 'GitHub', external: true },
+          { href: siteConfig.github, label: 'GitHub', external: true },
           { href: '/changelog', label: 'Changelog' },
         ]} />
       </div>

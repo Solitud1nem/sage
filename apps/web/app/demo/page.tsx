@@ -62,6 +62,7 @@ export default function DemoPage() {
             currentStage={active.currentStage}
             steps={active.steps}
             txByStep={active.txByStep}
+            explorerUrl={active.explorerUrl}
           />
           <EventLog events={active.events} />
         </div>
@@ -69,7 +70,7 @@ export default function DemoPage() {
 
       {active.status === 'done' && active.result && (
         <div className="mt-8">
-          <ResultPanel result={active.result} />
+          <ResultPanel result={active.result} explorerUrl={active.explorerUrl} />
         </div>
       )}
 

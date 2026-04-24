@@ -1,6 +1,5 @@
 'use client';
 
-import { BASE_MAINNET, txUrl } from '@/chains/base';
 import type {
   DemoStatus,
   Stage,
@@ -24,9 +23,16 @@ interface StepTrackerProps {
   currentStage: Stage | null;
   steps: Record<StepName, StepStatus>;
   txByStep: Partial<Record<StepName, string>>;
+  explorerUrl: string | null;
 }
 
-export function StepTracker({ status, currentStage, steps, txByStep }: StepTrackerProps) {
+export function StepTracker({
+  status,
+  currentStage,
+  steps,
+  txByStep,
+  explorerUrl,
+}: StepTrackerProps) {
   const stageLabel = stageChipLabel(status, currentStage);
 
   return (
@@ -60,14 +66,20 @@ export function StepTracker({ status, currentStage, steps, txByStep }: StepTrack
                 </div>
                 <div className="mt-2 min-h-[14px] text-[11px]">
                   {tx ? (
-                    <a
-                      href={txUrl(BASE_MAINNET.chainId, tx)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-mono text-cyan hover:underline underline-offset-4"
-                    >
-                      {tx.slice(0, 6)}…{tx.slice(-4)}
-                    </a>
+                    explorerUrl ? (
+                      <a
+                        href={`${explorerUrl}/tx/${tx}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-cyan hover:underline underline-offset-4"
+                      >
+                        {tx.slice(0, 6)}…{tx.slice(-4)}
+                      </a>
+                    ) : (
+                      <span className="font-mono text-cyan">
+                        {tx.slice(0, 6)}…{tx.slice(-4)}
+                      </span>
+                    )
                   ) : (
                     <span className="text-text-subtle">—</span>
                   )}
