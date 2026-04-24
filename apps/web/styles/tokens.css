@@ -1,0 +1,240 @@
+/* =========================================================
+   Sage — locked design tokens
+   Do not change hex values. Typographic & spacing scale
+   derived to match the dev-native / Anthropic-grade brief.
+   ========================================================= */
+
+:root {
+  /* ---------- Color (locked) ---------- */
+  --bg:            #0A0A0F;
+  --surface:       rgba(255,255,255,0.025);
+  --surface-2:     rgba(255,255,255,0.05);
+  --border:        rgba(255,255,255,0.08);
+  --border-hover:  rgba(255,255,255,0.14);
+
+  --text:          #EDEDF5;
+  --text-muted:    #8787A5;
+  --text-subtle:   #6E6E85;
+
+  --cyan:          #5EE3F5;
+  --purple:        #A78BFA;
+  --pink:          #F472B6;
+  --green:         #6EE7B7;
+  --accent-glow:   rgba(167,139,250,0.45);
+
+  --grad-sweep:    linear-gradient(90deg, #5EE3F5 0%, #A78BFA 55%, #F472B6 100%);
+
+  /* ---------- Type ---------- */
+  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Fluid type — desktop-first, clamped for mobile */
+  --fs-display:   clamp(48px, 6.4vw, 84px);   /* hero */
+  --fs-h1:        clamp(36px, 4.2vw, 52px);
+  --fs-h2:        clamp(26px, 2.4vw, 32px);
+  --fs-h3:        18px;
+  --fs-body:      16px;
+  --fs-small:     14px;
+  --fs-micro:     12px;
+  --fs-mono:      13px;
+
+  --lh-tight:     1.04;
+  --lh-snug:      1.2;
+  --lh-normal:    1.5;
+
+  --tr-display:   -0.025em;
+  --tr-heading:   -0.015em;
+  --tr-wordmark:  -0.01em;
+  --tr-mono:      -0.005em;
+
+  /* ---------- Spacing (4px grid) ---------- */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+  --sp-20: 80px;
+  --sp-24: 96px;
+  --sp-32: 128px;
+  --sp-40: 160px;
+
+  /* ---------- Radius ---------- */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* ---------- Motion ---------- */
+  --ease-out:     cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out:  cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast:     120ms;
+  --dur-med:      200ms;
+  --dur-slow:     360ms;
+
+  /* ---------- Shadows / glows ---------- */
+  --glow-purple:  0 0 28px rgba(167,139,250,0.45);
+  --glow-cyan:    0 0 24px rgba(94,227,245,0.30);
+  --glow-pink:    0 0 24px rgba(244,114,182,0.30);
+
+  /* ---------- Layout ---------- */
+  --container:    1200px;
+  --container-narrow: 960px;
+  --gutter:       clamp(20px, 4vw, 40px);
+  --nav-h:        64px;
+}
+
+/* ---------- Reset / base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { color-scheme: dark; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+  font-variant-ligatures: common-ligatures;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+::selection { background: rgba(167,139,250,0.35); color: var(--text); }
+
+/* ---------- Utility ---------- */
+.container {
+  width: 100%;
+  max-width: var(--container);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+.container-narrow {
+  width: 100%;
+  max-width: var(--container-narrow);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+  letter-spacing: var(--tr-mono);
+  font-feature-settings: "ss02", "zero", "tnum";
+}
+.muted  { color: var(--text-muted); }
+.subtle { color: var(--text-subtle); }
+
+.sweep {
+  background: var(--grad-sweep);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+/* Faint grid / noise background used on dark canvas sections */
+.canvas-noise {
+  position: relative;
+  isolation: isolate;
+}
+.canvas-noise::before {
+  content: "";
+  position: absolute; inset: 0;
+  background-image:
+    radial-gradient(1200px 600px at 70% -10%, rgba(167,139,250,0.10), transparent 60%),
+    radial-gradient(900px 500px at 10% 20%,  rgba(94,227,245,0.06), transparent 60%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ---------- Components (shared) ---------- */
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  transition: box-shadow var(--dur-med) var(--ease-out),
+              background var(--dur-med) var(--ease-out),
+              border-color var(--dur-med) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
+}
+.btn:active { transform: translateY(0.5px); }
+
+.btn-primary {
+  background: var(--purple);
+  color: #0A0A0F;
+  font-weight: 600;
+}
+.btn-primary:hover { box-shadow: var(--glow-purple); }
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-hover);
+}
+.btn-secondary:hover { border-color: rgba(255,255,255,0.24); background: var(--surface); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0 10px;
+}
+.btn-ghost:hover { color: var(--text); }
+
+/* Tag / pill */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--fs-micro);
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+.pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(110,231,183,0.6);
+}
+
+/* Card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  transition: border-color var(--dur-med) var(--ease-out), background var(--dur-med) var(--ease-out);
+}
+.card:hover { border-color: var(--border-hover); }
+
+/* Divider */
+.hr {
+  border: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid rgba(167,139,250,0.6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

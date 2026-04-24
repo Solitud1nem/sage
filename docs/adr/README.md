@@ -26,6 +26,7 @@
 | [0003](./0003-x402-as-pay-per-call-transport.md) | x402 as primary transport for pay-per-call; Sage focuses on task-level escrow | Accepted | 2026-04-21 |
 | [0004](./0004-settlement-usdc-permit.md) | Settlement currency: USDC-only + EIP-2612 permit in v2.0 | Accepted | 2026-04-22 |
 | [0005](./0005-monorepo-foundry-viem.md) | Repo structure: pnpm monorepo + Foundry + viem | Accepted | 2026-04-22 |
+| [0006](./0006-web-integration-topology.md) | Web frontend integration: static export on Cloudflare Pages + Alchemy RPC proxy + Fly.io demo-agents + PostHog | Accepted | 2026-04-23 |
 
 ## Ожидаемые ADR (черновик)
 

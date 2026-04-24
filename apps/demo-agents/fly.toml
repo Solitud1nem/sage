@@ -1,0 +1,71 @@
+#
+# Sage demo-agents — Fly.io app config.
+# One app, three processes (orchestrator, summarizer, translator).
+# Orchestrator is the only process exposed on public HTTP; the other two watch
+# on-chain events directly and don't need inbound HTTP.
+#
+# Deploy:
+#   fly launch --no-deploy                    (first time — accepts region + app name)
+#   fly secrets set PRIVATE_KEY=0x...         (per runbook)
+#   fly deploy
+#
+
+app = "sage-demo-agents"
+primary_region = "iad"                         # us-east; move closer to Alchemy if needed
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  RPC_URL = "https://mainnet.base.org"
+  ALLOWED_ORIGINS = "https://sage.xyz,https://sage.pages.dev"
+
+[processes]
+  orchestrator = "node dist/orchestrator/server.js"
+  summarizer   = "node dist/summarizer/agent.js"
+  translator   = "node dist/translator/agent.js"
+
+# Only the orchestrator handles external HTTP.
+[[services]]
+  processes       = ["orchestrator"]
+  protocol        = "tcp"
+  internal_port   = 3000
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port     = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "connections"
+    soft_limit = 20
+    hard_limit = 50
+
+  [[services.tcp_checks]]
+    interval      = "15s"
+    timeout       = "2s"
+    grace_period  = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["orchestrator", "summarizer", "translator"]
+
+# Persistent volume not required — orchestrator is stateless (active demo
+# channels live in memory; completed runs are flushed via SSE `done` event).
+
+[deploy]
+  strategy = "rolling"
+
+[metrics]
+  port = 9091
+  path = "/metrics"                           # reserved for M-INT.8 observability

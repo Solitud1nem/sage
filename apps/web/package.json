@@ -1,0 +1,41 @@
+{
+  "name": "@sage/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sage landing + interactive demo. Next.js 15 static export, Tailwind v4, wagmi + viem.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sage/core": "workspace:*",
+    "@sage/adapter-evm": "workspace:*",
+    "@tanstack/react-query": "^5.62.7",
+    "connectkit": "^1.9.0",
+    "next": "^15.1.4",
+    "posthog-js": "^1.203.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "viem": "^2.21.60",
+    "wagmi": "^2.14.7"
+  },
+  "devDependencies": {
+    "@sentry/nextjs": "^8.47.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.1.4",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}
