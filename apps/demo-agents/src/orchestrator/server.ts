@@ -16,11 +16,41 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { demoRegistry } from '../shared/sse.js';
 import { loadOrchestratorEnv } from '../shared/env.js';
+import { checkSponsorStatus, formatUsdc } from './guards.js';
 import { startDemoRun } from './demo-run.js';
 
 const env = loadOrchestratorEnv();
 const config = loadConfig(env.port);
 const sageBundle = createSageFromConfig(config);
+
+// Discover which chain this orchestrator is talking to. Resolved once at boot
+// and echoed back on /health + /api/demo/start so the frontend can label the
+// demo run truthfully regardless of the user's wallet chain.
+let chainInfo: { chainId: number; displayName: string; explorerUrl: string } = {
+  chainId: 0,
+  displayName: 'unknown',
+  explorerUrl: '',
+};
+
+const EXPLORERS: Record<number, { displayName: string; url: string }> = {
+  8453: { displayName: 'Base', url: 'https://basescan.org' },
+  84532: { displayName: 'Base Sepolia', url: 'https://sepolia.basescan.org' },
+};
+
+async function resolveChainInfo(): Promise<void> {
+  try {
+    const id = await sageBundle.publicClient.getChainId();
+    const known = EXPLORERS[id];
+    chainInfo = {
+      chainId: id,
+      displayName: known?.displayName ?? `chain ${id}`,
+      explorerUrl: known?.url ?? '',
+    };
+    console.error(`[Orchestrator] chain: ${chainInfo.displayName} (${id})`);
+  } catch (err) {
+    console.error('[Orchestrator] failed to resolve chainId at boot:', err);
+  }
+}
 
 // ── CORS ──────────────────────────────────────────────────────────────
 function applyCors(req: IncomingMessage, res: ServerResponse): boolean {
@@ -63,10 +93,33 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
   // --- /health ---------------------------------------------------------
   if (url === '/health' && method === 'GET') {
+    // Surface sponsor status best-effort — don't block /health on RPC failure.
+    let sponsor: Awaited<ReturnType<typeof checkSponsorStatus>> | null = null;
+    try {
+      sponsor = await checkSponsorStatus(
+        sageBundle.publicClient,
+        sageBundle.account.address,
+        env.sponsorMinBalanceUsdc,
+      );
+    } catch (err) {
+      console.error('[Orchestrator] sponsor status check failed:', err);
+    }
     json(res, 200, {
-      status: 'ok',
+      status: sponsor?.level === 'critical' ? 'degraded' : 'ok',
       agent: 'Orchestrator',
       activeDemoRuns: demoRegistry.size,
+      chainId: chainInfo.chainId,
+      chainName: chainInfo.displayName,
+      explorerUrl: chainInfo.explorerUrl,
+      sponsor: sponsor
+        ? {
+            address: sageBundle.account.address,
+            balanceUsdc: formatUsdc(sponsor.balance),
+            minBalanceUsdc: formatUsdc(sponsor.minBalance),
+            level: sponsor.level,
+            accepting: sponsor.ok,
+          }
+        : { error: 'balance check failed' },
     });
     return;
   }
@@ -89,8 +142,33 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         return;
       }
 
-      // TODO: M-INT.7 — sponsor-balance check against env.sponsorMinBalanceUsdc.
-      // Currently demo always accepts. Rate-limit + balance-guard land in M-INT.7.
+      // Sponsor balance guard (ADR-0006 / M-INT.7).
+      // Skip only when SPONSOR_MIN_BALANCE_USDC=0 explicitly (local dev).
+      if (env.sponsorMinBalanceUsdc > 0n) {
+        try {
+          const sponsor = await checkSponsorStatus(
+            sageBundle.publicClient,
+            sageBundle.account.address,
+            env.sponsorMinBalanceUsdc,
+          );
+          if (!sponsor.ok) {
+            json(res, 503, {
+              error: 'sponsor_exhausted',
+              message: `Sponsor wallet is below the ${formatUsdc(
+                env.sponsorMinBalanceUsdc,
+              )} USDC floor. Watch-live mode is temporarily paused — try with your wallet instead.`,
+              balanceUsdc: formatUsdc(sponsor.balance),
+              minBalanceUsdc: formatUsdc(sponsor.minBalance),
+            });
+            return;
+          }
+        } catch (err) {
+          console.error('[Orchestrator] sponsor guard failed, allowing through:', err);
+          // Soft-fail: if the balance check errors (RPC flake), allow the demo.
+          // The task itself will revert if sponsor actually has no USDC, so no
+          // real fund risk — just worse UX.
+        }
+      }
 
       const { demoRunId, streamUrl } = startDemoRun(sageBundle, {
         text: body.text,
@@ -99,7 +177,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         taskAmount: env.taskAmount,
       });
 
-      json(res, 202, { demoRunId, streamUrl });
+      json(res, 202, {
+        demoRunId,
+        streamUrl,
+        chainId: chainInfo.chainId,
+        chainName: chainInfo.displayName,
+        explorerUrl: chainInfo.explorerUrl,
+      });
     } catch (err) {
       console.error('[Orchestrator] /api/demo/start error:', err);
       json(res, 500, { error: err instanceof Error ? err.message : String(err) });
@@ -176,6 +260,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 server.listen(env.port, () => {
   console.error(`[Orchestrator] listening on :${env.port}`);
   console.error(`[Orchestrator] allowed origins: ${env.allowedOrigins.join(', ')}`);
+  // Resolve the chain asynchronously — server starts accepting traffic immediately;
+  // /health will just report chainId=0 until this completes (~100ms typical).
+  void resolveChainInfo();
 });
 
 // ── Graceful shutdown ─────────────────────────────────────────────────
