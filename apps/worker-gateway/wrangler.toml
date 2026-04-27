@@ -20,7 +20,7 @@ compatibility_flags = ["nodejs_compat"]
 ORCHESTRATOR_URL = "https://sage-demo-agents.fly.dev"
 ALCHEMY_BASE_URL = "https://base-mainnet.g.alchemy.com/v2"
 DAILY_LIMIT = "3"
-ALLOWED_ORIGINS = "https://sage-web.pages.dev,http://localhost:3000,http://localhost:3001"
+ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage-web.pages.dev,http://localhost:3000,http://localhost:3001"
 
 # D1 — rate limit counters.
 [[d1_databases]]
