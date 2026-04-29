@@ -20,7 +20,7 @@ primary_region = "iad"                         # us-east; move closer to Alchemy
   NODE_ENV = "production"
   PORT = "3000"
   RPC_URL = "https://mainnet.base.org"
-  ALLOWED_ORIGINS = "https://sage.xyz,https://sage.pages.dev"
+  ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage.xyz"
 
 [processes]
   orchestrator = "node dist/orchestrator/server.js"

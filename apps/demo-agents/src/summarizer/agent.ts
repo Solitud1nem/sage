@@ -8,6 +8,12 @@ import { BaseAgent } from '../shared/base-agent.js';
 import { taskId } from '@sage/core';
 import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
 
+// Multi-process Fly: each process inherits the same env, so workers read a
+// role-specific override before falling back to the shared PRIVATE_KEY.
+if (process.env.SUMMARIZER_PRIVATE_KEY) {
+  process.env.PRIVATE_KEY = process.env.SUMMARIZER_PRIVATE_KEY;
+}
+
 const config = loadConfig(3001);
 const { sage, publicClient, account } = createSageFromConfig(config);
 const escrowAddress = config.chain === 'mainnet'

@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http } from 'viem';
+import { createPublicClient, createWalletClient, http, type Chain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base as baseMainnetChain, baseSepolia as baseSepoliaChain } from 'viem/chains';
 import { createSageClient, base, baseSepolia } from '@sage/adapter-evm';
@@ -27,7 +27,7 @@ function resolveChain(env: string | undefined): 'mainnet' | 'sepolia' {
   return 'sepolia';
 }
 
-const CHAIN_MAP: Record<'mainnet' | 'sepolia', { viem: typeof baseMainnetChain; sage: ChainConfig }> = {
+const CHAIN_MAP: Record<'mainnet' | 'sepolia', { viem: Chain; sage: ChainConfig }> = {
   mainnet: { viem: baseMainnetChain, sage: base },
   sepolia: { viem: baseSepoliaChain, sage: baseSepolia },
 };

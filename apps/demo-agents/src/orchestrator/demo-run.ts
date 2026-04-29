@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { TaskStatus } from '@sage/core';
+import { TaskStatus, agentId } from '@sage/core';
 import type { TaskId } from '@sage/core';
 
 import { SseChannel, demoRegistry } from '../shared/sse.js';
@@ -63,7 +63,7 @@ async function runDemo(
   channel.emit('stage_started', { stage: 'summarize' });
   const summaryDeadline = Math.floor(Date.now() / 1000) + DEADLINE_OFFSET;
   const summaryTaskId = await sage.tasks.createTask({
-    executor: summarizerAddress,
+    executor: agentId(summarizerAddress),
     deadline: summaryDeadline,
     amount: taskAmount,
     specUri: text,
@@ -90,7 +90,7 @@ async function runDemo(
   channel.emit('stage_started', { stage: 'translate' });
   const translateDeadline = Math.floor(Date.now() / 1000) + DEADLINE_OFFSET;
   const translateTaskId = await sage.tasks.createTask({
-    executor: translatorAddress,
+    executor: agentId(translatorAddress),
     deadline: translateDeadline,
     amount: taskAmount,
     specUri: summary,
