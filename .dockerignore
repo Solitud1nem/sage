@@ -1,0 +1,44 @@
+# Build context for Fly.io deploy of apps/demo-agents.
+# Run `fly deploy` from repo root so the Dockerfile sees packages/* and apps/*.
+
+**/node_modules
+**/dist
+**/.next
+**/out
+**/coverage
+**/.git
+**/.DS_Store
+**/*.log
+
+# Foundry artefacts — huge, never needed in Docker build.
+packages/contracts/cache
+packages/contracts/out
+packages/contracts/broadcast
+packages/contracts/lib
+
+# Web app — irrelevant to demo-agents build.
+apps/web
+
+# Worker — irrelevant to demo-agents build.
+apps/worker-gateway
+
+# Secrets / local env.
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Test artefacts.
+**/cypress
+**/playwright-report
+**/test-results
+
+# Editor / OS junk.
+.vscode
+.idea
+*.swp
+
+# Don't copy this presentation deck (untracked).
+*.pptx
