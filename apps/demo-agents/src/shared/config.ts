@@ -21,7 +21,14 @@ function requireEnv(name: string): string {
 function resolveChain(env: string | undefined): 'mainnet' | 'sepolia' {
   if (env === 'mainnet' || env === 'base') return 'mainnet';
   if (env === 'sepolia' || env === 'base-sepolia') return 'sepolia';
-  // Auto-detect from RPC_URL
+  // CHAIN_ID is authoritative when set. Falls through to RPC sniffing
+  // for legacy configs.
+  const chainId = process.env['CHAIN_ID'];
+  if (chainId === '8453') return 'mainnet';
+  if (chainId === '84532') return 'sepolia';
+  // Last-resort URL sniff. Note: proxied RPCs (e.g. through a Cloudflare
+  // Worker) won't contain 'mainnet'/'sepolia' tokens — set CHAIN or
+  // CHAIN_ID explicitly in those deployments.
   const rpc = process.env['RPC_URL'] ?? '';
   if (rpc.includes('mainnet') && !rpc.includes('sepolia')) return 'mainnet';
   return 'sepolia';
