@@ -23,12 +23,6 @@ export class SseChannel {
 
   /** Attach a new HTTP response as an SSE client. */
   attach(res: ServerResponse): void {
-    if (this.closed) {
-      res.writeHead(410, { 'Content-Type': 'text/plain' });
-      res.end('stream closed');
-      return;
-    }
-
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -38,8 +32,15 @@ export class SseChannel {
     });
 
     // Replay buffered events so late-connecting clients see prior history.
+    // Closed channels still replay (terminal `done`/`error` is in the buffer)
+    // so a browser reload after completion gets the final result.
     for (const ev of this.buffer) {
       this.writeEvent(res, ev.id, ev.event, ev.data);
+    }
+
+    if (this.closed) {
+      res.end();
+      return;
     }
 
     this.clients.add(res);

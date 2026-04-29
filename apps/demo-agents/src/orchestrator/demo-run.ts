@@ -37,6 +37,7 @@ export function startDemoRun(sageBundle: SageClientBundle, opts: StartDemoOption
   // Fire-and-forget — channel carries progress + errors out.
   void runDemo(demoRunId, channel, sageBundle, opts).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Orchestrator] demo ${demoRunId} failed:`, err);
     channel.emit('error', { message });
     channel.close({ error: message });
   });
