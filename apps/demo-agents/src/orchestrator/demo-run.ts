@@ -51,7 +51,7 @@ export function startDemoRun(sageBundle: SageClientBundle, opts: StartDemoOption
 async function runDemo(
   demoRunId: string,
   channel: SseChannel,
-  { sage }: SageClientBundle,
+  { sage, publicClient }: SageClientBundle,
   { text, summarizerAddress, translatorAddress, taskAmount }: StartDemoOptions,
 ): Promise<void> {
   const startedAt = Date.now();
@@ -86,6 +86,11 @@ async function runDemo(
     taskId: summaryTaskId.toString(),
     txHash: summaryApproveTx,
   });
+
+  // Wait for the approvePayment receipt before the next sponsor-issued tx —
+  // otherwise stage 2 createTask reuses the same nonce while approvePayment
+  // is still pending in mempool and gets rejected as "replacement underpriced".
+  await publicClient.waitForTransactionReceipt({ hash: summaryApproveTx as `0x${string}` });
 
   // ── Stage 2: Translate ─────────────────────────────────────────────
   channel.emit('stage_started', { stage: 'translate' });
