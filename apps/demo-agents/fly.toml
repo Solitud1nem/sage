@@ -28,13 +28,16 @@ primary_region = "iad"                         # us-east; move closer to Alchemy
   translator   = "node dist/translator/agent.js"
 
 # Only the orchestrator handles external HTTP.
+# Public surface — keep one machine warm so demo cold-starts don't add 5–10s
+# to the user-visible timeline. With auto_start_machines=true a stopped peer
+# still resurrects on demand for HA / rolling deploys.
 [[services]]
   processes       = ["orchestrator"]
   protocol        = "tcp"
   internal_port   = 3000
   auto_stop_machines   = "stop"
   auto_start_machines  = true
-  min_machines_running = 0
+  min_machines_running = 1                     # M9.8.3 — keep a hot machine
 
   [[services.ports]]
     port     = 80
@@ -50,10 +53,24 @@ primary_region = "iad"                         # us-east; move closer to Alchemy
     soft_limit = 20
     hard_limit = 50
 
+  # Liveness — TCP open is the floor, the app is dead long before that.
   [[services.tcp_checks]]
     interval      = "15s"
     timeout       = "2s"
     grace_period  = "10s"
+
+  # Real liveness — /health verifies RPC connectivity + sponsor balance.
+  # Returns 200 when accepting demos, 503 when sponsor is exhausted (still
+  # alive, just refusing new runs). We treat 503 as "machine OK, app degraded"
+  # — Fly will keep it in rotation; alerting on /health body.accepting belongs
+  # in M9.8.4 (Cloudflare Observability + sponsor-balance alarm).
+  [[services.http_checks]]
+    interval      = "30s"
+    timeout       = "5s"
+    grace_period  = "20s"
+    method        = "GET"
+    path          = "/health"
+    protocol      = "http"
 
 [[vm]]
   size = "shared-cpu-1x"
