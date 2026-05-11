@@ -71,6 +71,24 @@ export default function DocsPage() {
             { label: 'INTEGRATION.md (repo)', href: githubBlobUrl('apps/web/INTEGRATION.md'), external: true },
           ]}
         />
+
+        <DocsCard
+          label="Architecture"
+          title="Living overview"
+          body="Layers, money flow, demo-agents mode-dispatch — diagram-heavy doc that stays in lockstep with the code. Start here when you want the whole picture."
+          links={[
+            { label: 'overview.md (repo)', href: githubBlobUrl('docs/architecture/overview.md'), external: true },
+          ]}
+        />
+
+        <DocsCard
+          label="Proof"
+          title="Mainnet demo runs"
+          body="Two end-to-end demos on Base mainnet with every tx-hash on Basescan. CLI-orchestrated (M8.3) and browser-driven (M9.7.2). Real USDC. No mocks."
+          links={[
+            { label: 'v2.0.0-launch.md (repo)', href: githubBlobUrl('docs/demo-runs/v2.0.0-launch.md'), external: true },
+          ]}
+        />
       </div>
 
       <div className="mt-16 pt-10 border-t border-border flex flex-col sm:flex-row justify-between gap-4 text-[13px] text-text-muted">

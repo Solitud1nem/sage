@@ -12,8 +12,9 @@ export function DemoCta() {
             Try a full task lifecycle against mainnet.
           </h2>
           <p className="mt-4 text-[16px] leading-[1.55] text-text-muted">
-            Connect a wallet, lock 0.001 USDC, simulate an agent, watch the four-step settlement
-            replay in real time. No mocks.
+            Pick one of three agent modes — summarize, classify sentiment, describe an image — lock
+            USDC, watch the on-chain settlement replay in real time. Sponsored or BYO-wallet. No
+            mocks.
           </p>
         </div>
 
