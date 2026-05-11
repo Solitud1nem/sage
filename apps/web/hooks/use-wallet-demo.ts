@@ -9,6 +9,7 @@ import { useSageChain } from '@/hooks/use-sage-chain';
 import { TaskStatus, taskEscrowAbi } from '@/lib/abi/task-escrow';
 import { signUsdcPermit } from '@/lib/permit';
 import type {
+  AgentMode,
   DemoEvent,
   DemoResult,
   DemoState,
@@ -21,26 +22,25 @@ import type {
 /**
  * Wallet-mode demo orchestration.
  *
- * Runs the full Orchestrator → Summarizer → Translator lifecycle but with
- * the connected user wallet as the task client — user signs each permit and
- * writes createTask + approvePayment themselves. Worker agents (summarizer,
- * translator) still operate externally as before.
+ * Runs the same task lifecycle as Watch-live, but with the connected user
+ * wallet as the task client — user signs each permit and writes createTask +
+ * approvePayment themselves. Worker agents (summarizer, translator, vision,
+ * sentiment) still operate externally.
  *
- * 4 signatures per full run (worst case):
- *   1. signTypedData permit for summarize (0.001 USDC)
- *   2. writeContract createTask(summarize)
- *   3. signTypedData permit for translate
- *   4. writeContract createTask(translate)
- *   + implicit 2 approvePayment writes after each TaskCompleted.
- *
- * Advanced wallets (EIP-5792 wallet_sendCalls) could batch the permit+create
- * pair, but we keep it sequential here for clarity.
+ * Per-mode signatures:
+ *   pipeline  → 2 permits + 2 approvePayment writes (4 signatures)
+ *   sentiment → 1 permit + 1 approvePayment (2 signatures)
+ *   vision    → 1 permit + 1 approvePayment (2 signatures)
  */
 
 const SUMMARIZER_ADDRESS = process.env.NEXT_PUBLIC_DEMO_SUMMARIZER_ADDRESS as
   | Address
   | undefined;
 const TRANSLATOR_ADDRESS = process.env.NEXT_PUBLIC_DEMO_TRANSLATOR_ADDRESS as
+  | Address
+  | undefined;
+const VISION_ADDRESS = process.env.NEXT_PUBLIC_DEMO_VISION_ADDRESS as Address | undefined;
+const SENTIMENT_ADDRESS = process.env.NEXT_PUBLIC_DEMO_SENTIMENT_ADDRESS as
   | Address
   | undefined;
 
@@ -53,6 +53,7 @@ const INITIAL_STEPS: Record<StepName, StepStatus> = {
 
 const INITIAL_STATE: DemoState = {
   status: 'idle',
+  mode: null,
   currentStage: null,
   steps: INITIAL_STEPS,
   txByStep: {},
@@ -76,7 +77,7 @@ export function useWalletDemo() {
   const cancelledRef = useRef(false);
 
   const start = useCallback(
-    async (text: string) => {
+    async (input: string, agentMode: AgentMode = 'pipeline') => {
       if (!address || !publicClient || !walletClient) {
         setState((prev) => ({
           ...prev,
@@ -93,53 +94,101 @@ export function useWalletDemo() {
         }));
         return;
       }
-      if (!SUMMARIZER_ADDRESS || !TRANSLATOR_ADDRESS) {
+
+      // Per-mode address validation.
+      const missingEnv: string[] = [];
+      if (agentMode === 'pipeline') {
+        if (!SUMMARIZER_ADDRESS) missingEnv.push('NEXT_PUBLIC_DEMO_SUMMARIZER_ADDRESS');
+        if (!TRANSLATOR_ADDRESS) missingEnv.push('NEXT_PUBLIC_DEMO_TRANSLATOR_ADDRESS');
+      } else if (agentMode === 'sentiment') {
+        if (!SENTIMENT_ADDRESS) missingEnv.push('NEXT_PUBLIC_DEMO_SENTIMENT_ADDRESS');
+      } else if (agentMode === 'vision') {
+        if (!VISION_ADDRESS) missingEnv.push('NEXT_PUBLIC_DEMO_VISION_ADDRESS');
+      }
+      if (missingEnv.length > 0) {
         setState((prev) => ({
           ...prev,
           status: 'error',
-          error:
-            'Registered demo agents not configured. Set NEXT_PUBLIC_DEMO_SUMMARIZER_ADDRESS and NEXT_PUBLIC_DEMO_TRANSLATOR_ADDRESS.',
+          error: `Missing env for ${agentMode} mode: ${missingEnv.join(', ')}`,
         }));
         return;
       }
 
       cancelledRef.current = false;
       eventIdRef.current = 0;
+      const startedAt = Date.now();
       setState({
         ...INITIAL_STATE,
         status: 'running',
+        mode: agentMode,
         chainId: chain.chainId,
         chainName: chain.displayName,
         explorerUrl: chain.explorer,
       });
-      logEvent('run_started', { mode: 'wallet', client: address });
+      logEvent('run_started', { mode: agentMode, client: address });
 
       try {
-        // Stage 1 — summarize
-        setStage('summarize');
-        const summaryResult = await runStage({
-          stage: 'summarize',
-          client: address,
-          executor: SUMMARIZER_ADDRESS,
-          brief: text,
-        });
+        let result: DemoResult;
 
-        // Stage 2 — translate (uses summary as input)
-        setStage('translate');
-        const translateResult = await runStage({
-          stage: 'translate',
-          client: address,
-          executor: TRANSLATOR_ADDRESS,
-          brief: summaryResult.output,
-        });
+        if (agentMode === 'pipeline') {
+          // Stage 1 — summarize
+          setStage('summarize');
+          const summaryResult = await runStage({
+            stage: 'summarize',
+            client: address,
+            executor: SUMMARIZER_ADDRESS!,
+            brief: input,
+          });
 
-        const result: DemoResult = {
-          summary: summaryResult.output,
-          translation: translateResult.output,
-          txHashes: [...summaryResult.txHashes, ...translateResult.txHashes],
-          durationMs: Date.now() - (state.events[0]?.receivedAt ?? Date.now()),
-          totalUsdcSettled: (AMOUNT_PER_TASK * 2n).toString(),
-        };
+          // Stage 2 — translate (uses summary as input)
+          setStage('translate');
+          const translateResult = await runStage({
+            stage: 'translate',
+            client: address,
+            executor: TRANSLATOR_ADDRESS!,
+            brief: summaryResult.output,
+          });
+
+          result = {
+            mode: 'pipeline',
+            summary: summaryResult.output,
+            translation: translateResult.output,
+            txHashes: [...summaryResult.txHashes, ...translateResult.txHashes],
+            durationMs: Date.now() - startedAt,
+            totalUsdcSettled: (AMOUNT_PER_TASK * 2n).toString(),
+          };
+        } else if (agentMode === 'sentiment') {
+          setStage('sentiment');
+          const r = await runStage({
+            stage: 'sentiment',
+            client: address,
+            executor: SENTIMENT_ADDRESS!,
+            brief: input,
+          });
+          result = {
+            mode: 'sentiment',
+            sentiment: r.output,
+            txHashes: r.txHashes,
+            durationMs: Date.now() - startedAt,
+            totalUsdcSettled: AMOUNT_PER_TASK.toString(),
+          };
+        } else {
+          // vision
+          setStage('vision');
+          const r = await runStage({
+            stage: 'vision',
+            client: address,
+            executor: VISION_ADDRESS!,
+            brief: input,
+          });
+          result = {
+            mode: 'vision',
+            description: r.output,
+            txHashes: r.txHashes,
+            durationMs: Date.now() - startedAt,
+            totalUsdcSettled: AMOUNT_PER_TASK.toString(),
+          };
+        }
 
         setState((prev) => ({ ...prev, status: 'done', result }));
       } catch (err) {

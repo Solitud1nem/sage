@@ -24,15 +24,30 @@ export function ResultPanel({ result, explorerUrl }: ResultPanelProps) {
           Task settled
         </h3>
         <div className="flex flex-wrap gap-4 font-mono text-[11px] text-text-subtle">
+          <Metric label="Mode" value={modeLabel(result.mode)} />
           <Metric label="Duration" value={formatDuration(result.durationMs)} />
           <Metric label="USDC settled" value={formatUsdc(result.totalUsdcSettled)} />
           <Metric label="Transactions" value={result.txHashes.length.toString()} />
         </div>
       </header>
 
-      <div className="px-6 md:px-8 py-6 grid gap-6 md:grid-cols-2">
-        <ResultBlock title="Summary" body={result.summary || '—'} />
-        <ResultBlock title="Translation (EN → RU)" body={result.translation || '—'} />
+      <div
+        className={`px-6 md:px-8 py-6 grid gap-6 ${
+          result.mode === 'pipeline' ? 'md:grid-cols-2' : 'md:grid-cols-1'
+        }`}
+      >
+        {result.mode === 'pipeline' && (
+          <>
+            <ResultBlock title="Summary" body={result.summary || '—'} />
+            <ResultBlock title="Translation (EN → RU)" body={result.translation || '—'} />
+          </>
+        )}
+        {result.mode === 'sentiment' && (
+          <ResultBlock title="Sentiment analysis" body={result.sentiment || '—'} />
+        )}
+        {result.mode === 'vision' && (
+          <ResultBlock title="Image description" body={result.description || '—'} />
+        )}
       </div>
 
       {result.txHashes.length > 0 && (
@@ -101,6 +116,12 @@ function formatUsdc(amountStr: string): string {
   } catch {
     return amountStr;
   }
+}
+
+function modeLabel(mode: DemoResult['mode']): string {
+  if (mode === 'pipeline') return 'Pipeline';
+  if (mode === 'sentiment') return 'Sentiment';
+  return 'Vision';
 }
 
 function CheckIcon() {

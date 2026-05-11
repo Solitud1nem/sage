@@ -160,6 +160,8 @@ function stageChipLabel(status: DemoStatus, stage: Stage | null): string {
   if (status === 'done') return 'settled';
   if (stage === 'summarize') return 'summarizing · 1/2';
   if (stage === 'translate') return 'translating · 2/2';
+  if (stage === 'sentiment') return 'classifying · 1/1';
+  if (stage === 'vision') return 'describing · 1/1';
   return 'running';
 }
 
