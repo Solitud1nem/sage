@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
 import { GradientText } from '@/components/gradient-text';
+import { githubBlobUrl, githubTreeUrl, siteConfig } from '@/lib/site-config';
 
 /**
  * Docs page — placeholder until the dedicated docs site lands in v2.0.5.
@@ -19,9 +20,9 @@ export default function DocsPage() {
         <GradientText>Documentation</GradientText> in progress.
       </h1>
       <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-text-muted">
-        The dedicated docs site lands in v2.0.5. Until then, here's where the truth lives —
-        contracts, architecture decisions, and the integration plan are all public, versioned, and
-        honest-only.
+        A dedicated docs site is on the roadmap. Until then, here's where the truth lives —
+        contracts on Basescan, ADRs in the repo, and the full source of every component
+        we deploy. Public, versioned, honest-only.
       </p>
 
       <div className="mt-14 grid gap-4 sm:grid-cols-2">
@@ -48,17 +49,17 @@ export default function DocsPage() {
           title="ADRs 0001 – 0006"
           body="Every significant design choice, documented as a standalone ADR with context, alternatives considered, and consequences."
           links={[
-            { label: 'ADR index (repo)', href: 'https://github.com', external: true },
+            { label: 'ADR index (repo)', href: githubTreeUrl('docs/adr'), external: true },
           ]}
         />
 
         <DocsCard
           label="Product scope"
-          title="PRD + PLANNING + TASKS"
-          body="What v2.0 is, how it's structured, and the atomic task queue. Driven by spec-driven development — specs first, code second."
+          title="PRD + PLANNING"
+          body="What v2.0 is and how it's structured. Driven by spec-driven development — specs first, code second."
           links={[
-            { label: 'PRD (repo)', href: 'https://github.com', external: true },
-            { label: 'PLANNING (repo)', href: 'https://github.com', external: true },
+            { label: 'PRD (repo)', href: githubBlobUrl('PRD.md'), external: true },
+            { label: 'PLANNING (repo)', href: githubBlobUrl('PLANNING.md'), external: true },
           ]}
         />
 
@@ -67,20 +68,29 @@ export default function DocsPage() {
           title="INTEGRATION.md + ADR-0006"
           body="How this site talks to contracts + the demo backend. Milestones M-INT.1 through M-INT.8 track the journey to mainnet demo."
           links={[
-            { label: 'INTEGRATION.md (repo)', href: 'https://github.com', external: true },
+            { label: 'INTEGRATION.md (repo)', href: githubBlobUrl('apps/web/INTEGRATION.md'), external: true },
           ]}
         />
       </div>
 
       <div className="mt-16 pt-10 border-t border-border flex flex-col sm:flex-row justify-between gap-4 text-[13px] text-text-muted">
         <p>
-          Need something specific? Open an issue on GitHub or jump to the{' '}
+          Need something specific? Open an issue on{' '}
+          <a
+            href={siteConfig.github}
+            target="_blank"
+            rel="noreferrer"
+            className="text-purple hover:underline underline-offset-4"
+          >
+            GitHub
+          </a>{' '}
+          or jump to the{' '}
           <Link href="/demo" className="text-purple hover:underline underline-offset-4">
             live demo
           </Link>
           .
         </p>
-        <span className="font-mono text-[11px] text-text-subtle">v0.1.0 · pre-release</span>
+        <span className="font-mono text-[11px] text-text-subtle">v2.0.0 · live on Base mainnet</span>
       </div>
     </div>
   );

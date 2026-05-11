@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
-import { githubTreeUrl, siteConfig } from '@/lib/site-config';
+import { githubBlobUrl, githubTreeUrl, siteConfig } from '@/lib/site-config';
 
 /**
  * Footer — mirrors apps/web/design-reference/Home.txt footer layout.
@@ -25,7 +25,7 @@ export function Footer() {
         <FooterColumn title="Protocol" links={[
           { href: addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.agentRegistry), label: 'Registry', external: true },
           { href: addressUrl(BASE_MAINNET.chainId, escrow), label: 'Contracts', external: true },
-          { href: '/#x402', label: 'x402 integration' },
+          { href: githubBlobUrl('docs/adr/0003-x402-as-pay-per-call-transport.md'), label: 'x402 (ADR-0003)', external: true },
         ]} />
 
         <FooterColumn title="Developers" links={[

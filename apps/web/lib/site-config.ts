@@ -7,7 +7,7 @@
  * `NEXT_PUBLIC_SITE_URL`.
  */
 
-const FALLBACK_GITHUB = 'https://github.com/sage-protocol/sage';
+const FALLBACK_GITHUB = 'https://github.com/Solitud1nem/sage';
 const FALLBACK_SITE = 'https://sage.xyz';
 
 export const siteConfig = {

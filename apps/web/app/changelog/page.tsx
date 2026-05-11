@@ -1,10 +1,11 @@
 /**
- * Changelog page — placeholder.
+ * Changelog page — public highlights.
  *
- * Current canonical changelog lives in repo `CHANGELOG.md`. The web UI renders
- * highlights here; full history visible in the repo. MDX-rendered changelog
- * lands with the docs site in v2.0.5.
+ * Canonical changelog is `CHANGELOG.md` in the repo. The web UI renders
+ * a curated highlight reel; deep detail lives one click away.
  */
+
+import { siteConfig } from '@/lib/site-config';
 
 interface ChangelogEntry {
   date: string;
@@ -12,6 +13,37 @@ interface ChangelogEntry {
 }
 
 const highlights: ChangelogEntry[] = [
+  {
+    date: '2026-05-11',
+    milestones: [
+      'Demo extended to three modes: pipeline (summarize → translate), sentiment (POSITIVE/NEGATIVE/NEUTRAL classifier), vision (image describer). Single primitive, three on-chain task shapes.',
+      'Orchestrator now dispatches by `mode`; /demo gets a three-tab switcher with mode-aware input (text vs image URL).',
+      'Verified end-to-end on Base mainnet across all three modes — sponsor spent ~0.004 USDC for the full suite.',
+      'Side fix: `TaskStatus` enum mirror in the web ABI was off-by-one against the contract, silently breaking the Try-with-wallet poll loop. Corrected.',
+    ],
+  },
+  {
+    date: '2026-04-29',
+    milestones: [
+      'M9.7.2 — public browser smoke on Base mainnet through /demo (Tasks #16 + #17, 22.4s, 0.002 USDC). Real OpenAI via Pages → Cloudflare Worker → Fly.',
+      'M9.3 — Fly orchestrator live (sage-demo-agents.fly.dev): orchestrator x2 HA + Summarizer + Translator + 2 standby. min_machines_running = 1, http_check on /health.',
+      'Sponsor guard activated in production — /api/demo/start returns 503 when sponsor wallet drops below the configured USDC floor.',
+    ],
+  },
+  {
+    date: '2026-04-27',
+    milestones: [
+      'M-INT.8 complete — first Cloudflare Pages deploy at sage-protocol.pages.dev. OG metadata, robots, sitemap, MIT-licensed.',
+    ],
+  },
+  {
+    date: '2026-04-24',
+    milestones: [
+      'M-INT.4 — orchestrator SSE backend: POST /api/demo/start + GET /api/demo/stream/:id (keep-alive + replay buffer).',
+      'M-INT.5 + M-INT.6 — /demo page with reactive task lifecycle and a Try-with-wallet mode (EIP-2612 USDC permit + on-chain poll).',
+      'M-INT.7 — Cloudflare Worker gateway: /api/rpc Alchemy proxy with hidden ALCHEMY_KEY, /api/demo/* passthrough, D1-backed daily rate limit.',
+    ],
+  },
   {
     date: '2026-04-23',
     milestones: [
@@ -25,7 +57,8 @@ const highlights: ChangelogEntry[] = [
     date: '2026-04-22',
     milestones: [
       'v2.0 protocol code complete. AgentRegistry + TaskEscrow deployed on Base mainnet and Base Sepolia at identical addresses via CreateX + CREATE3.',
-      'Full test suite: 74 tests (unit + integration + fuzz + invariant), 100% contract coverage, Slither clean, 600k invariant calls with zero failures.',
+      'Full test suite: 77 tests (unit + integration + fuzz + invariant), 100% contract coverage, Slither clean, 600k invariant calls with zero failures.',
+      'M8.3 — first end-to-end mainnet demo (Tasks #10–#11, 0.02 USDC, 16.4s) with real USDC and CLI orchestrator.',
       'ADR-0004 accepted — USDC-only settlement with EIP-2612 permit.',
       'ADR-0005 accepted — pnpm monorepo + Foundry + viem stack.',
     ],
@@ -53,7 +86,7 @@ export default function ChangelogPage() {
       <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-text-muted">
         Highlights only. Full changelog lives in the{' '}
         <a
-          href="https://github.com"
+          href={`${siteConfig.github}/blob/main/CHANGELOG.md`}
           target="_blank"
           rel="noreferrer"
           className="text-purple hover:underline underline-offset-4"
