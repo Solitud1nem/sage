@@ -110,14 +110,20 @@ export const usdcAbi = [
   },
 ] as const;
 
-/** TaskStatus mirror (see @sage/core — kept local to avoid cross-package type quirks). */
+/**
+ * TaskStatus mirror — must match the on-chain enum order in
+ * `packages/contracts/src/interfaces/ITaskEscrow.sol`. The enum starts at 0
+ * with Created (no None sentinel), so any drift here causes silent timeouts:
+ * polling for `status >= Completed` waits forever when the value is +1 off.
+ * If you touch this, also touch the contract — and prefer importing from
+ * @sage/core where possible.
+ */
 export enum TaskStatus {
-  None = 0,
-  Created = 1,
-  Accepted = 2,
-  Completed = 3,
-  Paid = 4,
-  Disputed = 5,
-  Refunded = 6,
-  Expired = 7,
+  Created = 0,
+  Accepted = 1,
+  Completed = 2,
+  Paid = 3,
+  Disputed = 4,
+  Refunded = 5,
+  Expired = 6,
 }
