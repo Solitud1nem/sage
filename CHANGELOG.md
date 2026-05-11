@@ -8,6 +8,19 @@
 
 ---
 
+## 2026-05-11
+
+- `feat` **Demo расширен на 3 режима: pipeline / sentiment / vision.** К существующему 2-стадийному pipeline (`Summarizer → Translator`) добавлены два single-stage агента — Sentiment (POSITIVE/NEGATIVE/NEUTRAL + score + rationale, gpt-4o-mini) и Vision (описание изображения по public http(s) URL, gpt-4o-mini-vision, hard cap 500 chars). Orchestrator теперь диспетчер по полю `mode` в `POST /api/demo/start`; per-mode валидация input shape (`text` vs `imageUrl` с http(s) проверкой) + per-mode executor address env vars (`SENTIMENT_ADDRESS`, `VISION_ADDRESS`). Frontend `/demo` получил трёхтабовый переключатель `Pipeline | Sentiment | Vision`; Vision-вкладка показывает URL-input с живым preview-thumbnail-ом; per-mode badges цены/stages/signatures читаются из shared lookup-таблиц в `task-input.tsx`. Оба хука (`useDemoStream` для Watch-live, `useWalletDemo` для Try-with-wallet) принимают `agentMode` вторым аргументом `start()` и эмитят mode-aware `DemoResult` (`summary+translation` / `sentiment` / `description`).
+  - **Backend deploy:** Fly app `sage-demo-agents` подняла vision (port 3003) + sentiment (port 3004) ещё 2026-05-07 (version 7); сегодня закрыли code-side. Все 5 worker-машин live в `iad`: orchestrator x2 HA + summarizer + translator + vision + sentiment + standby-копии.
+  - **Frontend deploy:** manual `wrangler pages deploy` — Cloudflare Pages deployment `58a297be.sage-protocol.pages.dev` (2026-05-11). По пути починили sitemap, который ссылался на устаревший `sage-web.pages.dev` (правильный canonical — `sage-protocol.pages.dev`, выставлено через `NEXT_PUBLIC_SITE_URL` в build env).
+  - **E2E подтверждение на Base mainnet:** sentiment task #48 (`0x467c…2301`, 11.7s), vision task #49 (`0xa614…fc0d`, 13.6s), pipeline tasks #50+#51 (`0x6698…2b9e`, `0x0be2…8191`, 22.2s — pipeline-регрессия в норме, M9.7.2 baseline 22.4s). Sponsor `0x6D8a…376d` потратил ~0.004 USDC за серию.
+  - **Demo executor addresses (Base mainnet):** Sentiment `0x5218857Ef2631e0AC35fA8062671785954e918B5`, Vision `0xB889a7aAe3F9a5DC1CAC68459bc5e3118D9863Fb`. В `AgentRegistry` не зарегистрированы (TaskEscrow не требует).
+  - **Commits:** `1b412d2` (agents backend + mode-dispatch + Fly/Docker infra), `5ef9ba4` (web — 3 таба + wagmi mainnet для ENS), `b4a7752` (fix TaskStatus enum drift — см. GOTCHAS).
+- `fix` **`TaskStatus` enum-мирор в `apps/web/lib/abi/task-escrow.ts` рассинхронизировался с контрактом.** Локальная копия стартовала с `None = 0, Created = 1, …`, on-chain enum в `ITaskEscrow.sol` — без None и `Created = 0`. `+1` дрейф давал silent timeout в Try-with-wallet poll: цикл `task.status >= Completed` крутил минутами, потому что значения никогда не совпадали. Привёл локальный мирор к контрактному порядку, добавил JSDoc с напоминанием о синхронности. Не затронуты `apps/demo-agents` (там enum идёт через `@sage/core` напрямую). См. GOTCHAS.
+- `scope` **Worker `DAILY_LIMIT` временно поднят с `3` до `100`** в `apps/worker-gateway/wrangler.toml` для phase 3 ручного тестирования трёх demo-режимов. Откат → `3` после завершения тестового периода (комментарий в самом файле). Не закоммичено сознательно.
+
+---
+
 ## 2026-04-29
 
 - `milestone` **M9.8.1 + M9.8.3 done + sponsor-guard fix в проде.** Подготовка к `v2.0.0` тегу — launch-артефакт, hardening Fly, и активация sponsor guard.
