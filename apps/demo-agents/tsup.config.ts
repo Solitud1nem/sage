@@ -8,6 +8,8 @@ export default defineConfig({
     'orchestrator/server': 'src/orchestrator/server.ts',
     'summarizer/agent': 'src/summarizer/agent.ts',
     'translator/agent': 'src/translator/agent.ts',
+    'vision/agent': 'src/vision/agent.ts',
+    'sentiment/agent': 'src/sentiment/agent.ts',
   },
   format: 'esm',
   target: 'node20',

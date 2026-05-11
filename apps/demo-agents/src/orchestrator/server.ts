@@ -17,7 +17,7 @@ import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { demoRegistry } from '../shared/sse.js';
 import { loadOrchestratorEnv } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
-import { startDemoRun } from './demo-run.js';
+import { startDemoRun, type DemoMode } from './demo-run.js';
 
 const env = loadOrchestratorEnv();
 const config = loadConfig(env.port);
@@ -128,16 +128,53 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (url === '/api/demo/start' && method === 'POST') {
     try {
       const raw = await readBody(req);
-      const body = raw ? (JSON.parse(raw) as { text?: string }) : {};
-      if (!body.text || typeof body.text !== 'string') {
-        json(res, 400, { error: 'Missing "text" field (string)' });
+      const body = raw
+        ? (JSON.parse(raw) as { mode?: string; text?: string; imageUrl?: string })
+        : {};
+      const mode: DemoMode = (body.mode as DemoMode | undefined) ?? 'pipeline';
+
+      // Validate mode
+      if (mode !== 'pipeline' && mode !== 'sentiment' && mode !== 'vision') {
+        json(res, 400, {
+          error: `Invalid mode "${String(body.mode)}" — must be one of: pipeline, sentiment, vision`,
+        });
         return;
       }
 
-      if (!env.summarizerAddress || !env.translatorAddress) {
+      // Validate input shape per mode
+      if (mode === 'pipeline' || mode === 'sentiment') {
+        if (!body.text || typeof body.text !== 'string') {
+          json(res, 400, { error: `${mode} mode requires "text" field (string)` });
+          return;
+        }
+      }
+      if (mode === 'vision') {
+        if (!body.imageUrl || typeof body.imageUrl !== 'string') {
+          json(res, 400, { error: 'vision mode requires "imageUrl" field (string)' });
+          return;
+        }
+        // Permit only http(s) — we don't fetch the URL ourselves (OpenAI does),
+        // but reject obviously-broken URLs early so we don't burn USDC on a
+        // task the agent will trivially fail.
+        if (!/^https?:\/\//i.test(body.imageUrl)) {
+          json(res, 400, { error: 'imageUrl must start with http:// or https://' });
+          return;
+        }
+      }
+
+      // Validate per-mode addresses are configured
+      const addressErrors: string[] = [];
+      if (mode === 'pipeline') {
+        if (!env.summarizerAddress) addressErrors.push('SUMMARIZER_ADDRESS');
+        if (!env.translatorAddress) addressErrors.push('TRANSLATOR_ADDRESS');
+      } else if (mode === 'sentiment') {
+        if (!env.sentimentAddress) addressErrors.push('SENTIMENT_ADDRESS');
+      } else if (mode === 'vision') {
+        if (!env.visionAddress) addressErrors.push('VISION_ADDRESS');
+      }
+      if (addressErrors.length > 0) {
         json(res, 500, {
-          error:
-            'Server misconfigured: SUMMARIZER_ADDRESS and TRANSLATOR_ADDRESS must be set in env',
+          error: `Server misconfigured for ${mode} mode: missing env ${addressErrors.join(', ')}`,
         });
         return;
       }
@@ -171,15 +208,20 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       }
 
       const { demoRunId, streamUrl } = startDemoRun(sageBundle, {
+        mode,
         text: body.text,
+        imageUrl: body.imageUrl,
         summarizerAddress: env.summarizerAddress,
         translatorAddress: env.translatorAddress,
+        visionAddress: env.visionAddress,
+        sentimentAddress: env.sentimentAddress,
         taskAmount: env.taskAmount,
       });
 
       json(res, 202, {
         demoRunId,
         streamUrl,
+        mode,
         chainId: chainInfo.chainId,
         chainName: chainInfo.displayName,
         explorerUrl: chainInfo.explorerUrl,
@@ -220,6 +262,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       }
 
       const { demoRunId, streamUrl } = startDemoRun(sageBundle, {
+        mode: 'pipeline',
         text: body.text,
         summarizerAddress: env.summarizerAddress,
         translatorAddress: env.translatorAddress,

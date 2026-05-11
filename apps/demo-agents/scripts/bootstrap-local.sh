@@ -63,16 +63,22 @@ echo "=== Bootstrapping local demo-agents env ==="
 gen orchestrator 3000
 gen summarizer   3001
 gen translator   3002
+gen vision       3003
+gen sentiment    3004
 
 echo
 echo "=== Addresses that need funding (Base Sepolia) ==="
 orch_addr=$(grep -E '^AGENT_ADDRESS=' .env.orchestrator | cut -d= -f2)
 summ_addr=$(grep -E '^AGENT_ADDRESS=' .env.summarizer   | cut -d= -f2)
 tran_addr=$(grep -E '^AGENT_ADDRESS=' .env.translator   | cut -d= -f2)
+vis_addr=$(grep -E '^AGENT_ADDRESS=' .env.vision       | cut -d= -f2)
+sent_addr=$(grep -E '^AGENT_ADDRESS=' .env.sentiment    | cut -d= -f2)
 
 echo "  orchestrator (sponsor):  ${orch_addr}"
 echo "  summarizer:              ${summ_addr}"
 echo "  translator:              ${tran_addr}"
+echo "  vision:                  ${vis_addr}"
+echo "  sentiment:               ${sent_addr}"
 
 echo
 echo "=== Fund with ETH (faucet) ==="
@@ -85,28 +91,34 @@ echo "  2. https://faucet.circle.com  (select Base Sepolia)"
 echo "     Send ≥ 0.1 USDC to ${orch_addr} (enough for ~50 demo runs)."
 
 echo
-echo "=== Register summarizer + translator in AgentRegistry ==="
-echo "  3. Once ETH is in both addresses, run:"
+echo "=== Register agents in AgentRegistry (optional) ==="
+echo "  3. Once ETH is in addresses, run (registry is for discoverability;"
+echo "     TaskEscrow does not require registration):"
 echo
-printf '     cast send %s "registerAgent(string)" "http://localhost:3001" \\\n' "$BASE_SEPOLIA_REGISTRY"
-printf '       --rpc-url %s \\\n' "$RPC_URL_DEFAULT"
-printf '       --private-key $(grep PRIVATE_KEY .env.summarizer | cut -d= -f2)\n'
-echo
-printf '     cast send %s "registerAgent(string)" "http://localhost:3002" \\\n' "$BASE_SEPOLIA_REGISTRY"
-printf '       --rpc-url %s \\\n' "$RPC_URL_DEFAULT"
-printf '       --private-key $(grep PRIVATE_KEY .env.translator | cut -d= -f2)\n'
+for role in summarizer:3001 translator:3002 vision:3003 sentiment:3004; do
+  name="${role%%:*}"
+  port="${role##*:}"
+  printf '     cast send %s "registerAgent(string)" "http://localhost:%s" \\\n' \
+    "$BASE_SEPOLIA_REGISTRY" "$port"
+  printf '       --rpc-url %s \\\n' "$RPC_URL_DEFAULT"
+  printf '       --private-key $(grep PRIVATE_KEY .env.%s | cut -d= -f2)\n' "$name"
+  echo
+done
 
-echo
 echo "=== Add to orchestrator env ==="
 echo "  4. Append to .env.orchestrator:"
 echo "     SUMMARIZER_ADDRESS=${summ_addr}"
 echo "     TRANSLATOR_ADDRESS=${tran_addr}"
+echo "     VISION_ADDRESS=${vis_addr}"
+echo "     SENTIMENT_ADDRESS=${sent_addr}"
 echo "     OPENAI_API_KEY=sk-...  # optional — agents use mocks without it"
 
 echo
-echo "=== Run all three services (three terminals) ==="
+echo "=== Run all five services (five terminals) ==="
 echo "  pnpm --filter @sage/demo-agents dev:summarizer"
 echo "  pnpm --filter @sage/demo-agents dev:translator"
+echo "  pnpm --filter @sage/demo-agents dev:vision"
+echo "  pnpm --filter @sage/demo-agents dev:sentiment"
 echo "  pnpm --filter @sage/demo-agents dev:orchestrator"
 
 echo

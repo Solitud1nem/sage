@@ -40,7 +40,7 @@ COPY --from=builder /opt/app ./
 RUN useradd -m -u 10001 sage && chown -R sage:sage /opt/app
 USER sage
 
-EXPOSE 3000 3001 3002
+EXPOSE 3000 3001 3002 3003 3004
 
 # Default CMD: orchestrator. docker-compose.yml + fly.toml override per service.
 CMD ["node", "dist/orchestrator/server.js"]

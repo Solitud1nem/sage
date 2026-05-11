@@ -7,27 +7,37 @@ import { SseChannel, demoRegistry } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 
 /**
- * A single end-to-end demo run: Orchestrator → Summarizer → Translator,
- * emitting lifecycle events to its SSE channel as each on-chain step lands.
+ * A single end-to-end demo run, dispatched by mode.
  *
- * Flow:
- *   1. createTask(summarizer) → emit task_created
- *   2. Poll for TaskStatus.Completed → emit task_accepted + task_completed
- *   3. approvePayment(summaryTask) → emit task_paid
- *   4. Repeat for translator (createTask → ... → task_paid)
- *   5. emit done { summary, translation, txHashes, durationMs }
+ *   pipeline  → Summarizer → Translator (2 stages)
+ *   sentiment → Sentiment (1 stage)
+ *   vision    → Vision (1 stage)
+ *
+ * Each stage emits stage_started → task_created → task_accepted → task_completed → task_paid.
+ * Final `done` payload shape varies by mode (summary/translation, sentiment, description).
  */
 
+export type DemoMode = 'pipeline' | 'sentiment' | 'vision';
+
 interface StartDemoOptions {
-  text: string;
-  summarizerAddress: `0x${string}`;
-  translatorAddress: `0x${string}`;
+  mode: DemoMode;
+  text?: string | undefined;
+  imageUrl?: string | undefined;
+  summarizerAddress?: `0x${string}` | undefined;
+  translatorAddress?: `0x${string}` | undefined;
+  visionAddress?: `0x${string}` | undefined;
+  sentimentAddress?: `0x${string}` | undefined;
   taskAmount: bigint;
 }
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
 
-export function startDemoRun(sageBundle: SageClientBundle, opts: StartDemoOptions): {
+const DEADLINE_OFFSET = 3600;
+
+export function startDemoRun(
+  sageBundle: SageClientBundle,
+  opts: StartDemoOptions,
+): {
   demoRunId: string;
   streamUrl: string;
 } {
@@ -51,82 +61,169 @@ export function startDemoRun(sageBundle: SageClientBundle, opts: StartDemoOption
 async function runDemo(
   demoRunId: string,
   channel: SseChannel,
-  { sage, publicClient }: SageClientBundle,
-  { text, summarizerAddress, translatorAddress, taskAmount }: StartDemoOptions,
+  bundle: SageClientBundle,
+  opts: StartDemoOptions,
 ): Promise<void> {
   const startedAt = Date.now();
   const txHashes: string[] = [];
-  const DEADLINE_OFFSET = 3600;
 
-  channel.emit('run_started', { demoRunId, startedAt });
+  channel.emit('run_started', { demoRunId, mode: opts.mode, startedAt });
 
-  // ── Stage 1: Summarize ─────────────────────────────────────────────
-  channel.emit('stage_started', { stage: 'summarize' });
-  const summaryDeadline = Math.floor(Date.now() / 1000) + DEADLINE_OFFSET;
-  const summaryTaskId = await sage.tasks.createTask({
-    executor: agentId(summarizerAddress),
-    deadline: summaryDeadline,
-    amount: taskAmount,
-    specUri: text,
-  });
-  channel.emit('task_created', {
+  switch (opts.mode) {
+    case 'pipeline':
+      await runPipeline(bundle, channel, opts, txHashes, startedAt);
+      return;
+    case 'sentiment':
+      await runSentiment(bundle, channel, opts, txHashes, startedAt);
+      return;
+    case 'vision':
+      await runVision(bundle, channel, opts, txHashes, startedAt);
+      return;
+    default: {
+      const _exhaustive: never = opts.mode;
+      throw new Error(`Unknown demo mode: ${String(_exhaustive)}`);
+    }
+  }
+}
+
+// ── Mode runners ────────────────────────────────────────────────────────
+
+async function runPipeline(
+  bundle: SageClientBundle,
+  channel: SseChannel,
+  opts: StartDemoOptions,
+  txHashes: string[],
+  startedAt: number,
+): Promise<void> {
+  if (!opts.text) throw new Error('pipeline mode requires `text`');
+  if (!opts.summarizerAddress) throw new Error('pipeline mode requires summarizerAddress');
+  if (!opts.translatorAddress) throw new Error('pipeline mode requires translatorAddress');
+
+  const { result: summary } = await runStage(bundle, channel, txHashes, {
     stage: 'summarize',
-    taskId: summaryTaskId.toString(),
-    executor: summarizerAddress,
-    amount: taskAmount.toString(),
+    executor: opts.summarizerAddress,
+    specUri: opts.text,
+    amount: opts.taskAmount,
   });
 
-  const summaryResultUri = await waitForCompletion(sage, summaryTaskId, channel, 'summarize');
-  const summary = decodeResult(summaryResultUri);
-
-  const summaryApproveTx = await sage.tasks.approvePayment(summaryTaskId);
-  txHashes.push(summaryApproveTx);
-  channel.emit('task_paid', {
-    stage: 'summarize',
-    taskId: summaryTaskId.toString(),
-    txHash: summaryApproveTx,
-  });
-
-  // Wait for the approvePayment receipt before the next sponsor-issued tx —
-  // otherwise stage 2 createTask reuses the same nonce while approvePayment
-  // is still pending in mempool and gets rejected as "replacement underpriced".
-  await publicClient.waitForTransactionReceipt({ hash: summaryApproveTx as `0x${string}` });
-
-  // ── Stage 2: Translate ─────────────────────────────────────────────
-  channel.emit('stage_started', { stage: 'translate' });
-  const translateDeadline = Math.floor(Date.now() / 1000) + DEADLINE_OFFSET;
-  const translateTaskId = await sage.tasks.createTask({
-    executor: agentId(translatorAddress),
-    deadline: translateDeadline,
-    amount: taskAmount,
+  const { result: translation } = await runStage(bundle, channel, txHashes, {
+    stage: 'translate',
+    executor: opts.translatorAddress,
     specUri: summary,
-  });
-  channel.emit('task_created', {
-    stage: 'translate',
-    taskId: translateTaskId.toString(),
-    executor: translatorAddress,
-    amount: taskAmount.toString(),
+    amount: opts.taskAmount,
   });
 
-  const translateResultUri = await waitForCompletion(sage, translateTaskId, channel, 'translate');
-  const translation = decodeResult(translateResultUri);
-
-  const translateApproveTx = await sage.tasks.approvePayment(translateTaskId);
-  txHashes.push(translateApproveTx);
-  channel.emit('task_paid', {
-    stage: 'translate',
-    taskId: translateTaskId.toString(),
-    txHash: translateApproveTx,
-  });
-
-  const durationMs = Date.now() - startedAt;
   channel.close({
+    mode: 'pipeline',
     summary,
     translation,
     txHashes,
-    durationMs,
-    totalUsdcSettled: (taskAmount * 2n).toString(),
+    durationMs: Date.now() - startedAt,
+    totalUsdcSettled: (opts.taskAmount * 2n).toString(),
   });
+}
+
+async function runSentiment(
+  bundle: SageClientBundle,
+  channel: SseChannel,
+  opts: StartDemoOptions,
+  txHashes: string[],
+  startedAt: number,
+): Promise<void> {
+  if (!opts.text) throw new Error('sentiment mode requires `text`');
+  if (!opts.sentimentAddress) throw new Error('sentiment mode requires sentimentAddress');
+
+  const { result: sentiment } = await runStage(bundle, channel, txHashes, {
+    stage: 'sentiment',
+    executor: opts.sentimentAddress,
+    specUri: opts.text,
+    amount: opts.taskAmount,
+  });
+
+  channel.close({
+    mode: 'sentiment',
+    sentiment,
+    txHashes,
+    durationMs: Date.now() - startedAt,
+    totalUsdcSettled: opts.taskAmount.toString(),
+  });
+}
+
+async function runVision(
+  bundle: SageClientBundle,
+  channel: SseChannel,
+  opts: StartDemoOptions,
+  txHashes: string[],
+  startedAt: number,
+): Promise<void> {
+  if (!opts.imageUrl) throw new Error('vision mode requires `imageUrl`');
+  if (!opts.visionAddress) throw new Error('vision mode requires visionAddress');
+
+  const { result: description } = await runStage(bundle, channel, txHashes, {
+    stage: 'vision',
+    executor: opts.visionAddress,
+    specUri: opts.imageUrl,
+    amount: opts.taskAmount,
+  });
+
+  channel.close({
+    mode: 'vision',
+    description,
+    txHashes,
+    durationMs: Date.now() - startedAt,
+    totalUsdcSettled: opts.taskAmount.toString(),
+  });
+}
+
+// ── Stage runner ────────────────────────────────────────────────────────
+
+interface StageOptions {
+  stage: string;
+  executor: `0x${string}`;
+  specUri: string;
+  amount: bigint;
+}
+
+async function runStage(
+  { sage, publicClient }: SageClientBundle,
+  channel: SseChannel,
+  txHashes: string[],
+  { stage, executor, specUri, amount }: StageOptions,
+): Promise<{ taskId: TaskId; result: string }> {
+  channel.emit('stage_started', { stage });
+
+  const deadline = Math.floor(Date.now() / 1000) + DEADLINE_OFFSET;
+  const tid = await sage.tasks.createTask({
+    executor: agentId(executor),
+    deadline,
+    amount,
+    specUri,
+  });
+  channel.emit('task_created', {
+    stage,
+    taskId: tid.toString(),
+    executor,
+    amount: amount.toString(),
+  });
+
+  const resultUri = await waitForCompletion(sage, tid, channel, stage);
+  const result = decodeResult(resultUri);
+
+  const approveTx = await sage.tasks.approvePayment(tid);
+  txHashes.push(approveTx);
+  channel.emit('task_paid', {
+    stage,
+    taskId: tid.toString(),
+    txHash: approveTx,
+  });
+
+  // Wait for the approvePayment receipt before the next sponsor-issued tx —
+  // otherwise the next createTask reuses the same nonce while approvePayment
+  // is still pending in mempool and gets rejected as "replacement underpriced".
+  // Critical for multi-stage flows; harmless overhead for single-stage.
+  await publicClient.waitForTransactionReceipt({ hash: approveTx as `0x${string}` });
+
+  return { taskId: tid, result };
 }
 
 /**
@@ -138,7 +235,7 @@ async function waitForCompletion(
   sage: SageClientBundle['sage'],
   taskId: TaskId,
   channel: SseChannel,
-  stage: 'summarize' | 'translate',
+  stage: string,
   timeoutMs = 120_000,
 ): Promise<string> {
   const start = Date.now();
@@ -183,7 +280,7 @@ async function waitForCompletion(
 }
 
 function decodeResult(resultUri: string): string {
-  // Summarizer/translator mock agents use data: URIs for synchronous testing.
+  // Agents use data: URIs for synchronous testing; raw URLs / strings pass through.
   if (resultUri.startsWith('data:text/plain,')) {
     return decodeURIComponent(resultUri.replace('data:text/plain,', ''));
   }

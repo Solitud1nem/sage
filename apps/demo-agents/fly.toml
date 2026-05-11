@@ -26,6 +26,8 @@ primary_region = "iad"                         # us-east; move closer to Alchemy
   orchestrator = "node dist/orchestrator/server.js"
   summarizer   = "node dist/summarizer/agent.js"
   translator   = "node dist/translator/agent.js"
+  vision       = "node dist/vision/agent.js"
+  sentiment    = "node dist/sentiment/agent.js"
 
 # Only the orchestrator handles external HTTP.
 # Public surface — keep one machine warm so demo cold-starts don't add 5–10s
@@ -75,7 +77,7 @@ primary_region = "iad"                         # us-east; move closer to Alchemy
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
-  processes = ["orchestrator", "summarizer", "translator"]
+  processes = ["orchestrator", "summarizer", "translator", "vision", "sentiment"]
 
 # Persistent volume not required — orchestrator is stateless (active demo
 # channels live in memory; completed runs are flushed via SSE `done` event).

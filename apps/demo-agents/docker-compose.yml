@@ -25,3 +25,21 @@ services:
       - "3002:3002"
     env_file: .env
     command: ["node", "--import", "tsx", "apps/demo-agents/src/translator/agent.ts"]
+
+  vision:
+    build:
+      context: ../../
+      dockerfile: apps/demo-agents/Dockerfile
+    ports:
+      - "3003:3003"
+    env_file: .env
+    command: ["node", "--import", "tsx", "apps/demo-agents/src/vision/agent.ts"]
+
+  sentiment:
+    build:
+      context: ../../
+      dockerfile: apps/demo-agents/Dockerfile
+    ports:
+      - "3004:3004"
+    env_file: .env
+    command: ["node", "--import", "tsx", "apps/demo-agents/src/sentiment/agent.ts"]

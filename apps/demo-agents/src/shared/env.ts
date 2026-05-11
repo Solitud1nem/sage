@@ -13,6 +13,8 @@ export interface OrchestratorEnv {
   openaiApiKey: string | undefined;
   summarizerAddress: `0x${string}` | undefined;
   translatorAddress: `0x${string}` | undefined;
+  visionAddress: `0x${string}` | undefined;
+  sentimentAddress: `0x${string}` | undefined;
   taskAmount: bigint;
   allowedOrigins: string[];
   sponsorMinBalanceUsdc: bigint;
@@ -26,6 +28,8 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
     summarizerAddress: optHex('SUMMARIZER_ADDRESS', 40),
     translatorAddress: optHex('TRANSLATOR_ADDRESS', 40),
+    visionAddress: optHex('VISION_ADDRESS', 40),
+    sentimentAddress: optHex('SENTIMENT_ADDRESS', 40),
     // 0.001 USDC default (USDC has 6 decimals → 1000 base units)
     taskAmount: BigInt(process.env.TASK_AMOUNT ?? '1000'),
     allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3000,http://localhost:3001')
