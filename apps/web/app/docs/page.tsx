@@ -1,94 +1,81 @@
 import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
+import { DOCS_NAV } from '@/components/docs/docs-nav';
 import { GradientText } from '@/components/gradient-text';
 import { githubBlobUrl, githubTreeUrl, siteConfig } from '@/lib/site-config';
 
 /**
- * Docs page — placeholder until the dedicated docs site lands in v2.0.5.
- *
- * Until then, we point visitors at the real source-of-truth: the ADRs, the PRD,
- * and the deployed contracts on Basescan. Nothing invented.
+ * Docs hub — entry point. Doesn't use DocsLayout (the hub IS the TOC).
+ * Sub-pages use DocsLayout and inherit the sidebar.
  */
 export default function DocsPage() {
   return (
-    <div className="mx-auto max-w-[960px] px-6 md:px-10 py-20">
+    <div className="mx-auto max-w-[1200px] px-6 md:px-10 py-14">
       <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-purple mb-4">
         docs
       </div>
       <h1 className="text-[clamp(36px,4.2vw,52px)] font-medium leading-[1.2] tracking-[-0.015em]">
-        <GradientText>Documentation</GradientText> in progress.
+        Build agents that <GradientText>get paid</GradientText>.
       </h1>
-      <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-text-muted">
-        A dedicated docs site is on the roadmap. Until then, here's where the truth lives —
-        contracts on Basescan, ADRs in the repo, and the full source of every component
-        we deploy. Public, versioned, honest-only.
+      <p className="mt-6 max-w-[680px] text-[16px] leading-[1.55] text-text-muted">
+        Sage docs are organized for builders. Read top-to-bottom if it's your
+        first time. Jump to a section if you're back for reference. Everything
+        links out to source.
       </p>
 
+      <div className="mt-9 flex flex-wrap gap-3">
+        <Link
+          href="/docs/intro"
+          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] bg-purple text-[#0A0A0F] text-[13px] font-semibold hover:shadow-[0_0_28px_rgba(167,139,250,0.45)] transition-shadow duration-200"
+        >
+          Start with Intro →
+        </Link>
+        <Link
+          href="/docs/concepts"
+          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
+        >
+          Skip to Concepts
+        </Link>
+      </div>
+
       <div className="mt-14 grid gap-4 sm:grid-cols-2">
-        <DocsCard
-          label="Deployed contracts"
-          title="Base mainnet on Basescan"
-          body="AgentRegistry + TaskEscrow, verified source. Click through to read storage, write methods, and event history."
-          links={[
-            {
-              label: 'AgentRegistry ↗',
-              href: addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.agentRegistry),
-              external: true,
-            },
-            {
-              label: 'TaskEscrow ↗',
-              href: addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.taskEscrow),
-              external: true,
-            },
-          ]}
-        />
+        {DOCS_NAV.map((section) => (
+          <SectionTile key={section.title} title={section.title} items={section.items} />
+        ))}
+      </div>
 
-        <DocsCard
-          label="Architecture decisions"
-          title="ADRs 0001 – 0006"
-          body="Every significant design choice, documented as a standalone ADR with context, alternatives considered, and consequences."
-          links={[
-            { label: 'ADR index (repo)', href: githubTreeUrl('docs/adr'), external: true },
-          ]}
-        />
-
-        <DocsCard
-          label="Product scope"
-          title="PRD + PLANNING"
-          body="What v2.0 is and how it's structured. Driven by spec-driven development — specs first, code second."
-          links={[
-            { label: 'PRD (repo)', href: githubBlobUrl('PRD.md'), external: true },
-            { label: 'PLANNING (repo)', href: githubBlobUrl('PLANNING.md'), external: true },
-          ]}
-        />
-
-        <DocsCard
-          label="Web integration"
-          title="INTEGRATION.md + ADR-0006"
-          body="How this site talks to contracts + the demo backend. Milestones M-INT.1 through M-INT.8 track the journey to mainnet demo."
-          links={[
-            { label: 'INTEGRATION.md (repo)', href: githubBlobUrl('apps/web/INTEGRATION.md'), external: true },
-          ]}
-        />
-
-        <DocsCard
-          label="Architecture"
-          title="Living overview"
-          body="Layers, money flow, demo-agents mode-dispatch — diagram-heavy doc that stays in lockstep with the code. Start here when you want the whole picture."
-          links={[
-            { label: 'overview.md (repo)', href: githubBlobUrl('docs/architecture/overview.md'), external: true },
-          ]}
-        />
-
-        <DocsCard
-          label="Proof"
-          title="Mainnet demo runs"
-          body="Two end-to-end demos on Base mainnet with every tx-hash on Basescan. CLI-orchestrated (M8.3) and browser-driven (M9.7.2). Real USDC. No mocks."
-          links={[
-            { label: 'v2.0.0-launch.md (repo)', href: githubBlobUrl('docs/demo-runs/v2.0.0-launch.md'), external: true },
-          ]}
-        />
+      <div className="mt-16 pt-10 border-t border-border">
+        <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle mb-4">
+          source pointers
+        </div>
+        <p className="text-[14px] text-text-muted leading-[1.6] max-w-[720px] mb-5">
+          Everything Sage ships is in the open. Read the contracts on Basescan,
+          the ADRs in the repo, the runbooks for self-hosting, and the audited
+          test suites. The docs above tell the story; these links show the work.
+        </p>
+        <ul className="grid gap-2 sm:grid-cols-2 text-[13px]">
+          <SourceLink
+            label="AgentRegistry on Basescan"
+            href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.agentRegistry)}
+          />
+          <SourceLink
+            label="TaskEscrow on Basescan"
+            href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.taskEscrow)}
+          />
+          <SourceLink label="GitHub repo" href={siteConfig.github} />
+          <SourceLink label="ADR index" href={githubTreeUrl('docs/adr')} />
+          <SourceLink label="PRD" href={githubBlobUrl('PRD.md')} />
+          <SourceLink label="PLANNING" href={githubBlobUrl('PLANNING.md')} />
+          <SourceLink
+            label="Architecture overview"
+            href={githubBlobUrl('docs/architecture/overview.md')}
+          />
+          <SourceLink
+            label="Mainnet demo runs"
+            href={githubBlobUrl('docs/demo-runs/v2.0.0-launch.md')}
+          />
+        </ul>
       </div>
 
       <div className="mt-16 pt-10 border-t border-border flex flex-col sm:flex-row justify-between gap-4 text-[13px] text-text-muted">
@@ -114,37 +101,63 @@ export default function DocsPage() {
   );
 }
 
-function DocsCard({
-  label,
+function SectionTile({
   title,
-  body,
-  links,
+  items,
 }: {
-  label: string;
   title: string;
-  body: string;
-  links: Array<{ label: string; href: string; external?: boolean }>;
+  items: Array<{ slug: string; label: string; status: 'live' | 'soon' }>;
 }) {
   return (
     <div className="rounded-[14px] border border-border bg-surface p-6 hover:border-border-hover transition-colors duration-200">
-      <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle mb-2">
-        {label}
+      <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle mb-4">
+        {title}
       </div>
-      <h2 className="text-[18px] font-medium tracking-[-0.01em] mb-3">{title}</h2>
-      <p className="text-[13px] text-text-muted leading-[1.55] mb-5">{body}</p>
-      <div className="flex flex-wrap gap-3 text-[13px]">
-        {links.map((l) => (
-          <a
-            key={l.label}
-            href={l.href}
-            target={l.external ? '_blank' : undefined}
-            rel={l.external ? 'noreferrer' : undefined}
-            className="text-cyan hover:underline underline-offset-4 font-mono"
-          >
-            {l.label}
-          </a>
-        ))}
-      </div>
+      <ul className="space-y-2.5">
+        {items.map((item) => {
+          const isSoon = item.status === 'soon';
+          return (
+            <li key={item.slug}>
+              {isSoon ? (
+                <span
+                  className="flex items-baseline justify-between text-[14px] text-text-subtle/60 cursor-not-allowed"
+                  aria-disabled="true"
+                >
+                  <span>{item.label}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-text-subtle/70 ml-3 shrink-0">
+                    soon
+                  </span>
+                </span>
+              ) : (
+                <Link
+                  href={item.slug}
+                  className="group flex items-baseline justify-between text-[14px] text-text hover:text-purple transition-colors duration-200"
+                >
+                  <span>{item.label}</span>
+                  <span className="text-text-subtle group-hover:text-purple shrink-0 ml-3">
+                    →
+                  </span>
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
+  );
+}
+
+function SourceLink({ label, href }: { label: string; href: string }) {
+  return (
+    <li>
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-cyan hover:underline underline-offset-4 font-mono text-[12px]"
+      >
+        {label} ↗
+      </a>
+    </li>
   );
 }
