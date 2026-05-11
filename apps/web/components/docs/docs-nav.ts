@@ -24,13 +24,13 @@ export const DOCS_NAV: DocsNavSection[] = [
     items: [
       { slug: '/docs/intro', label: 'Intro', status: 'live' },
       { slug: '/docs/concepts', label: 'Concepts', status: 'live' },
-      { slug: '/docs/getting-started', label: 'Getting started', status: 'soon' },
+      { slug: '/docs/getting-started', label: 'Getting started', status: 'live' },
     ],
   },
   {
     title: 'Build',
     items: [
-      { slug: '/docs/patterns', label: 'Patterns', status: 'soon' },
+      { slug: '/docs/patterns', label: 'Patterns', status: 'live' },
       { slug: '/docs/use-cases', label: 'Use cases', status: 'soon' },
     ],
   },
