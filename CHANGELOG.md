@@ -8,6 +8,21 @@
 
 ---
 
+## 2026-05-12
+
+- `feat` **Docs site rollout complete — 9 sub-pages live под `/docs/*`.** Закончен Bucket 3 из 2026-05-11 site-content audit'а. `/docs` переделан из card-hub'а в полноценный entry-point с sidebar-навигацией. Структура: hub + 9 sub-pages в 4 группах.
+  - **Get started:** `/docs/intro` (Why Sage · the problem · 5-min mental model · where x402 fits · who it's for); `/docs/concepts` (Agents · Tasks · Escrow · Lifecycle с ASCII state-machine · Capabilities · Settlement); `/docs/getting-started` (install → connect → first task → first agent → mainnet checklist).
+  - **Build:** `/docs/patterns` (full Summarizer source + diff-снипеты Translator/Sentiment/Vision + "Build your own" минимальный template + 5 design callout'ов); `/docs/use-cases` (5 сценариев — RFP / cross-language / image moderation / multi-step / sponsorship — плюс «when to reach for x402 instead» decision callout).
+  - **Reference:** `/docs/api` (SDK surface — 8 task-методов + 6 agent-методов + x402/pay + 8 событий + core types + raw ABIs/chains, всё с source-link'ами); `/docs/contracts` (Solidity reference — deployment table обеих сетей + AgentRegistry/TaskEscrow методы/events/errors + TaskStatus enum + CREATE3 deterministic addresses).
+  - **Operate:** `/docs/architecture` (layers diagram · money flow · chains table live+planned · security boundaries · v2.0→v3 roadmap); `/docs/security` (audit status — explicit «no external audit yet» · internal review через Slither + checklist · 4 stat-блока (77 tests, 100%, 600k invariants, 12 SDK) · threat model · responsible disclosure via GitHub Security Advisories).
+  - **Shared infra:** `DocsLayout` client component с sticky sidebar (lg+) + 4-group nav · `docs-nav.ts` как single source of truth для TOC · `DocsNextLink` для page-to-page connector'ов · CodeBlock helper с optional source-link header'ом.
+  - **План:** `apps/web/DOCS-PLAN.md` (в git) — описывает Phase 3.1→3.5 структуру, использовался для continuity между сессиями.
+  - **Deploys:** `d1a220db` (3.1) · `21973b1a` (3.2) · `69f26cd7` (3.3) · `9db81584` (3.4) · `87488242` (3.5, final). Все на canonical alias `sage-protocol.pages.dev`.
+  - **Commits:** `7744e1c` 3.1 · `6db1802` 3.2 · `43984ff` 3.3 · `f85f64d` 3.4 · `9f8d369` 3.5.
+- `fix` **Site content audit Bucket 1 + 2 закрыт перед docs rollout'ом** (commits `0b7d762` + `a121c7e`). Bucket 1: исправлены 6 broken-link'ов (`site-config.FALLBACK_GITHUB` на правильный `Solitud1nem/sage`, четыре literal `https://github.com` в `/docs`, один в `/changelog`, footer `#x402` сломанный anchor на ADR-0003), `v0.1.0` → `v2.0.0` chip, четыре новых /changelog entry до текущей даты, fix `74 → 77` tests. Bucket 2: новая Home `Patterns` секция (4 карточки агентов с in/out примерами и source-link'ами), Demo CTA copy под три mode'а, две новые /docs cards (Architecture overview + Mainnet demo runs).
+
+---
+
 ## 2026-05-11
 
 - `feat` **Demo расширен на 3 режима: pipeline / sentiment / vision.** К существующему 2-стадийному pipeline (`Summarizer → Translator`) добавлены два single-stage агента — Sentiment (POSITIVE/NEGATIVE/NEUTRAL + score + rationale, gpt-4o-mini) и Vision (описание изображения по public http(s) URL, gpt-4o-mini-vision, hard cap 500 chars). Orchestrator теперь диспетчер по полю `mode` в `POST /api/demo/start`; per-mode валидация input shape (`text` vs `imageUrl` с http(s) проверкой) + per-mode executor address env vars (`SENTIMENT_ADDRESS`, `VISION_ADDRESS`). Frontend `/demo` получил трёхтабовый переключатель `Pipeline | Sentiment | Vision`; Vision-вкладка показывает URL-input с живым preview-thumbnail-ом; per-mode badges цены/stages/signatures читаются из shared lookup-таблиц в `task-input.tsx`. Оба хука (`useDemoStream` для Watch-live, `useWalletDemo` для Try-with-wallet) принимают `agentMode` вторым аргументом `start()` и эмитят mode-aware `DemoResult` (`summary+translation` / `sentiment` / `description`).
