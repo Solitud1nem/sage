@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { DocsLayout } from '@/components/docs/docs-layout';
+import { DocsLayout, DocsNextLink } from '@/components/docs/docs-layout';
 import { GradientText } from '@/components/gradient-text';
 import { githubBlobUrl } from '@/lib/site-config';
 
@@ -219,7 +219,11 @@ export default function DocsUseCasesPage() {
         </p>
       </DecisionCallout>
 
-      <ClosingCta />
+      <DocsNextLink
+        href="/docs/api"
+        label="API reference"
+        hint="Compact SDK lookup — method tables for tasks, agents, x402 transport, and event subscriptions."
+      />
     </DocsLayout>
   );
 }
@@ -290,40 +294,6 @@ function DecisionCallout({
       </h2>
       <div className="space-y-4 text-[15px] leading-[1.65] text-text-muted">{children}</div>
     </section>
-  );
-}
-
-function ClosingCta() {
-  return (
-    <div className="mt-16 pt-8 border-t border-border">
-      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-text-subtle mb-3">
-        keep going
-      </div>
-      <p className="text-[15px] text-text-muted leading-[1.6] max-w-[560px] mb-5">
-        Reference docs (API + Contracts) land in the next phase. In the meantime,
-        the deepest source of truth is the repo and the live demo.
-      </p>
-      <div className="flex flex-wrap gap-3">
-        <Link
-          href="/docs/getting-started"
-          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
-        >
-          ← Getting started
-        </Link>
-        <Link
-          href="/docs/patterns"
-          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
-        >
-          Patterns
-        </Link>
-        <Link
-          href="/demo"
-          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] bg-purple text-[#0A0A0F] text-[13px] font-semibold hover:shadow-[0_0_28px_rgba(167,139,250,0.45)] transition-shadow duration-200"
-        >
-          Try the demo →
-        </Link>
-      </div>
-    </div>
   );
 }
 
