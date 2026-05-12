@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
-import { DocsLayout } from '@/components/docs/docs-layout';
+import { DocsLayout, DocsNextLink } from '@/components/docs/docs-layout';
 import { GradientText } from '@/components/gradient-text';
 import { githubBlobUrl, githubTreeUrl } from '@/lib/site-config';
 
@@ -204,7 +204,11 @@ export default function DocsContractsPage() {
         </p>
       </Section>
 
-      <ClosingCta />
+      <DocsNextLink
+        href="/docs/architecture"
+        label="Architecture"
+        hint="The end-to-end picture — browser → Worker → Fly → Base, money flow, chains, security boundaries, and roadmap."
+      />
     </DocsLayout>
   );
 }
@@ -381,42 +385,6 @@ function CodeBlock({
       <pre className="p-4 text-[12px] font-mono leading-[1.65] text-text overflow-x-auto">
         <code>{children}</code>
       </pre>
-    </div>
-  );
-}
-
-function ClosingCta() {
-  return (
-    <div className="mt-16 pt-8 border-t border-border">
-      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-text-subtle mb-3">
-        keep going
-      </div>
-      <p className="text-[15px] text-text-muted leading-[1.6] max-w-[560px] mb-5">
-        Architecture and Security ship in the next phase. In the meantime,
-        the security checklist and Slither review are linked in the hub.
-      </p>
-      <div className="flex flex-wrap gap-3">
-        <Link
-          href="/docs/api"
-          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
-        >
-          ← API
-        </Link>
-        <a
-          href={githubBlobUrl('docs/architecture/overview.md')}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
-        >
-          Architecture overview (repo) ↗
-        </a>
-        <Link
-          href="/demo"
-          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] bg-purple text-[#0A0A0F] text-[13px] font-semibold hover:shadow-[0_0_28px_rgba(167,139,250,0.45)] transition-shadow duration-200"
-        >
-          Try the demo →
-        </Link>
-      </div>
     </div>
   );
 }

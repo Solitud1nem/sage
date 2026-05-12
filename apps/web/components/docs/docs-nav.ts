@@ -44,8 +44,8 @@ export const DOCS_NAV: DocsNavSection[] = [
   {
     title: 'Operate',
     items: [
-      { slug: '/docs/architecture', label: 'Architecture', status: 'soon' },
-      { slug: '/docs/security', label: 'Security', status: 'soon' },
+      { slug: '/docs/architecture', label: 'Architecture', status: 'live' },
+      { slug: '/docs/security', label: 'Security', status: 'live' },
     ],
   },
 ];
