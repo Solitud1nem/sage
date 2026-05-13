@@ -4,7 +4,22 @@
 
 Формат: обратная хронология (свежее сверху). Для каждой записи — дата, категория, короткое описание.
 
-Категории: `rebrand` | `decision` | `release` | `adr` | `chain` | `scope`.
+Категории: `rebrand` | `decision` | `release` | `adr` | `chain` | `scope` | `incident`.
+
+---
+
+## 2026-05-13
+
+- `incident` **Cloudflare Workers daily quota exhausted by self-polling; misdiagnosed as external leech; cascade to Alchemy auto-disable; full recovery in ~1.5h.**
+  - **Trigger:** четыре demo-agent worker'а (summarizer / translator / vision / sentiment), каждый держит `watchContractEvent('TaskCreated')` через `publicClient`. viem default polling = 4s. 4 × 1 poll/4s = ~3.9 rps стабильно × 24h ≈ 86k req/day против Workers Free 100k/day квоты. Window начался ~3:00 MSK = ~00:00 UTC (новые сутки), к утру упёрлись в потолок и Cloudflare выдал `daily requests limit exceeded`.
+  - **Misdiagnosis (`2d15de1`):** в логах Worker'а доминировал IP `64.34.84.125`, ASN 396356 (Climax Media Inc., Ashburn), UA `node`. Принял за external scraper-leech. Задеплоил ASN-level early-return 403. Сломал собственный Fly orchestrator: AS396356 оказался transit-карьером Fly.io в iad. Логи Fly: `Status: 403, body "Blocked"` на `eth_chainId` → orchestrator boot фейлил `resolveChainInfo` → `/health` показывал `chainId=0`. См. GOTCHAS «AS396356 в Cloudflare-логах…» про диагностическую ловушку.
+  - **Cascade:** Fly down → demo broken. Параллельно Alchemy app auto-disabled Base Mainnet (тот же self-polling сжёг Alchemy free-tier CU). Цепочка восстановления потребовала: (а) пользователь re-enable Base Mainnet в Alchemy dashboard, (б) revert ASN-блока в Worker, (в) restart Fly machines чтобы boot-time `chainInfo` подхватил рабочий RPC.
+  - **Real fix:**
+    - `2510313` — revert ASN block; добавлена `isAuthorized` gate на `/api/rpc` в Worker: browser path = `Origin` allowlist, backend path = `x-sage-backend` shared key. Anonymous Node-clients → 403. Закрывает RPC-прокси-surface на случай настоящего external scraper'а в будущем.
+    - `b5e051b` — bump `pollingInterval` с viem default 4s до 15s в `createPublicClient`/`createWalletClient`. New baseline ≈ 23k req/day от event-watching. Headroom ×4. Trade-off: average task detection latency 2s → 7.5s (negligible UX impact на demo length 11-22s).
+    - Secrets staged out-of-band: `wrangler secret put SAGE_BACKEND_KEY`, `fly secrets set SAGE_BACKEND_KEY=…`. Worker version `c8a5f4d7-eba8-43de-a8a8-2cfc7feec2da` после deploy.
+  - **Post-recovery verified:** `/health` показывает chainId=8453, sponsor accepting, balance 10.758 USDC. Three-path test pass: anonymous → 403; Origin browser → 200; backend key → 200.
+  - **Уроки:** новые GOTCHAS — про ASN-диагностическую ловушку и про viem polling-rate × workers против free-tier квоты. Будущим worker-добавлениям — прикидывать polling volume перед deploy.
 
 ---
 
