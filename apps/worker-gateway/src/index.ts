@@ -22,30 +22,18 @@ export interface Env {
   ALCHEMY_KEY: string;
   DAILY_LIMIT: string;
   ALLOWED_ORIGINS: string;
+  /**
+   * Shared secret for the backend (Fly orchestrator) path on /api/rpc.
+   * Browsers prove themselves via the Origin header (allow-list); the
+   * orchestrator is a Node client without Origin, so it sends this key in
+   * `x-sage-backend`. Set with `wrangler secret put SAGE_BACKEND_KEY`.
+   */
+  SAGE_BACKEND_KEY: string;
 }
-
-/**
- * Account-level abuse guard. ASNs in this list are observed leeching
- * /api/rpc (free Alchemy proxy from a hosting/VPS network, not a real
- * visitor). Returning 403 at the very top short-circuits before any
- * downstream call, so blocked requests cost ~0 CPU.
- *
- * Incident 2026-05-13: AS396356 (Climax Media Inc., Ashburn) sustained
- * ~3.9 rps POST /api/rpc for ~10h overnight and burned the Cloudflare
- * Workers daily quota (100k req/day on Free). Real users come from
- * consumer ISPs, not from this ASN — block is surgical. Widen if abuse
- * shifts to another datacenter ASN; revert by removing the entry.
- */
-const BLOCKED_ASNS = new Set<number>([396356]);
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
-
-    const asn = req.cf?.asn;
-    if (typeof asn === 'number' && BLOCKED_ASNS.has(asn)) {
-      return new Response('Blocked', { status: 403 });
-    }
 
     if (req.method === 'OPTIONS') {
       return corsPreflight(req, env);

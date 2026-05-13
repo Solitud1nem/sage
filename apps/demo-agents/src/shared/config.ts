@@ -54,15 +54,24 @@ export function createSageFromConfig(config: AgentConfig) {
   const account = privateKeyToAccount(config.privateKey);
   const { viem: viemChain, sage: sageChain } = CHAIN_MAP[config.chain];
 
+  // Backend-path auth header for the Worker RPC gate. The Worker enforces
+  // an allow-list on /api/rpc: browsers pass on the Origin header, the
+  // orchestrator (Node — no Origin) passes via this shared secret. Absent
+  // in local dev when RPC_URL points straight at a public node.
+  const backendKey = process.env['SAGE_BACKEND_KEY'];
+  const transportOpts = backendKey
+    ? { fetchOptions: { headers: { 'x-sage-backend': backendKey } } }
+    : undefined;
+
   const publicClient = createPublicClient({
     chain: viemChain,
-    transport: http(config.rpcUrl),
+    transport: http(config.rpcUrl, transportOpts),
   });
 
   const walletClient = createWalletClient({
     account,
     chain: viemChain,
-    transport: http(config.rpcUrl),
+    transport: http(config.rpcUrl, transportOpts),
   });
 
   const sage = createSageClient({
