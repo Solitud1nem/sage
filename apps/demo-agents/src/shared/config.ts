@@ -63,15 +63,25 @@ export function createSageFromConfig(config: AgentConfig) {
     ? { fetchOptions: { headers: { 'x-sage-backend': backendKey } } }
     : undefined;
 
+  // Bumped from viem's default 4s. The four worker agents
+  // (summarizer/translator/vision/sentiment) each use watchContractEvent
+  // on TaskCreated; at 4s × 4 = ~86k requests/day → exhausted the
+  // Cloudflare Workers Free-tier 100k/day quota on 2026-05-13. At 15s
+  // baseline is ~23k/day, plenty of headroom. Average task detection
+  // latency goes from 2s to ~7.5s — acceptable demo UX.
+  const POLL_INTERVAL_MS = 15_000;
+
   const publicClient = createPublicClient({
     chain: viemChain,
     transport: http(config.rpcUrl, transportOpts),
+    pollingInterval: POLL_INTERVAL_MS,
   });
 
   const walletClient = createWalletClient({
     account,
     chain: viemChain,
     transport: http(config.rpcUrl, transportOpts),
+    pollingInterval: POLL_INTERVAL_MS,
   });
 
   const sage = createSageClient({
