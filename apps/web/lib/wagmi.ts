@@ -28,6 +28,11 @@ export const wagmiConfig: ReturnType<typeof createConfig> = createConfig({
     [baseSepolia.id]: http(rpcBaseSepolia),
     [mainnet.id]: http(rpcEthMainnet),
   },
+  // Bumped from wagmi's 4s default. Live tx stream + any watch-event
+  // hook polls at this rate; an ambient feed doesn't need sub-30s latency,
+  // and at 4s each visitor was spending ~0.25 rps against the Cloudflare
+  // Worker proxy — see the 2026-05-13 incident note in CHANGELOG.
+  pollingInterval: 30_000,
   connectors: [
     // Accepts both Coinbase Smart Wallet (passkey-based) and the regular
     // Coinbase Wallet extension/mobile. Design spec labels this "recommended".
