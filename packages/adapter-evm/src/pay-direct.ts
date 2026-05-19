@@ -6,7 +6,10 @@
  * This is a fallback for when the x402 facilitator is unreachable.
  */
 
-import type { PublicClient, WalletClient } from 'viem';
+import type { Account, Chain, PublicClient, Transport, WalletClient } from 'viem';
+
+/** See GOTCHAS 2026-05-19 — walletClient must have chain + account bound. */
+type BoundWalletClient = WalletClient<Transport, Chain, Account>;
 
 const ERC20_ABI = [
   {
@@ -40,7 +43,7 @@ export interface PayDirectClient {
 
 export function createPayDirectClient(
   _publicClient: PublicClient,
-  walletClient: WalletClient,
+  walletClient: BoundWalletClient,
 ): PayDirectClient {
   return {
     async payDirect({ to, amount, token }) {
@@ -49,7 +52,7 @@ export function createPayDirectClient(
         abi: ERC20_ABI,
         functionName: 'transfer',
         args: [to, amount],
-      } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+      });
       return hash;
     },
   };

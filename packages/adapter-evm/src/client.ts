@@ -14,7 +14,7 @@
  *   const taskId = await sage.tasks.createTask({ ... });
  */
 
-import type { PublicClient, WalletClient } from 'viem';
+import type { Account, Chain, PublicClient, Transport, WalletClient } from 'viem';
 import type { ChainAdapter, ChainInfo, AgentClient, TaskClient } from '@sage/core';
 import type { ChainConfig } from './chains/base.js';
 import type { X402Client } from './x402.js';
@@ -27,8 +27,13 @@ import { createPayDirectClient } from './pay-direct.js';
 export interface CreateSageClientOptions {
   /** Chain configuration (e.g. baseSepolia, base). */
   chain: ChainConfig;
-  /** viem WalletClient with account for signing transactions. */
-  walletClient: WalletClient;
+  /**
+   * viem WalletClient with chain + account bound. Construct via
+   * `createWalletClient({ chain, account, transport })`. The chain binding
+   * is required so `writeContract` calls in this adapter type-check
+   * without repeating `chain` at every call site (see GOTCHAS 2026-05-19).
+   */
+  walletClient: WalletClient<Transport, Chain, Account>;
   /** viem PublicClient for reading chain state. */
   publicClient: PublicClient;
 }

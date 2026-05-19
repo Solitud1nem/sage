@@ -1,8 +1,16 @@
-import type { PublicClient, WalletClient } from 'viem';
+import type { Account, Chain, PublicClient, Transport, WalletClient } from 'viem';
 import type { TaskId, TaskRecord, TaskSpec } from '@sage/core';
 import type { TaskClient } from '@sage/core';
 import { agentId, taskId, TaskStatus } from '@sage/core';
 import { taskEscrowAbi } from './abi/index.js';
+
+/**
+ * WalletClient with chain + account bound. Required for `writeContract` to
+ * type-check without an explicit `chain` parameter at every call site
+ * (see GOTCHAS 2026-05-19). Callers must pass a walletClient created with
+ * `createWalletClient({ chain, account, … })`.
+ */
+type BoundWalletClient = WalletClient<Transport, Chain, Account>;
 
 /** Maps on-chain TaskStatus enum (uint8) to SDK TaskStatus. */
 const STATUS_MAP: Record<number, TaskStatus> = {
@@ -17,7 +25,7 @@ const STATUS_MAP: Record<number, TaskStatus> = {
 
 export function createTaskEscrowClient(
   publicClient: PublicClient,
-  walletClient: WalletClient,
+  walletClient: BoundWalletClient,
   escrowAddress: `0x${string}`,
   usdcAddress: `0x${string}`,
 ): TaskClient {

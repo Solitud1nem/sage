@@ -16,15 +16,16 @@ Three-process Fly app (`sage-demo-agents`) running orchestrator + summarizer + t
 
 ## First deploy
 
+> **Important:** все `fly` команды этого runbook'а запускаются **из корня репо** (`/mnt/d/Sage`), не из `apps/demo-agents/`. Dockerfile ожидает monorepo build context (видеть `packages/*` + `apps/demo-agents/*`). См. корневой `.dockerignore` first-line comment. Mis-step документирован в session 2026-05-19 M10.2.9: `fly deploy` из `apps/demo-agents/` падает с `failed to compute cache key: "/apps/demo-agents": not found`.
+
 ```bash
 # From repo root.
-cd apps/demo-agents
 
 # 1. Create the Fly app (no deploy yet).
-fly launch --no-deploy --name sage-demo-agents --region iad
+fly launch --no-deploy --name sage-demo-agents --region iad -c apps/demo-agents/fly.toml
 
 # 2. Set secrets (three EOAs + OpenAI).
-fly secrets set \
+fly secrets set -a sage-demo-agents \
   PRIVATE_KEY=0x<orchestrator_key> \
   SUMMARIZER_PRIVATE_KEY=0x<summarizer_key> \
   TRANSLATOR_PRIVATE_KEY=0x<translator_key> \
@@ -34,7 +35,7 @@ fly secrets set \
   RPC_URL=https://base-mainnet.g.alchemy.com/v2/<alchemy_key>
 
 # 3. Deploy.
-fly deploy
+fly deploy -c apps/demo-agents/fly.toml
 ```
 
 Expected: three machines spin up (one per process), orchestrator gets a public URL like `https://sage-demo-agents.fly.dev`.

@@ -4,7 +4,48 @@
 
 Формат: обратная хронология (свежее сверху). Для каждой записи — дата, категория, короткое описание.
 
-Категории: `rebrand` | `decision` | `release` | `adr` | `chain` | `scope` | `incident`.
+Категории: `rebrand` | `decision` | `release` | `adr` | `chain` | `scope` | `incident` | `research`.
+
+---
+
+## 2026-05-19 (continued — M10 Week 1 + Week 2 shipped)
+
+- `milestone` **Milestone 10 Week 1 closed (M10.1.1–M10.1.7).** Foundation для observable-decomposition в коде:
+  - `packages/core/src/types/plan.ts` — `Plan` / `SubTask` / `ClassificationResult` / `Decomposability` / `Stakes` точно по schema `classification-trigger-design.md` §4. `Plan` shape — approved-snapshot (drops classifier-only fields).
+  - `apps/demo-agents/src/parent/heuristic.ts` — pure-function deterministic cross-check (composite verbs / scope quantifiers / irreversibility verbs / $-value regex). Halves `confidence_*` per §5 asymmetric-bias rule.
+  - `apps/demo-agents/src/parent/classify.ts` — 5 mock templates (translate / summarize / research+report / plan-trip / send-funds) + clarify-with-user fallback. Heuristic применяется post-mock.
+  - 53 unit tests added (heuristic 15 + classify 12 + plan 5 + classify-trace 9 + plan-runner и codec в Week 2).
+- `milestone` **Milestone 10 Week 2 closed (M10.2.1–M10.2.9).** Live на `sage-demo-agents.fly.dev` 2026-05-19 ~20:48 UTC. Что появилось:
+  - **Real LLM classifier** — `classify.ts` теперь дispatch'ит на OpenAI gpt-4o-mini через function-calling (modern `tools` API + `tool_choice`). Mock сохранён как fallback при отсутствии `OPENAI_API_KEY`. Retry-once на malformed/5xx; degraded result с `confidence_*=0` на second failure (forces composite/high — maximum ceremony per §5).
+  - **Structured trace logging** — 5 JSON-line events per classify pass (`started → llm_attempt → raw → heuristic_applied → completed`), плюс `degraded` на double-failure. Stderr, готово к PostHog ingestion в M10.4.5.
+  - **`parent-id-codec.ts`** — `data:application/json,{"parent":{"run","sub"},"spec":...}` envelope. encode/decode/decodeSpec. Off-chain indexer восстановит parent → sub-task graph из `TaskCreated` events.
+  - **`plan-runner.ts`** — topo-sorted sequential execution (избегает nonce race на sponsor wallet), 10s polling (явно, per GOTCHAS 2026-05-13), full SSE lifecycle events (`plan_started → subtask_created/accepted/completed/paid → plan_completed`).
+  - **`agent.ts`** — `executePlan(plan, bundle)` + `classifyAndExecute(brief, bundle, env)`. Регистрирует channel в общем `demoRegistry`.
+  - **3 новых endpoints** в `server.ts`: `POST /api/demo/composite/classify`, `POST /api/demo/composite/execute`, `GET /api/demo/composite/stream/:runId`. Existing endpoints (`/health`, `/api/demo/start`, `/api/demo/stream/:id`, `/process`) нетронуты. Sponsor balance guard переиспользован.
+  - **README** `apps/demo-agents/src/parent/` — file map, parent_id convention, lifecycle event table, curl-runbook, debugging notes.
+  - Production smoke (2026-05-19 21:21 UTC): real LLM brief «plan a Tokyo trip» вернул `composite/high`, `plan_len:4`, `confidence_decomposability:0.8` (heuristic неактивен, только 1 cue), latency ~7s. Brief «research the top 3 stablecoin yield products…» — `composite/high`, heuristic halved 0.8 → 0.4 на «research» + «top N», `plan_len:2` с `depends_on:[1]` на втором sub-task'е.
+- `decision` Adapter-EVM typecheck drift зафиксирован: `walletClient: WalletClient` → `WalletClient<Transport, Chain, Account>` в `task-escrow.ts` / `agent-registry.ts` / `pay-direct.ts` / `client.ts`. Удалён `as any` cast в `pay-direct.ts`. Pre-existing viem-typing шум устранён до начала M10.2.4. См. GOTCHAS 2026-05-19.
+- `decision` `apps/demo-agents/package.json` получил `vitest@^3` devDep + `test` script (соответствует @sage/core). Покрывает test/parent/ — 94 теста суммарно.
+- `research` **Observation (calibration):** LLM-classifier выставляет `stakes:"high"` reversible research-задачам («top 3 stablecoin yield products», «plan a Tokyo trip») за счёт ассоциации с финансовыми/денежными доменами, даже когда heuristic не флагает stakes-cues. Это та самая overconfidence/miscalibration о которой говорится в `classification-trigger-design.md` §5 caveat. Не блокер v1; ожидается, что override-driven empirical calibration (§9) исправит после ~200 user runs.
+
+## 2026-05-19 (continued — implementation planning)
+
+- `milestone` **Milestone 10 — Observable decomposition prototype зафиксирован.** Все три новых файла:
+  - `apps/demo-agents/PARENT-PLAN.md` — детальный 4-недельный план (~3000 слов) с разбивкой по файлам, acceptance criteria, dependencies on user
+  - `apps/demo-agents/CLAUDE.md` — локальный entry-point для Claude Code, открывающего эту директорию: что не трогать (production-critical), что меняем сейчас (M10), запреты (10s polling minimum, OpenAI key reuse)
+  - `TASKS.md` Milestone 10 — 38 атомарных задач разбитых на 4 недели (M10.1.x types/classifier skeleton, M10.2.x LLM + parent runtime + orchestrator endpoints, M10.3.x frontend UI, M10.4.x polish + ADR-0008 + blog)
+- `decision` Текущая активная работа в репо — **strictly additive**. Existing `/demo` (3-mode pipeline/sentiment/vision), 4 worker-агента, контракты на Base mainnet, ABI — не трогаются. Phase D-строить идёт через new файлы в `apps/demo-agents/src/parent/` + `apps/web/app/demo/composite/` + new types в `@sage/core`.
+- `decision` Try-with-wallet UI режим скрыт в `apps/web/components/demo/task-input.tsx` (комментарий вместо `<ModeToggle>`) — wallet code paths сохранены, можно вернуть одной строкой. Снимает M9.5.3 production-blocker без чинки env vars в deploy-web.yml. `DAILY_LIMIT` в Worker rate-limit: 100 → 10 (prototype-stage default).
+- `decision` Корневой `CLAUDE.md` обновлён: «Следующий шаг» теперь явно указывает на M10 + ссылается на PARENT-PLAN.md. М9 operational backlog отложен с пометкой «возвращаемся когда будет что показывать людям».
+
+## 2026-05-19
+
+- `decision` **Ethos refined в `CLAUDE.md`.** Sage позиционируется как мульти-чейн поставщик settlement-инфраструктуры для AI-агентов — пользователь сам выбирает чейн, мы предоставляем единый API + UI поверх. Стадия: explore-with-ambition, не go-to-market и не нейтральный research-only. Метрики adoption / MRR / customers нерелевантны; цель — выгодно отличаться на мизер через свой угол и инженерную аккуратность. Полная формулировка — в начале `CLAUDE.md` секция «Project ethos».
+- `adr` **ADR-0007 Accepted** — Observable decomposition: plan-then-execute as the default flow for composite agent tasks. Композитные задачи декомпозируются внешне как граф атомарных settlement-записей, surface'ятся пользователю до исполнения как структурированный план с per-step verification gates. Двумерный trigger (decomposability × stakes) определяет UX intensity. Без контрактных изменений — pattern + tooling поверх существующих primitives (`TaskEscrow` на Base, `ERC-8183` Job на Arc). Полное обоснование в `docs/research/observable-decomposition.md`, технический design триггера в `docs/research/classification-trigger-design.md`.
+- `research` Опубликованы два thinking-артефакта:
+  - `docs/research/observable-decomposition.md` (~2900 слов) — статья, артикулирующая зачем выводить декомпозицию из LLM-контекста в structured artifact, где это имеет ценность, где избыточно, что остаётся открытым.
+  - `docs/research/classification-trigger-design.md` (~2400 слов) — технический design LLM-driven классификатора. Двумерные оси с операционализированными определениями, signal model, structured output schema, asymmetric confidence fallback с heuristic cross-check (поскольку LLM self-reported confidence ненадёжна), open calibration questions (multi-LLM ensemble / logit-based / override-driven empirical).
+- `decision` Ввели **ось A11 — composition pattern** в архитектурный реестр (closed by ADR-0007). Обновлён `docs/adr/README.md`: индекс + пересчёт ожидаемых ADR (0008–0014 включая planned `Arc as sibling chain` и `plan artifact storage`).
 
 ---
 

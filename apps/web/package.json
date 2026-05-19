@@ -14,6 +14,7 @@
     "@sage/core": "workspace:*",
     "@sage/adapter-evm": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
+    "@xyflow/react": "^12.0.0",
     "connectkit": "^1.9.0",
     "next": "^15.1.4",
     "posthog-js": "^1.203.3",

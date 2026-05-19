@@ -56,7 +56,7 @@ interface TaskInputProps {
 
 export function TaskInput({
   mode,
-  onModeChange,
+  onModeChange: _onModeChange,
   agentMode,
   onAgentModeChange,
   status,
@@ -81,7 +81,9 @@ export function TaskInput({
           <span className="text-text-subtle">01</span>{' '}
           <span className="font-medium">Task</span>
         </h2>
-        <ModeToggle mode={mode} onChange={onModeChange} disabled={isRunning} />
+        {/* Try-with-wallet temporarily hidden — prototype stage. Wallet code paths preserved
+            (useWalletDemo, signUsdcPermit, etc.) and can be re-enabled by restoring this toggle. */}
+        {/* <ModeToggle mode={mode} onChange={onModeChange} disabled={isRunning} /> */}
       </header>
 
       <AgentModeTabs
@@ -139,7 +141,11 @@ export function TaskInput({
   );
 }
 
-function ModeToggle({
+// Kept as dead code: Try-with-wallet UI is hidden until env vars stabilize.
+// Exported (rather than deleted) so TS's noUnusedLocals doesn't trip on it;
+// no caller currently imports it. Restore the toggle by re-adding the JSX
+// element where `<ModeToggle …>` used to live.
+export function _ModeToggle({
   mode,
   onChange,
   disabled,

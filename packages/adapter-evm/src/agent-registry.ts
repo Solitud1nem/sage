@@ -1,12 +1,15 @@
-import type { PublicClient, WalletClient } from 'viem';
+import type { Account, Chain, PublicClient, Transport, WalletClient } from 'viem';
 import type { AgentId, AgentRecord } from '@sage/core';
 import type { AgentClient, ListAgentsOptions, ListAgentsResult } from '@sage/core';
 import { agentId } from '@sage/core';
 import { agentRegistryAbi } from './abi/index.js';
 
+/** See GOTCHAS 2026-05-19 — walletClient must have chain + account bound. */
+type BoundWalletClient = WalletClient<Transport, Chain, Account>;
+
 export function createAgentRegistryClient(
   publicClient: PublicClient,
-  walletClient: WalletClient,
+  walletClient: BoundWalletClient,
   registryAddress: `0x${string}`,
 ): AgentClient {
   return {

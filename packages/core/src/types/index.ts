@@ -10,3 +10,11 @@ export { taskId, TaskStatus } from './task.js';
 
 export type { PriceSpec, TokenSymbol } from './payment.js';
 export { PaymentMethod } from './payment.js';
+
+export type {
+  Decomposability,
+  Stakes,
+  SubTask,
+  ClassificationResult,
+  Plan,
+} from './plan.js';
