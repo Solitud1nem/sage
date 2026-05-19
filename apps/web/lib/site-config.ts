@@ -15,8 +15,12 @@ export const siteConfig = {
   tagline: 'The settlement layer for autonomous work',
   description:
     'Task-level escrow for AI agents. USDC-settled on Base, x402-compatible, deterministic addresses across every EVM. Built for agents that commit to more than a single call.',
-  url: (process.env.NEXT_PUBLIC_SITE_URL ?? FALLBACK_SITE).replace(/\/$/, ''),
-  github: (process.env.NEXT_PUBLIC_GITHUB_URL ?? FALLBACK_GITHUB).replace(/\/$/, ''),
+  // `||` (not `??`) so empty-string env values from GitHub Actions
+  // (`${{ vars.X }}` interpolates to '' when the var is unset) fall through
+  // to the fallback. Without this, `new URL('')` in `app/layout.tsx`
+  // crashes the static export build. Bit by this in CI 2026-05-19.
+  url: (process.env.NEXT_PUBLIC_SITE_URL || FALLBACK_SITE).replace(/\/$/, ''),
+  github: (process.env.NEXT_PUBLIC_GITHUB_URL || FALLBACK_GITHUB).replace(/\/$/, ''),
   packages: {
     core: 'packages/core',
     adapterEvm: 'packages/adapter-evm',
