@@ -8,6 +8,20 @@
 
 ---
 
+## 2026-05-20 — M10 complete (all 4 weeks, 38/38 tasks, live on prod)
+
+Milestone 10 closed end-to-end. The observable-decomposition pattern is now in code, on Base mainnet, with operational telemetry, dispute-path skeleton, and a documented smoke matrix. ADR-0008 (Sage angle / position) is Accepted; the angle exists in code, not only in docs.
+
+- `milestone` **All 38 Milestone 10 sub-tasks closed.** W1 (types + classifier skeleton, 7), W2 (real LLM + parent runtime + orchestrator endpoints, 9), W3 (frontend composite UI + prod deploy, 9), W4 (narrative close-out, operational polish, dispute path skeleton, 13). Live URL: `https://sage-protocol.pages.dev/demo/composite` → `sage-demo-agents.fly.dev/api/demo/composite/*` → Base mainnet.
+- `release` **8 commits this session** since `e247e01`: `662e651` (W1+W2+W3 mega) → `079cdb4` (site-config CI fix) → `43f3f50` (.npmrc wrangler-action workspace toggle) → `f9c373c` (W3 prod-bring-up hot-fixes: auto-assign executor, drawer click, summarizer dual-mode) → `4c55425` (W4 narrative: ADR-0008 Accepted, blog, README polish, research §11) → `f98fc56` (W4 operational polish: retry hardening, PostHog 10 events, Sentry capture, smoke matrix runbook) → `879d66c` (W4 dispute path skeleton: subtask_disputed event + replan-prompt UI) → fallback-to-summarizer hot-fix landing here as the closer.
+- `release` **194 tests green** end of session: @sage/core 11, @sage/contracts 77 + 4 invariants, @sage/adapter-evm 12, @sage/demo-agents 96. Production build clean (composite page 42KB / 234KB First Load, no wagmi pull-in).
+- `decision` **Default-fallback to summarizer** in `resolveExecutorByType`. Previously unknown sub-task types ("flights", "itinerary", "budget" — anything outside the 4 stem-buckets) returned `undefined` and blocked the whole plan. Now they default to summarizer (which has dual-mode execution prompt) so the plan attempts execution rather than dying. Trade-off: composite plans with novel types route everything to one worker. Acceptable for v1; M10.5 + Phase B introduce a proper worker manifest and capability resolution. DevTools console warns on each fallback so the operator sees what's drifting.
+- `decision` **Two known acceptable v1 limitations carried forward.** (1) Translator / sentiment / vision workers remain single-mode; composite sub-tasks routed to them produce echo-style output. The frontend stem matcher routes most types to summarizer so this rarely surfaces, but it's the next-largest gap. (2) Dispute-path Retry / Change-executor buttons are present-but-disabled in `replan-prompt.tsx`; the underlying server endpoint (`/composite/retry-subtask` + plan-runner replan-graft) ships in M10.5. Cancel works.
+- `adr` **ADR-0008 Accepted** mid-session 2026-05-20. Position statement: "multi-chain settlement infrastructure for AI agents, distinguished by observable decomposition". Joins ADR-0007 (the embodiment in code) as the canonical angle pair. Reference set for external readers: ADR-0007 + ADR-0008 + `docs/research/observable-decomposition.md` + `docs/research/classification-trigger-design.md` + `docs/blog/observable-decomposition-shipped.md` (1755 words reflective) + live `/demo/composite`.
+- `release` **Smoke matrix passed.** Per `docs/runbooks/m10-smoke-matrix.md` — 5 briefs + 1 classify-only high-stakes row exercised end-to-end on Base mainnet. Sponsor wallet spend ~1.0-1.5 USDC out of ~10.7 USDC reserve. All rows hit pass criteria.
+
+---
+
 ## 2026-05-20 — M10 Week 3 shipped + Week 4 narrative close-out
 
 - `milestone` **Milestone 10 Week 3 closed (M10.3.1–M10.3.9).** Frontend для observable-decomposition живёт на `sage-protocol.pages.dev/demo/composite`:

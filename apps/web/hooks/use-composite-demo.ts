@@ -603,5 +603,26 @@ function resolveExecutorByType(type: string): `0x${string}` | undefined {
       }
     }
   }
+
+  // Default fallback: the summarizer (in dual-mode it executes any text task).
+  // The alternative — `undefined` → "unassigned" → plan-runner refuses to
+  // spawn → plan dies — is too punishing for the realistic case where the
+  // LLM emits a novel type (`flights`, `itinerary`, `budget`, `phrasebook`,
+  // …) we haven't enumerated. Better to attempt execution with best-effort
+  // output than to block the whole plan on one unknown capability. Users
+  // can still override per-subtask in the plan-editor.
+  // Trade-off: composite plans with unusual types route everything to one
+  // worker. Acceptable for v1; M10.5 + Phase B introduce a worker manifest
+  // and proper capability resolution.
+  if (typeof window !== 'undefined') {
+    // Browser-only log so the operator can see this in DevTools when
+    // troubleshooting; no need to ship the warning in SSR/prerender.
+    console.warn(
+      `[composite] type "${type}" had no stem match — defaulting to summarizer`,
+    );
+  }
+  if (summarizer && /^0x[a-fA-F0-9]{40}$/.test(summarizer)) {
+    return summarizer as `0x${string}`;
+  }
   return undefined;
 }
