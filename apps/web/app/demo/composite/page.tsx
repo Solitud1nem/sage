@@ -200,6 +200,7 @@ export default function CompositePage() {
                   runtime={demo.runtimes[disputedSub.id]}
                   reason="disputed"
                   onCancelRun={handleReset}
+                  onRetry={demo.retry}
                 />
               );
             }

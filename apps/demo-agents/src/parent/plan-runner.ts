@@ -17,10 +17,13 @@
  *   Off-chain indexers reconstruct the parent → sub-task graph from these.
  * - All lifecycle events are emitted into the SSE `channel`. The frontend
  *   plan-graph component renders sub-task nodes from these.
+ * - On dispute (M10.5.A): the runner pauses via `awaitUserDecision` instead
+ *   of failing the plan. The orchestrator's `/composite/retry-subtask`
+ *   endpoint resolves the wait — either re-spawn with the same or a new
+ *   executor, or surface `plan_failed`.
  *
  * Out of scope here (deferred to later milestones):
  * - Per-sub-task user approval gate (M10.3 / M10.4 — frontend + endpoint).
- * - Dispute handling beyond emitting the event (M10.4.1).
  * - Parallel execution of independent sub-tasks (deferred).
  */
 
@@ -30,6 +33,7 @@ import type { Plan, SubTask } from '@sage/core';
 import type { SseChannel } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { encodeParentId } from './parent-id-codec.js';
+import { awaitUserDecision } from './run-registry.js';
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
 
@@ -66,6 +70,19 @@ const DEFAULT_SUBTASK_TIMEOUT_MS = 5 * 60 * 1000;
 class PlanError extends Error {}
 
 /**
+ * Thrown by `pollUntilCompleted` when a sub-task transitions to `Disputed`.
+ * Caught by the per-sub-task retry loop in `runPlan`, which pauses for a
+ * user decision via `awaitUserDecision` and either retries or surfaces
+ * `plan_failed`. Distinct class so we don't conflate disputes with other
+ * lifecycle failures.
+ */
+class DisputedError extends Error {
+  constructor(public readonly subId: number) {
+    super(`subtask #${subId} disputed`);
+  }
+}
+
+/**
  * Execute a Plan end-to-end. Resolves when every sub-task has reached `paid`
  * (or one has errored — channel emits `plan_failed` and the function returns
  * without throwing, since the channel is the canonical progress surface).
@@ -99,32 +116,80 @@ export async function runPlan(
   const txHashes: string[] = [];
 
   for (const sub of order) {
-    try {
-      const result = await runSubtask({
-        sub,
-        runId: options.runId,
-        bundle,
-        channel,
-        timeoutMs,
-        txHashes,
-      });
-      results.set(sub.id, result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      channel.emit('subtask_errored', { subId: sub.id, error: message });
-      channel.emit('plan_failed', {
-        runId: options.runId,
-        failedSubId: sub.id,
-        error: message,
-      });
-      channel.close({
-        runId: options.runId,
-        ok: false,
-        error: message,
-        completedSubIds: Array.from(results.keys()),
-        txHashes,
-      });
-      return;
+    // Per-sub-task retry loop. The default path executes once and breaks.
+    // On dispute we pause for a user decision (via run-registry) and either
+    // re-enter the loop with a possibly-different executor, or surface
+    // plan_failed and exit. Non-dispute errors fall through to the existing
+    // failure path unchanged.
+    let currentSub = sub;
+    let attempt = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        const result = await runSubtask({
+          sub: currentSub,
+          runId: options.runId,
+          bundle,
+          channel,
+          timeoutMs,
+          txHashes,
+        });
+        results.set(sub.id, result);
+        break;
+      } catch (err) {
+        if (err instanceof DisputedError) {
+          const decision = await awaitUserDecision(options.runId, sub.id);
+          if (decision.kind === 'retry') {
+            attempt += 1;
+            const nextExecutor = decision.newExecutor ?? sub.executor_address;
+            currentSub = nextExecutor
+              ? { ...sub, executor_address: nextExecutor }
+              : sub;
+            channel.emit('subtask_retrying', {
+              subId: sub.id,
+              attempt,
+              executor: nextExecutor,
+            });
+            continue;
+          }
+          const reason =
+            decision.kind === 'timeout'
+              ? `subtask #${sub.id} paused without decision (timeout)`
+              : `subtask #${sub.id} cancelled by user after dispute`;
+          channel.emit('plan_failed', {
+            runId: options.runId,
+            failedSubId: sub.id,
+            error: reason,
+            reason:
+              decision.kind === 'timeout'
+                ? 'pause_timeout'
+                : 'user_cancelled_after_dispute',
+          });
+          channel.close({
+            runId: options.runId,
+            ok: false,
+            error: reason,
+            completedSubIds: Array.from(results.keys()),
+            txHashes,
+          });
+          return;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        channel.emit('subtask_errored', { subId: sub.id, error: message });
+        channel.emit('plan_failed', {
+          runId: options.runId,
+          failedSubId: sub.id,
+          error: message,
+        });
+        channel.close({
+          runId: options.runId,
+          ok: false,
+          error: message,
+          completedSubIds: Array.from(results.keys()),
+          txHashes,
+        });
+        return;
+      }
     }
   }
 
@@ -243,17 +308,17 @@ async function pollUntilCompleted(
       if (task.status === TaskStatus.Disputed) {
         // M10.4.1: dedicated event for dispute resolution UI (M10.4.3
         // replan-prompt). Plus the firehose `subtask_status` event for
-        // graph-rendering consistency. Both fire, then the runner throws
-        // — the v1 hook surfaces `disputedSubId` and shows the prompt;
-        // actual retry / change-executor wiring needs M10.5 backend
-        // endpoint and is not in this iteration.
+        // graph-rendering consistency.
+        // M10.5.A: throws `DisputedError` so the per-sub-task retry loop
+        // in `runPlan` can distinguish dispute (pause-for-user-decision)
+        // from other lifecycle failures (immediate plan_failed).
         channel.emit('subtask_disputed', {
           subId,
           taskId: taskId.toString(),
           resultUri: task.resultUri,
         });
         channel.emit('subtask_status', { subId, status: 'disputed' satisfies SubTaskRunStatus });
-        throw new PlanError(`subtask #${subId} disputed`);
+        throw new DisputedError(subId);
       }
     }
 

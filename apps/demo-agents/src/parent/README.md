@@ -22,7 +22,8 @@ This module is a thin coordinator. Most of the work happens in:
 | `classify.ts` | LLM-backed brief classifier (gpt-4o-mini, function-calling). Falls back to a 5-template mock when `openaiApiKey` is absent. Retries once on malformed responses; returns a degraded `confidence_*=0` result on second failure. Emits 5 structured trace events per pass. |
 | `heuristic.ts` | Deterministic cross-check that halves `confidence_*` when the brief contains ≥ 2 composite cues or any stakes cues. Pure function. |
 | `parent-id-codec.ts` | `encodeParentId({run, sub}, spec)` → `data:application/json,...` URI carrying both the parent_id and the executor-facing spec text. `decodeParentId(specUri)` extracts the pair; returns `null` for non-envelope URIs. |
-| `plan-runner.ts` | `runPlan(plan, channel, bundle, {runId})` — executes the plan one sub-task at a time in topological order, polling `getTask` every 10s, emitting lifecycle events into the SSE channel. |
+| `plan-runner.ts` | `runPlan(plan, channel, bundle, {runId})` — executes the plan one sub-task at a time in topological order, polling `getTask` every 10s, emitting lifecycle events into the SSE channel. On dispute it pauses via `run-registry` and awaits a user decision instead of failing the plan. |
+| `run-registry.ts` | In-memory pause/resume coordination keyed by `runId`. `awaitUserDecision(runId, subId, timeoutMs)` blocks the runner; `resolveUserDecision(runId, subId, action)` resolves it. Default pause timeout 2 min; on expiry the runner emits `plan_failed` with `reason: 'pause_timeout'`. |
 | `agent.ts` | Two entry points: `executePlan(plan, bundle)` (pre-approved Plan) and `classifyAndExecute(brief, bundle, env)` (autonomous one-shot). Both register progress channels with `demoRegistry`. |
 | `index.ts` | Barrel re-exporting the public surface. |
 
@@ -113,9 +114,11 @@ event payload is JSON.
 | `subtask_accepted` | `{subId, taskId}` | First poll where status === Accepted. |
 | `subtask_completed` | `{subId, taskId, resultUri}` | First poll where status === Completed. |
 | `subtask_paid` | `{subId, taskId, txHash}` | After `approvePayment` tx submitted. |
-| `subtask_errored` | `{subId, error}` | Any lifecycle exception. Followed by `plan_failed`. |
+| `subtask_errored` | `{subId, error}` | Any non-dispute lifecycle exception. Followed by `plan_failed`. |
+| `subtask_disputed` | `{subId, taskId, resultUri}` | Sub-task transitioned to `Disputed` on chain. Runner pauses for user decision (M10.5.A). |
+| `subtask_retrying` | `{subId, attempt, executor}` | User picked Retry; runner re-spawns the sub-task. `attempt` is 1-indexed (2 means first retry). |
 | `plan_completed` | `{runId, durationMs}` | All sub-tasks reached `paid`. |
-| `plan_failed` | `{runId, failedSubId, error}` | Plan aborted due to a sub-task failure. |
+| `plan_failed` | `{runId, failedSubId, error, reason?}` | Plan aborted. `reason` is `'pause_timeout'` (user didn't respond to dispute) or `'user_cancelled_after_dispute'`; absent for generic lifecycle failures. |
 | `done` | `{runId, ok, ...}` | Emitted by `SseChannel.close()`. Final event in the stream. |
 
 ## Endpoints
@@ -134,6 +137,14 @@ POST /api/demo/composite/execute
 GET  /api/demo/composite/stream/:runId
   → text/event-stream of the lifecycle events above
   → 404 { error } when runId is unknown / expired
+
+POST /api/demo/composite/retry-subtask          (M10.5.A)
+  body: { runId, subId, action?: "retry"|"cancel", newExecutorAddress?: 0x... }
+  → 202 { ok: true, action }                    // pause resolved, runner continues
+  → 400 { error }                               // validation
+  → 404 { error: "no_paused_run" }              // no pending decision for runId
+  → 409 { error: "sub_mismatch" }               // pending decision is for a different subId
+  → 503 { error: "sponsor_exhausted", ... }     // retry would re-spawn; sponsor check failed
 ```
 
 Existing `/api/demo/start` + `/api/demo/stream/:id` are unchanged; the
@@ -197,6 +208,32 @@ Brief patterns that exercise the full graph:
 | `plan a Tokyo trip` | composite → 3-4 sub-tasks, sequential |
 | `research the top 5 stablecoin protocols on Base, summarize each, translate the summary to Russian, write a comparative report, and identify the safest one` | composite → 5+ sub-tasks |
 
+## Manual dispute-path smoke (M10.5.A)
+
+Disputes are hard to trigger naturally — the depositor (sponsor) would have to call
+`disputeTask` on a sub-task between Completed and the orchestrator's
+`approvePayment`, which is a narrow window in normal flow. To exercise the
+pause-on-dispute path end-to-end against a deployed backend:
+
+1. Start a composite run via `/demo/composite` (UI) or curl the
+   `/composite/execute` endpoint with a known plan.
+2. While polling sub-task #N (status `accepted`), run a script from the
+   sponsor wallet that calls `TaskEscrow.disputeTask(taskId)` for that
+   sub-task — needs sponsor signing capability. (Sponsor address visible at
+   `/health`; current sponsor only signs in the orchestrator process, so
+   this requires either temporarily exporting the key for the test or
+   wiring a dev-only `/debug/dispute-subtask` endpoint. The latter is the
+   right move if disputes need to be smoked regularly.)
+3. Verify the SSE stream emits `subtask_disputed` and that
+   `GET /health` reports the run as paused (would require surfacing
+   `hasPendingDecision` in `/health` — currently it's not exposed).
+4. POST to `/api/demo/composite/retry-subtask` with the runId+subId.
+5. Verify `subtask_retrying` event lands and the sub-task resumes.
+
+Unit tests in `test/parent/plan-runner.dispute.test.ts` cover the pause →
+retry / cancel / timeout / change-executor matrix without needing a real
+chain.
+
 ## Debugging
 
 - **Where do trace events go?** `classify.ts` emits JSON-line events via
@@ -227,7 +264,7 @@ Brief patterns that exercise the full graph:
 | Dual-mode prompt for `translator` / `sentiment` / `vision` | Deferred | M10.4 (mirrors the summarizer dual-mode fix from 2026-05-20) |
 | Dedicated composite-aware workers per capability | Deferred | Phase B / future milestone, replaces dual-mode hacks |
 | Per-sub-task user-approval gate (instead of auto-approve) | Deferred | M10.4 + new "user_approval_required" endpoint |
-| Dispute path UI (`subtask_disputed` SSE handling + replan prompt) | M10.4.1–M10.4.3 | Backend emit landed; UI is next |
+| Dispute path UI (`subtask_disputed` SSE handling + replan prompt) | Shipped 2026-05-20 (M10.4.1–M10.4.3) + 2026-05-21 (M10.5.A) | Backend `subtask_disputed` emit, frontend `disputedSubId` capture, `ReplanPrompt` with Retry / Change-executor / Cancel, `/composite/retry-subtask` endpoint, pause-on-dispute in plan-runner, 2-min pause timeout. |
 | Aggregate result panel (vs per-node drawer) | Deferred | UX polish — drawer is sufficient for v1 |
 | Parallel execution of independent sub-tasks | Deferred | Performance work, future. Sequential is safe and cheap to reason about. |
 | ERC-8004 / AgentRegistry integration for executor discovery | Out of scope | Phase B (Arc / multi-chain milestone) |

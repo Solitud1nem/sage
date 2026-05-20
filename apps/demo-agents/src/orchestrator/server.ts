@@ -21,7 +21,7 @@ import { demoRegistry } from '../shared/sse.js';
 import { loadOrchestratorEnv } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
 import { startDemoRun, type DemoMode } from './demo-run.js';
-import { classifyBrief, executePlan } from '../parent/index.js';
+import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
 import type { Plan, SubTask } from '@sage/core';
 
 const env = loadOrchestratorEnv();
@@ -411,6 +411,106 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       });
     } catch (err) {
       console.error('[Orchestrator] /api/demo/composite/execute error:', err);
+      json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
+
+  // --- POST /api/demo/composite/retry-subtask -------------------------
+  // M10.5.A: resolves a paused plan-runner waiting on a `subtask_disputed`
+  // pause. Body: { runId, subId, newExecutorAddress?, action? }
+  //   - `action: 'retry'` (default) → plan-runner re-spawns the sub-task with
+  //     the existing executor, or with `newExecutorAddress` if supplied.
+  //   - `action: 'cancel'`         → plan-runner emits `plan_failed` and closes.
+  if (url === '/api/demo/composite/retry-subtask' && method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const body = raw
+        ? (JSON.parse(raw) as {
+            runId?: unknown;
+            subId?: unknown;
+            newExecutorAddress?: unknown;
+            action?: unknown;
+          })
+        : {};
+
+      if (typeof body.runId !== 'string' || body.runId.length === 0) {
+        json(res, 400, { error: 'runId must be a non-empty string' });
+        return;
+      }
+      if (typeof body.subId !== 'number' || !Number.isInteger(body.subId) || body.subId < 1) {
+        json(res, 400, { error: 'subId must be a positive integer' });
+        return;
+      }
+      const action = body.action ?? 'retry';
+      if (action !== 'retry' && action !== 'cancel') {
+        json(res, 400, { error: 'action must be "retry" or "cancel"' });
+        return;
+      }
+      let newExecutor: `0x${string}` | undefined;
+      if (action === 'retry' && body.newExecutorAddress !== undefined) {
+        if (
+          typeof body.newExecutorAddress !== 'string' ||
+          !/^0x[a-fA-F0-9]{40}$/.test(body.newExecutorAddress)
+        ) {
+          json(res, 400, { error: 'newExecutorAddress must be a 0x-prefixed 40-hex string' });
+          return;
+        }
+        newExecutor = body.newExecutorAddress as `0x${string}`;
+      }
+
+      // Sponsor guard: retry re-spawns a TaskEscrow (= new sponsor-side
+      // createTask + later approvePayment). Reuse the same floor as
+      // /execute so a near-empty sponsor can't get retried into.
+      if (action === 'retry' && env.sponsorMinBalanceUsdc > 0n) {
+        try {
+          const sponsor = await checkSponsorStatus(
+            sageBundle.publicClient,
+            sageBundle.account.address,
+            env.sponsorMinBalanceUsdc,
+          );
+          if (!sponsor.ok) {
+            json(res, 503, {
+              error: 'sponsor_exhausted',
+              message: `Sponsor wallet is below the ${formatUsdc(
+                env.sponsorMinBalanceUsdc,
+              )} USDC floor. Retry is temporarily paused.`,
+              balanceUsdc: formatUsdc(sponsor.balance),
+              minBalanceUsdc: formatUsdc(sponsor.minBalance),
+            });
+            return;
+          }
+        } catch (guardErr) {
+          console.error('[Orchestrator] retry sponsor guard failed, allowing through:', guardErr);
+        }
+      }
+
+      const status = resolveUserDecision(
+        body.runId,
+        body.subId,
+        action === 'cancel'
+          ? { kind: 'cancel' }
+          : newExecutor
+            ? { kind: 'retry', newExecutor }
+            : { kind: 'retry' },
+      );
+      if (status === 'not-found') {
+        json(res, 404, {
+          error: 'no_paused_run',
+          message: `No paused decision for runId ${body.runId}. The run may have already resumed, timed out, or never paused.`,
+        });
+        return;
+      }
+      if (status === 'sub-mismatch') {
+        json(res, 409, {
+          error: 'sub_mismatch',
+          message: `The paused sub-task does not match subId ${body.subId}.`,
+        });
+        return;
+      }
+      json(res, 202, { ok: true, action });
+    } catch (err) {
+      console.error('[Orchestrator] /api/demo/composite/retry-subtask error:', err);
       json(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
     return;

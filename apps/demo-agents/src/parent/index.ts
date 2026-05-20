@@ -44,3 +44,10 @@ export {
   type ExecuteResult,
   type ClassifyAndExecuteResult,
 } from './agent.js';
+export {
+  awaitUserDecision,
+  resolveUserDecision,
+  hasPendingDecision,
+  DEFAULT_PAUSE_TIMEOUT_MS,
+  type RetryAction,
+} from './run-registry.js';

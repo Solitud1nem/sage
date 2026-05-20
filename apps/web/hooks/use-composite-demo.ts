@@ -285,6 +285,64 @@ export function useCompositeDemo() {
     setState(INITIAL_STATE);
   }, []);
 
+  /**
+   * Resolve a paused dispute via the M10.5.A `/composite/retry-subtask`
+   * endpoint. `subId` must match the currently disputed sub-task. Optional
+   * `newExecutorAddress` swaps the executor on re-spawn. The SSE channel
+   * stays attached — the runner emits `subtask_retrying` once the decision
+   * lands, which the handler below uses to reset the runtime row.
+   *
+   * Errors surface inline (sets `state.error`) but do not tear down the
+   * run; the user can retry the request or pick Cancel from the prompt.
+   */
+  const retry = useCallback(
+    async (opts: {
+      subId: number;
+      newExecutorAddress?: `0x${string}`;
+    }): Promise<void> => {
+      const runId = state.runId;
+      if (!runId) {
+        setState((prev) => ({ ...prev, error: 'Cannot retry: no active run.' }));
+        return;
+      }
+      track('composite_subtask_retry_requested', {
+        subId: opts.subId,
+        hasNewExecutor: !!opts.newExecutorAddress,
+      });
+      try {
+        const res = await fetch(`${ORCHESTRATOR_URL}/api/demo/composite/retry-subtask`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            runId,
+            subId: opts.subId,
+            action: 'retry',
+            ...(opts.newExecutorAddress
+              ? { newExecutorAddress: opts.newExecutorAddress }
+              : {}),
+          }),
+        });
+        if (!res.ok) {
+          const body = (await safeJson(res)) as { error?: string; message?: string };
+          throw new Error(
+            body?.message ?? body?.error ?? `Backend returned ${res.status}`,
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        captureCompositeError(err, 'subtask', {
+          subId: opts.subId,
+          retry_failed: true,
+        });
+        setState((prev) => ({
+          ...prev,
+          error: `Retry failed: ${message}`,
+        }));
+      }
+    },
+    [state.runId],
+  );
+
   /** Full reset (used after completed/error to start over). */
   const reset = useCallback(() => {
     closeStream(esRef);
@@ -298,7 +356,7 @@ export function useCompositeDemo() {
     [],
   );
 
-  return { ...state, classify, approve, cancel, reset };
+  return { ...state, classify, approve, cancel, reset, retry };
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -394,6 +452,29 @@ function attachStream(
         ...updateRuntime(prev, subId, (r) => ({ ...r, status: 'disputed' })),
         disputedSubId: subId,
       }));
+    },
+    subtask_retrying: (data) => {
+      // M10.5.A: plan-runner has resolved a dispute pause and is re-spawning
+      // this sub-task. Wipe per-attempt runtime state (taskId, result, error)
+      // so the graph node visibly resets to waiting; keep `txHashes` so prior
+      // approvePayment hashes remain part of the run record. Clear
+      // `disputedSubId` since the prompt's job is done.
+      const subId = numberField(data, 'subId');
+      const executor = stringField(data, 'executor');
+      const attempt = numberField(data, 'attempt');
+      if (subId === null) return;
+      track('composite_subtask_retrying', {
+        subId,
+        attempt: attempt ?? null,
+        executor: executor ?? null,
+      });
+      setState((prev) => {
+        const next = updateRuntime(prev, subId, (r) => ({
+          status: 'waiting',
+          txHashes: r.txHashes,
+        }));
+        return { ...next, disputedSubId: null };
+      });
     },
     subtask_status: (data) => {
       // Firehose status event — kept for graph-rendering consistency. The
