@@ -543,10 +543,73 @@ export function planFromClassification(
   };
 }
 
+/**
+ * Lowercased allowlist of the four production worker addresses, derived
+ * from the same env vars the plan-editor reads. Computed once per module
+ * load — sponsor's worker set doesn't change at runtime.
+ */
+const KNOWN_WORKER_ADDRESSES: readonly string[] = [
+  process.env.NEXT_PUBLIC_DEMO_SUMMARIZER_ADDRESS,
+  process.env.NEXT_PUBLIC_DEMO_TRANSLATOR_ADDRESS,
+  process.env.NEXT_PUBLIC_DEMO_SENTIMENT_ADDRESS,
+  process.env.NEXT_PUBLIC_DEMO_VISION_ADDRESS,
+]
+  .filter((a): a is string => !!a && /^0x[a-fA-F0-9]{40}$/.test(a))
+  .map((a) => a.toLowerCase());
+
+function isKnownWorker(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return KNOWN_WORKER_ADDRESSES.includes(addr.toLowerCase());
+}
+
+/**
+ * Type-stems that imply an irreversible / high-value side effect. For these,
+ * we deliberately *do not* auto-route to the summarizer fallback — the
+ * intent is to surface them as "unassigned" in plan-card so the user must
+ * either pick a deliberate executor in the editor or cancel. This is the
+ * defensive interpretation of the stakes axis (ADR-0007 §5).
+ */
+const HIGH_STAKES_TYPE_STEMS: readonly string[] = [
+  'transfer',
+  'send',
+  'book',
+  'purchase',
+  'sign',
+  'pay',
+];
+
+function isHighStakesType(type: string): boolean {
+  const lower = type.toLowerCase();
+  return HIGH_STAKES_TYPE_STEMS.some((stem) => lower.includes(stem));
+}
+
 function autoAssignExecutor(sub: WireSubTask): WireSubTask {
-  if (sub.executor_address) return sub;
+  // Trust the classifier's `executor_address` ONLY if it's one of our
+  // 4 production workers. The LLM occasionally echoes addresses from the
+  // brief text into this field — e.g. a "send $500 to 0xABCDeF…" brief
+  // makes the recipient address show up as the executor. Allowing that
+  // through would mint a TaskEscrow with an unrelated party as the
+  // designated executor; harmless in practice (no one watches that
+  // address, the task times out and refunds) but a real trust-boundary
+  // violation. Strip and re-resolve via stem matcher.
+  const llmAddr = sub.executor_address;
+  if (llmAddr && isKnownWorker(llmAddr)) return sub;
+
+  // High-stakes types (transfer/send/book/etc.) intentionally do NOT
+  // auto-route to summarizer — leave unassigned so the user has to make
+  // a deliberate choice in the plan-editor. This is what makes the
+  // `stakes: high` axis behaviourally meaningful at the spawn boundary,
+  // not just a UI badge.
+  if (isHighStakesType(sub.type)) {
+    const { executor_address: _stripped, ...rest } = sub;
+    return rest;
+  }
+
   const resolved = resolveExecutorByType(sub.type);
-  return resolved ? { ...sub, executor_address: resolved } : sub;
+  // Strip any LLM-emitted address first so we don't keep a hallucinated
+  // value if stem-resolution returns undefined.
+  const { executor_address: _stripped, ...rest } = sub;
+  return resolved ? { ...rest, executor_address: resolved } : rest;
 }
 
 /**

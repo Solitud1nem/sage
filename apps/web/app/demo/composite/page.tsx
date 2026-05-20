@@ -10,6 +10,7 @@ import { SubtaskDrawer } from '@/components/demo/subtask-drawer';
 import { ReplanPrompt } from '@/components/demo/replan-prompt';
 import { ErrorPanel } from '@/components/demo/error-panel';
 import { track } from '@/lib/posthog';
+import { formatUsdc } from '@/lib/format-usdc';
 import {
   useCompositeDemo,
   planFromClassification,
@@ -319,14 +320,3 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatUsdc(amountStr: string): string {
-  try {
-    const amt = BigInt(amountStr);
-    const whole = amt / 1_000_000n;
-    const frac = amt % 1_000_000n;
-    const fracStr = frac.toString().padStart(6, '0').slice(0, 3);
-    return `${whole.toString()}.${fracStr} USDC`;
-  } catch {
-    return amountStr;
-  }
-}

@@ -1,6 +1,7 @@
 'use client';
 
 import type { WireClassification, WireSubTask } from '@/hooks/use-composite-demo';
+import { formatUsdc } from '@/lib/format-usdc';
 
 /**
  * Read-only rendering of a `ClassificationResult` (or the snapshot derived
@@ -211,18 +212,6 @@ function ConfidenceBadge({ label, value }: { label: string; value: number }) {
       {label} {value.toFixed(2)}
     </span>
   );
-}
-
-function formatUsdc(amountStr: string): string {
-  try {
-    const amt = BigInt(amountStr);
-    const whole = amt / 1_000_000n;
-    const frac = amt % 1_000_000n;
-    const fracStr = frac.toString().padStart(6, '0').slice(0, 3);
-    return `${whole.toString()}.${fracStr} USDC`;
-  } catch {
-    return amountStr;
-  }
 }
 
 function formatDuration(ms: number): string {

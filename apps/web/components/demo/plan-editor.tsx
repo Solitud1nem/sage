@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import type { WirePlan, WireSubTask } from '@/hooks/use-composite-demo';
+import { formatUsdc } from '@/lib/format-usdc';
 
 /**
  * Editable variant of `plan-card`. Toggles in via the parent page when the
@@ -420,18 +421,6 @@ function IconButton({
       {children}
     </button>
   );
-}
-
-function formatUsdc(amountStr: string): string {
-  try {
-    const amt = BigInt(amountStr);
-    const whole = amt / 1_000_000n;
-    const frac = amt % 1_000_000n;
-    const fracStr = frac.toString().padStart(6, '0').slice(0, 3);
-    return `${whole.toString()}.${fracStr} USDC`;
-  } catch {
-    return amountStr;
-  }
 }
 
 function shortAddr(addr: string): string {

@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 
 import type { SubTaskRuntime, WireSubTask } from '@/hooks/use-composite-demo';
+import { formatUsdc } from '@/lib/format-usdc';
 
 /**
  * Slide-out drawer surfacing one sub-task's runtime detail. Renders when a
@@ -302,14 +303,3 @@ function formatTime(ts: number): string {
   });
 }
 
-function formatUsdc(amountStr: string): string {
-  try {
-    const amt = BigInt(amountStr);
-    const whole = amt / 1_000_000n;
-    const frac = amt % 1_000_000n;
-    const fracStr = frac.toString().padStart(6, '0').slice(0, 3);
-    return `${whole.toString()}.${fracStr} USDC`;
-  } catch {
-    return amountStr;
-  }
-}
