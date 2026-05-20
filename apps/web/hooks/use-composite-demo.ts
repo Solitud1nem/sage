@@ -435,6 +435,13 @@ async function safeJson(res: Response): Promise<unknown> {
  * Derive a `WirePlan` from a `WireClassification` — drops classifier-only fields.
  * The plan-card uses this for the "Approve as-is" path; the editor can splice
  * in changes before passing the result to `approve()`.
+ *
+ * Auto-resolves `executor_address` per sub-task by mapping `type` against the
+ * known worker registry (NEXT_PUBLIC_DEMO_*_ADDRESS). Neither the mock nor the
+ * LLM classifier sets `executor_address`, but the plan-runner requires one
+ * before spawning a TaskEscrow — so we resolve at the seam between
+ * classification (capability tag) and execution (concrete address). User can
+ * still override via plan-editor.
  */
 export function planFromClassification(
   brief: string,
@@ -444,8 +451,71 @@ export function planFromClassification(
     brief,
     decomposability: c.decomposability,
     stakes: c.stakes,
-    subtasks: c.proposed_plan,
+    subtasks: c.proposed_plan.map(autoAssignExecutor),
     estimated_total_cost_units: c.estimated_total_cost_units,
     estimated_duration_ms: c.estimated_duration_ms,
   };
+}
+
+function autoAssignExecutor(sub: WireSubTask): WireSubTask {
+  if (sub.executor_address) return sub;
+  const resolved = resolveExecutorByType(sub.type);
+  return resolved ? { ...sub, executor_address: resolved } : sub;
+}
+
+/**
+ * Lookup table mapping a sub-task `type` (the capability tag emitted by the
+ * classifier — `summarize-text`, `translate-text`, etc.) to a concrete
+ * executor address. Falls back across normalized variants (`summarize` →
+ * `summarize-text`) so LLM-emitted shorthand still resolves.
+ *
+ * Sources: `NEXT_PUBLIC_DEMO_*_ADDRESS` baked at build time from `.env.local`
+ * (or future GH Actions repo vars). When the var is absent the slot returns
+ * undefined → the sub-task surfaces as "unassigned" in plan-card and the
+ * user has to pick via plan-editor before approving.
+ */
+function resolveExecutorByType(type: string): `0x${string}` | undefined {
+  const summarizer = process.env.NEXT_PUBLIC_DEMO_SUMMARIZER_ADDRESS;
+  const translator = process.env.NEXT_PUBLIC_DEMO_TRANSLATOR_ADDRESS;
+  const sentiment = process.env.NEXT_PUBLIC_DEMO_SENTIMENT_ADDRESS;
+  const vision = process.env.NEXT_PUBLIC_DEMO_VISION_ADDRESS;
+
+  // Stem-based substring matching. The LLM-driven classifier emits types
+  // in unpredictable shapes: noun forms (`translation`, `summarization`,
+  // `sentiment-classification`), verb forms (`translate`, `summarize`),
+  // canonical mock-template tags (`translate-text`, `summarize-text`),
+  // and ad-hoc compounds (`image-description`, `comparative-analysis`).
+  // Hard-coding every variant fails on the next novel string. Instead we
+  // map a CAPABILITY to a list of STEMS that indicate it, and pick the
+  // first bucket whose stem occurs in the lowercased type.
+  //
+  // Order matters when stems overlap (translator before summarizer so
+  // "translate-and-summarize" → translator wins). Add new stems freely
+  // — over-matching is cheaper than under-matching (UX-wise: defaulting
+  // to summarizer is benign; "unassigned" blocks execution).
+  const lower = type.toLowerCase();
+  const buckets: Array<{ stems: readonly string[]; address: string | undefined }> = [
+    { stems: ['translat'], address: translator },
+    { stems: ['sentiment', 'classif', 'emotion', 'tone', 'mood'], address: sentiment },
+    { stems: ['vision', 'image', 'visual', 'describ', 'caption', 'ocr'], address: vision },
+    {
+      stems: [
+        'summari', 'summary',
+        'compar', 'compose', 'composit',
+        'research', 'analy', 'synthes',
+        'write', 'writing', 'report',
+        'extract', 'review',
+      ],
+      address: summarizer,
+    },
+  ];
+
+  for (const { stems, address } of buckets) {
+    if (stems.some((stem) => lower.includes(stem))) {
+      if (address && /^0x[a-fA-F0-9]{40}$/.test(address)) {
+        return address as `0x${string}`;
+      }
+    }
+  }
+  return undefined;
 }

@@ -54,7 +54,6 @@ interface PlanNodeData extends Record<string, unknown> {
   subId: number;
   type: string;
   status: SubTaskRunStatus;
-  onClick?: ((subId: number) => void) | undefined;
 }
 
 type PlanNode = Node<PlanNodeData, 'plan'>;
@@ -96,7 +95,6 @@ export function PlanGraph({ subtasks, runtimes, onSubtaskClick }: PlanGraphProps
           subId: s.id,
           type: s.type,
           status,
-          onClick: onSubtaskClick,
         },
         draggable: false,
       };
@@ -113,7 +111,14 @@ export function PlanGraph({ subtasks, runtimes, onSubtaskClick }: PlanGraphProps
     );
 
     return { nodes, edges };
-  }, [subtasks, runtimes, onSubtaskClick]);
+  }, [subtasks, runtimes]);
+
+  // Click handling lives at the ReactFlow level rather than inside the custom
+  // node — xyflow's pan/select layer intercepts inner `onClick` on `<button>`
+  // children, so the canonical pattern is `onNodeClick`.
+  const handleNodeClick = onSubtaskClick
+    ? (_: unknown, node: PlanNode) => onSubtaskClick(node.data.subId)
+    : undefined;
 
   return (
     <div
@@ -128,8 +133,8 @@ export function PlanGraph({ subtasks, runtimes, onSubtaskClick }: PlanGraphProps
         fitViewOptions={{ padding: 0.25 }}
         nodesDraggable={false}
         nodesConnectable={false}
-        elementsSelectable={false}
         proOptions={{ hideAttribution: true }}
+        {...(handleNodeClick ? { onNodeClick: handleNodeClick } : {})}
       >
         <Background color="#1d1d27" gap={20} />
         <Controls
@@ -146,9 +151,7 @@ export function PlanGraph({ subtasks, runtimes, onSubtaskClick }: PlanGraphProps
 function PlanNode({ data }: NodeProps<PlanNode>) {
   const { color, label } = STATUS_DESCRIPTORS[data.status];
   return (
-    <button
-      type="button"
-      onClick={data.onClick ? () => data.onClick!(data.subId) : undefined}
+    <div
       style={{
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
@@ -158,7 +161,7 @@ function PlanNode({ data }: NodeProps<PlanNode>) {
           ? `0 0 16px ${color}33`
           : undefined,
       }}
-      className="text-left rounded-[10px] border-2 px-4 py-3 transition-colors hover:bg-[#13131b] cursor-pointer"
+      className="rounded-[10px] border-2 px-4 py-3 transition-colors hover:bg-[#13131b] cursor-pointer"
     >
       <Handle type="target" position={Position.Top} style={{ background: color, border: 0 }} />
       <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
@@ -172,7 +175,7 @@ function PlanNode({ data }: NodeProps<PlanNode>) {
         {label}
       </div>
       <Handle type="source" position={Position.Bottom} style={{ background: color, border: 0 }} />
-    </button>
+    </div>
   );
 }
 

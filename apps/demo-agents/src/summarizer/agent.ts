@@ -1,6 +1,20 @@
 /**
- * Summarizer agent — capability: "summarize"
- * Listens for TaskCreated events, summarizes text via OpenAI (or mock), completes task.
+ * Summarizer agent — dual-mode capability.
+ *
+ *   - 3-mode `/demo` path: specUri = raw article text → produce a concise
+ *     summary (existing behavior, unchanged for back-compat).
+ *
+ *   - Composite `/demo/composite` path: specUri = `data:application/json,`
+ *     envelope from `parent-id-codec` carrying `{parent, spec}`. The `spec`
+ *     is an INSTRUCTION ("research flights to Tokyo for a 7-day trip"),
+ *     not content. We detect the envelope, extract `spec`, and switch the
+ *     prompt to execution-style so gpt-4o-mini performs the task rather
+ *     than summarizing the instruction back at us.
+ *
+ * This is the M10.W3 tactical fix per CHANGELOG 2026-05-20: the existing
+ * worker prompt assumed `specUri = content`; composite needed `specUri =
+ * instruction`. Dual-mode dispatch closes the gap without splitting into
+ * a new worker process.
  */
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
@@ -20,29 +34,76 @@ const escrowAddress = config.chain === 'mainnet'
   ? base.contracts.taskEscrow
   : baseSepolia.contracts.taskEscrow;
 
-async function summarize(text: string): Promise<string> {
+// ── Composite-envelope detection ──────────────────────────────────────
+//
+// Mirrors `apps/demo-agents/src/parent/parent-id-codec.ts` decodeSpec, but
+// inlined here so the worker stays a self-contained bundle (workers are
+// built independently of the parent module).
+
+const COMPOSITE_PREFIX = 'data:application/json,';
+
+function decodeCompositeSpec(specUri: string): string | null {
+  if (!specUri.startsWith(COMPOSITE_PREFIX)) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(specUri.slice(COMPOSITE_PREFIX.length));
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const p = parsed as { spec?: unknown; parent?: unknown };
+  if (typeof p.spec !== 'string' || !p.parent) return null;
+  return p.spec;
+}
+
+async function callOpenAI(systemPrompt: string, userText: string, maxTokens: number): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userText },
+      ],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+  return data.choices[0]?.message?.content ?? 'Result unavailable';
+}
+
+const COMPOSITE_SYSTEM_PROMPT =
+  'You are a generalist task executor. The user message describes a single task to perform — research, comparison, drafting, analysis, or writing. ' +
+  'Execute the task using your training data and return the result directly. Do not echo the instruction back. Do not say "the task is to…". ' +
+  'Just produce the deliverable: the report, the list, the comparison, the summary — whatever the task asks for. Keep it concise but useful (target 100-250 words unless the task explicitly asks for longer).';
+
+async function executeOrSummarize(specUri: string): Promise<string> {
+  const compositeSpec = decodeCompositeSpec(specUri);
+
   if (config.openaiApiKey) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'Summarize the following text concisely.' },
-          { role: 'user', content: text },
-        ],
-        max_tokens: 200,
-      }),
-    });
-    const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-    return data.choices[0]?.message?.content ?? 'Summary unavailable';
+    if (compositeSpec !== null) {
+      // Composite path: spec is an instruction, execute it.
+      return callOpenAI(COMPOSITE_SYSTEM_PROMPT, compositeSpec, 600);
+    }
+    // 3-mode path: specUri is content, summarize it (existing behavior).
+    return callOpenAI('Summarize the following text concisely.', specUri, 200);
   }
 
-  // Mock fallback
-  return `[MOCK SUMMARY] ${text.slice(0, 100)}...`;
+  // Mock fallback — different shapes for each path.
+  if (compositeSpec !== null) {
+    return `[MOCK COMPOSITE RESULT] for task: ${compositeSpec.slice(0, 100)}…`;
+  }
+  return `[MOCK SUMMARY] ${specUri.slice(0, 100)}...`;
 }
 
 async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, executor: `0x${string}`) {
@@ -70,7 +131,7 @@ async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, e
     }
     console.error(`[Summarizer] Task ${id} status: ${task.status}, specUri: ${task.specUri.slice(0,50)}`);
 
-    const result = await summarize(task.specUri);
+    const result = await executeOrSummarize(task.specUri);
     const resultUri = `data:text/plain,${encodeURIComponent(result)}`;
 
     console.error(`[Summarizer] Task ${id} submitting completeTask...`);
