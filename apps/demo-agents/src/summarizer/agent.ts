@@ -19,6 +19,7 @@
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
+import { decodeCompositeSpec } from '../shared/composite-codec.js';
 import { taskId } from '@sage/core';
 import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
 
@@ -34,33 +35,10 @@ const escrowAddress = config.chain === 'mainnet'
   ? base.contracts.taskEscrow
   : baseSepolia.contracts.taskEscrow;
 
-// ── Composite-envelope detection ──────────────────────────────────────
-//
-// Mirrors `apps/demo-agents/src/parent/parent-id-codec.ts` decodeSpec, but
-// inlined here so the worker stays a self-contained bundle (workers are
-// built independently of the parent module).
-
-const COMPOSITE_PREFIX = 'data:application/json,';
-
-function decodeCompositeSpec(specUri: string): string | null {
-  if (!specUri.startsWith(COMPOSITE_PREFIX)) return null;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(specUri.slice(COMPOSITE_PREFIX.length));
-  } catch {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decoded);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
-  const p = parsed as { spec?: unknown; parent?: unknown };
-  if (typeof p.spec !== 'string' || !p.parent) return null;
-  return p.spec;
-}
+// Composite-envelope detection is shared across all four worker agents.
+// See `apps/demo-agents/src/shared/composite-codec.ts` — the worker
+// bundle pulls it from `src/shared/`, not from `src/parent/`, so the
+// worker stays independent of the parent module.
 
 async function callOpenAI(systemPrompt: string, userText: string, maxTokens: number): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {

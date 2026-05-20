@@ -1,13 +1,26 @@
 /**
- * Vision agent — capability: "vision-describe"
- * Listens for TaskCreated events, describes image (URL) via OpenAI gpt-4o-mini, completes task.
+ * Vision agent — dual-mode capability.
  *
- * specUri is the raw image URL (http(s)://...).
- * Result is a plain-text description, capped at 500 chars.
+ *   - 3-mode `/demo` path: specUri = raw image URL (`http(s)://...`) →
+ *     describe (existing behavior, unchanged for back-compat).
+ *
+ *   - Composite `/demo/composite` path: specUri = `data:application/json,`
+ *     envelope from `parent-id-codec` carrying `{parent, spec}`. The `spec`
+ *     is an instruction like "describe the screenshot at
+ *     https://example.com/x.png" or "caption these product photos…".
+ *     We detect the envelope, extract `spec`, and look for an embedded
+ *     `http(s)://` image URL. If found, describe it; if not, return an
+ *     honest "vision sub-task requires an image URL" result so the operator
+ *     can fix the plan.
+ *
+ * M10.5.B (2026-05-21) — completes the worker dual-mode rollout. Vision
+ * is the corner case: without a URL the worker has nothing to act on, so
+ * the fallback is structured failure rather than a faked description.
  */
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
+import { decodeCompositeSpec } from '../shared/composite-codec.js';
 import { taskId } from '@sage/core';
 import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
 
@@ -23,45 +36,76 @@ const escrowAddress = config.chain === 'mainnet'
 
 const MAX_DESCRIPTION_CHARS = 500;
 
-async function describe(imageUrl: string): Promise<string> {
+// Matches the first http(s) URL with a plausible image extension OR no
+// extension (a content-type check would be more honest, but we don't
+// fetch the URL ourselves — OpenAI does). Conservative on the extension
+// list to avoid false positives on `https://docs.example.com` links
+// embedded as references in the instruction.
+const IMAGE_URL_REGEX =
+  /https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|gif|webp|bmp|svg|avif)(?:\?[^\s<>"']*)?/i;
+
+function extractImageUrl(spec: string): string | null {
+  const m = spec.match(IMAGE_URL_REGEX);
+  return m ? m[0] : null;
+}
+
+async function describeUrl(imageUrl: string): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Describe this image in ${MAX_DESCRIPTION_CHARS} characters or less. Be specific about subjects, composition, colors, and mood. No preamble — just the description.`,
+            },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+      max_tokens: 200,
+    }),
+  });
+  const data = (await res.json()) as {
+    choices?: Array<{ message: { content: string } }>;
+    error?: { message: string };
+  };
+  if (data.error) {
+    console.error(`[Vision] OpenAI error: ${data.error.message}`);
+    return `Vision failed: ${data.error.message}`.slice(0, MAX_DESCRIPTION_CHARS);
+  }
+  const description = data.choices?.[0]?.message?.content ?? 'Description unavailable';
+  return description.slice(0, MAX_DESCRIPTION_CHARS);
+}
+
+async function describeOrExecute(specUri: string): Promise<string> {
+  const compositeSpec = decodeCompositeSpec(specUri);
+
   if (config.openaiApiKey) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Describe this image in ${MAX_DESCRIPTION_CHARS} characters or less. Be specific about subjects, composition, colors, and mood. No preamble — just the description.`,
-              },
-              { type: 'image_url', image_url: { url: imageUrl } },
-            ],
-          },
-        ],
-        max_tokens: 200,
-      }),
-    });
-    const data = (await res.json()) as {
-      choices?: Array<{ message: { content: string } }>;
-      error?: { message: string };
-    };
-    if (data.error) {
-      console.error(`[Vision] OpenAI error: ${data.error.message}`);
-      return `Vision failed: ${data.error.message}`.slice(0, MAX_DESCRIPTION_CHARS);
+    if (compositeSpec !== null) {
+      const url = extractImageUrl(compositeSpec);
+      if (url) return describeUrl(url);
+      return 'Vision sub-task requires an image URL in the spec; the supplied instruction did not include one. Update the plan to embed an http(s) image URL.';
     }
-    const description = data.choices?.[0]?.message?.content ?? 'Description unavailable';
-    return description.slice(0, MAX_DESCRIPTION_CHARS);
+    // 3-mode raw path: specUri itself IS the URL (per /api/demo/start validation).
+    return describeUrl(specUri);
   }
 
   // Mock fallback
-  return `[MOCK VISION] Image at ${imageUrl} — mock describes a placeholder scene with neutral tone.`.slice(
+  if (compositeSpec !== null) {
+    const url = extractImageUrl(compositeSpec);
+    return url
+      ? `[MOCK COMPOSITE VISION] Would describe ${url}; no OpenAI key configured.`.slice(0, MAX_DESCRIPTION_CHARS)
+      : `[MOCK COMPOSITE VISION] Spec contained no image URL; instruction was: ${compositeSpec.slice(0, 80)}…`;
+  }
+  return `[MOCK VISION] Image at ${specUri} — mock describes a placeholder scene with neutral tone.`.slice(
     0,
     MAX_DESCRIPTION_CHARS,
   );
@@ -99,7 +143,7 @@ async function handleTaskCreated(
       `[Vision] Task ${id} status: ${task.status}, specUri: ${task.specUri.slice(0, 80)}`,
     );
 
-    const result = await describe(task.specUri);
+    const result = await describeOrExecute(task.specUri);
     const resultUri = `data:text/plain,${encodeURIComponent(result)}`;
 
     console.error(`[Vision] Task ${id} submitting completeTask...`);

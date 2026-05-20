@@ -8,6 +8,22 @@
 
 ---
 
+## 2026-05-21 — M10.5.B worker dual-mode rollout (translator / sentiment / vision composite-aware)
+
+All four demo workers (`summarizer` / `translator` / `vision` / `sentiment`) are now composite-aware via a shared decoder. Composite sub-tasks routed to translator / sentiment / vision no longer produce echo-style results ("the task is to translate…"). Where the spec lacks the input the worker needs (vision URL, source text), the worker returns a structured "spec did not include X" message so the operator can fix the plan rather than receive fabricated output.
+
+- `feat` **`apps/demo-agents/src/shared/composite-codec.ts` (new).** `decodeCompositeSpec(specUri)` + `COMPOSITE_PREFIX` constant. Permissive: any non-envelope URI or malformed envelope returns `null` (the dual-mode fall-through signal). Lives in `src/shared/` so all 4 worker bundles share one copy without pulling in `src/parent/` (worker bundles stay independent of the parent module per `apps/demo-agents/CLAUDE.md`).
+- `refactor` **`summarizer/agent.ts`** — replaced inlined `decodeCompositeSpec` with import from shared codec. Behavior unchanged. 18 lines removed.
+- `feat` **`translator/agent.ts` dual-mode.** Envelope detect → `COMPOSITE_SYSTEM_PROMPT` ("produce ONLY the translated text — no preamble, no commentary"). Honest-failure line "Translation requires source text in the spec" when instruction lacks source text.
+- `feat` **`sentiment/agent.ts` dual-mode.** Envelope detect → composite prompt preserves 3-line structure (LABEL+score / blank / rationale) under execution semantics. Honest-failure path classifies the instruction wording itself and flags it on rationale line.
+- `feat` **`vision/agent.ts` dual-mode + URL-extract.** Envelope detect → regex-extract `https?://...\.(png|jpe?g|gif|webp|bmp|svg|avif)` from the spec → describe. When no URL is embedded: returns "Vision sub-task requires an image URL in the spec; …update the plan to embed an http(s) image URL". Conservative extension whitelist avoids false positives on documentation links.
+- `release` **14 new tests** in `test/shared/composite-codec.test.ts` (happy decode + unicode + 8 fall-through cases + cross-module compatibility check against parent-id-codec encoder). demo-agents 112 → 126 tests. tsc strict clean. Build clean: 4 worker bundles ~8KB each (translator +1.4KB, vision +1.4KB, sentiment +1.6KB for the dual-mode prompts; summarizer unchanged after refactor).
+- `decision` **Honest-failure over fabrication.** When composite spec gives a worker insufficient input (no URL for vision, no source text for translator/sentiment), the worker emits a structured "spec did not include X" message rather than inventing output. The operator sees the gap in the per-node drawer and uses M10.5.A Retry / Change-executor to fix the plan. This pairs naturally with the dispute path: workers that can't execute say so on the result; operator triggers replan-prompt-style adjustment without involving on-chain dispute.
+- `decision` **Shared codec in `src/shared/`, not inlined per worker.** Earlier summarizer comment said "inlined to keep worker self-contained". The constraint is about not depending on `src/parent/`; `src/shared/` is already shared across workers (config, env, sse, base-agent) and adding one more shared utility there preserves the bundle-independence property while removing 4× duplication.
+- `docs` Parent README "Worker dual-mode contract" section rewritten: capability-by-capability table of 3-mode vs composite behavior, plus pattern for adding new dual-mode workers. Debugging entries refreshed (M10.4 deferred-rollout references removed).
+
+---
+
 ## 2026-05-21 — Phase B / ADR-0014: `@sage/adapter-arc` scaffold + Arc as planned sibling chain
 
 ADR-0008's multi-chain framing gets its first sibling adapter. `@sage/adapter-arc` ships as a production-shape scaffold (full ChainAdapter conformance, NotImplementedError everywhere, ADR documenting the design). The structural commitment is in code; runtime operations wait for Arc testnet stabilisation and ERC-8183/8004 reference-contract confirmation.

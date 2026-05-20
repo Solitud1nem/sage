@@ -81,25 +81,42 @@ runtime tracks the graph for the active SSE channel.)
 
 ## Worker dual-mode contract
 
-The existing 4 demo workers (`summarizer` / `translator` / `vision` /
-`sentiment`) were originally built for the 3-mode `/demo` flow where
-`specUri = CONTENT` (an article, an image URL). Composite hands them
-`specUri = ENVELOPE` carrying an INSTRUCTION. Two interpretations of the
-same field. Without disambiguation, the worker politely summarizes the
-instruction back instead of executing it.
+All four demo workers (`summarizer` / `translator` / `vision` /
+`sentiment`) operate in two modes depending on the shape of `specUri`:
 
-As of 2026-05-20, **only `summarizer/agent.ts` is composite-aware**: it
-detects the envelope (inlined decoder mirroring `parent-id-codec`),
-extracts the inner `spec`, and switches its system prompt to an
-execution-style template ("execute the task and return the result
-directly"). The 3-mode raw-text path is preserved as fallback.
+- **3-mode `/demo` path** — `specUri = CONTENT` (an article, an image URL).
+  The worker treats the spec as the thing to act on directly: summarize the
+  article, translate the text, describe the image URL, classify the
+  sentiment of the text.
 
-`translator` / `sentiment` / `vision` are still single-mode. Composite
-sub-tasks routed to them produce echo-style results ("the task is
-to translate…"). The frontend's stem matcher routes most composite types
-to summarizer to avoid this, but pure `translate` / `sentiment` / `vision`
-plans still hit the gap. Dedicated dual-mode prompts for those three are
-M10.4 / Phase B work.
+- **Composite `/demo/composite` path** — `specUri = ENVELOPE` carrying an
+  INSTRUCTION (`data:application/json,{parent,spec}`). The worker decodes
+  the envelope via the shared helper in
+  [`src/shared/composite-codec.ts`](../shared/composite-codec.ts), extracts
+  the inner `spec` string, and switches its system prompt to
+  execution-style — "execute this instruction and return the result
+  directly", not "summarize the instruction back".
+
+The same decoder powers all four workers (DRY since M10.5.B, 2026-05-21).
+Each worker keeps its capability-specific composite prompt:
+
+| Worker | 3-mode behavior | Composite behavior |
+|--------|-----------------|--------------------|
+| `summarizer` | Summarize the raw text. | Generalist task executor: produce the deliverable (research, comparison, report, draft). 100-250 words target. |
+| `translator` | Translate raw text EN↔RU. | Translation executor: extract source text from the instruction, produce only the translation. Honest failure when no source text is present. |
+| `sentiment` | Classify raw text as POSITIVE / NEGATIVE / NEUTRAL with score + rationale. | Same 3-line output format applied to whatever text the instruction targets. Honest failure when no text is referenced. |
+| `vision` | Describe a raw image URL. | Regex-extract an `http(s)://...png/jpg/...` URL from the instruction and describe it. Honest failure when no URL is embedded. |
+
+The "honest failure" paths matter: when a composite sub-task gives a
+worker insufficient input, the worker returns a structured "spec did not
+include X" message rather than fabricating output. The operator then sees
+the gap on the per-node drawer and can fix the plan via edit + retry.
+
+Adding a new worker that should support both modes: follow
+`summarizer/agent.ts` as the canonical pattern (import
+`decodeCompositeSpec` from `../shared/composite-codec.js`, define
+`RAW_SYSTEM_PROMPT` + `COMPOSITE_SYSTEM_PROMPT`, dispatch via
+`if (compositeSpec !== null) { ... }`).
 
 ## Lifecycle events emitted on the SSE channel
 
@@ -243,12 +260,17 @@ chain.
   `executor_address` either isn't running or isn't watching `TaskCreated`
   for that chain. Check the appropriate worker process via
   `fly logs -a sage-demo-agents | grep '\[<Worker>\]'`.
-- **Why does the plan run but produce echo-style results?** If the
-  sub-task is routed to `translator` / `sentiment` / `vision` (not
-  `summarizer`), those workers don't yet decode the envelope. Result will
-  look like "the task is to translate…". Workaround: edit the plan to
-  re-route to summarizer (which handles general execution). Real fix: the
-  M10.4 dual-mode rollout to the other three workers.
+- **Why does a vision sub-task return "Vision sub-task requires an image URL in the spec"?**
+  The composite spec didn't contain an `http(s)://...png/jpg/...` URL the
+  vision worker could regex-extract. This is the M10.5.B honest-failure
+  path — the worker explicitly refuses to fabricate a description when
+  the input is insufficient. Fix the plan to embed an image URL in the
+  spec via plan-editor + Retry, or route the sub-task to a different
+  capability via Change-executor.
+- **Why does translator/sentiment return "X requires Y in the spec"?**
+  Similar — the composite spec didn't include the source content (translator)
+  or text to classify (sentiment). Honest-failure pattern from M10.5.B.
+  Same fix: edit the plan to embed the input, or change executor.
 - **Where is the runId logged?** `executePlan` returns it; `plan_started`
   + `plan_completed` + `done` events on the SSE channel carry it.
 - **Frontend says "Executor: unassigned"?** Means the sub-task `type` didn't
@@ -261,7 +283,7 @@ chain.
 
 | Concern | Status | Where it goes |
 |---------|--------|---------------|
-| Dual-mode prompt for `translator` / `sentiment` / `vision` | Deferred | M10.4 (mirrors the summarizer dual-mode fix from 2026-05-20) |
+| Dual-mode prompt for `translator` / `sentiment` / `vision` | Shipped 2026-05-21 (M10.5.B) | All 4 workers composite-aware via shared `src/shared/composite-codec.ts` decoder. Vision uses regex URL-extract; sentiment + translator emit honest-failure messages when spec lacks the needed input. |
 | Dedicated composite-aware workers per capability | Deferred | Phase B / future milestone, replaces dual-mode hacks |
 | Per-sub-task user-approval gate (instead of auto-approve) | Deferred | M10.4 + new "user_approval_required" endpoint |
 | Dispute path UI (`subtask_disputed` SSE handling + replan prompt) | Shipped 2026-05-20 (M10.4.1–M10.4.3) + 2026-05-21 (M10.5.A) | Backend `subtask_disputed` emit, frontend `disputedSubId` capture, `ReplanPrompt` with Retry / Change-executor / Cancel, `/composite/retry-subtask` endpoint, pause-on-dispute in plan-runner, 2-min pause timeout. |
