@@ -98,6 +98,35 @@ describe('classifyBrief — real LLM path', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('does NOT retry on permanent 4xx (e.g. 401 bad key) — short-circuits to degraded', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(httpErrorResponse(401, 'invalid_api_key'));
+    const r = await classifyBrief('research X', {
+      openaiApiKey: 'sk-bad',
+      fetchImpl: fetchMock,
+    });
+    // Degraded result: confidence=0, composite/high, single clarify-with-user sub-task.
+    expect(r.confidence_decomposability).toBe(0);
+    expect(r.confidence_stakes).toBe(0);
+    expect(r.proposed_plan[0]?.type).toBe('clarify-with-user');
+    // Critical: only ONE fetch call, not two — permanent error skips retry.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries on HTTP 429 rate limit (treated as transient)', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(httpErrorResponse(429, 'rate_limit_exceeded'))
+      .mockResolvedValueOnce(okResponse(validRawJson()));
+    const r = await classifyBrief('research X', {
+      openaiApiKey: 'sk-test',
+      fetchImpl: fetchMock,
+    });
+    expect(r.decomposability).toBe('composite');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('retries on HTTP 5xx error, succeeds on second attempt', async () => {
     const fetchMock = vi
       .fn()

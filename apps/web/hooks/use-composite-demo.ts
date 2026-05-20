@@ -1,6 +1,26 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Sentry from '@sentry/nextjs';
+
+import { track } from '@/lib/posthog';
+
+/**
+ * Capture an exception to Sentry with the composite-flow tags so we can
+ * filter `phase=classify` or `phase=execute` separately in the dashboard.
+ * Falls back to a no-op when the DSN env var is unset (local dev) per
+ * `sentry.client.config.ts`.
+ */
+function captureCompositeError(
+  err: unknown,
+  phase: 'classify' | 'execute' | 'subtask',
+  extras: Record<string, unknown> = {},
+): void {
+  Sentry.captureException(err, {
+    tags: { flow: 'composite', phase },
+    extra: extras,
+  });
+}
 
 /**
  * Drives the composite (observable-decomposition) demo against the parent-agent
@@ -150,6 +170,8 @@ export function useCompositeDemo() {
     closeStream(esRef);
     eventIdRef.current = 0;
     setState({ ...INITIAL_STATE, status: 'classifying' });
+    track('composite_classify_started', { brief_len: brief.length });
+    const startedAt = Date.now();
 
     try {
       const res = await fetch(`${ORCHESTRATOR_URL}/api/demo/composite/classify`, {
@@ -162,17 +184,28 @@ export function useCompositeDemo() {
         throw new Error(body?.error ?? `Backend returned ${res.status}`);
       }
       const data = (await res.json()) as { classification: WireClassification };
-      // Mirror brief inside classification result for plan derivation.
+      const c = data.classification;
+      track('composite_classify_completed', {
+        decomposability: c.decomposability,
+        stakes: c.stakes,
+        confidence_decomposability: c.confidence_decomposability,
+        confidence_stakes: c.confidence_stakes,
+        subtask_count: c.proposed_plan.length,
+        duration_ms: Date.now() - startedAt,
+      });
       setState((prev) => ({
         ...prev,
         status: 'plan-ready',
-        classification: data.classification,
+        classification: c,
       }));
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      track('composite_run_errored', { phase: 'classify', error: message });
+      captureCompositeError(err, 'classify', { brief_len: brief.length });
       setState((prev) => ({
         ...prev,
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       }));
     }
   }, []);
@@ -183,6 +216,12 @@ export function useCompositeDemo() {
    * events into `runtimes[subId]`.
    */
   const approve = useCallback(async (plan: WirePlan): Promise<void> => {
+    track('composite_plan_approved', {
+      decomposability: plan.decomposability,
+      stakes: plan.stakes,
+      subtask_count: plan.subtasks.length,
+      estimated_total_cost_units: plan.estimated_total_cost_units,
+    });
     setState((prev) => ({ ...prev, status: 'executing', plan, runtimes: {} }));
     try {
       const res = await fetch(`${ORCHESTRATOR_URL}/api/demo/composite/execute`, {
@@ -217,16 +256,24 @@ export function useCompositeDemo() {
 
       attachStream(data.streamUrl, setState, esRef, eventIdRef);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      track('composite_run_errored', { phase: 'execute', error: message });
+      captureCompositeError(err, 'execute', {
+        subtask_count: plan.subtasks.length,
+        decomposability: plan.decomposability,
+        stakes: plan.stakes,
+      });
       setState((prev) => ({
         ...prev,
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       }));
     }
   }, []);
 
   /** User clicked Cancel on the plan card. Returns to idle. */
   const cancel = useCallback(() => {
+    track('composite_plan_cancelled', {});
     closeStream(esRef);
     setState(INITIAL_STATE);
   }, []);
@@ -276,6 +323,7 @@ function attachStream(
       const subId = numberField(data, 'subId');
       const taskId = stringField(data, 'taskId');
       if (subId === null) return;
+      track('composite_subtask_started', { subId, taskId: taskId ?? null });
       setState((prev) => updateRuntime(prev, subId, (r) => ({
         ...r,
         status: 'created',
@@ -304,6 +352,7 @@ function attachStream(
       const subId = numberField(data, 'subId');
       const txHash = stringField(data, 'txHash');
       if (subId === null) return;
+      track('composite_subtask_completed', { subId, txHash: txHash ?? null });
       setState((prev) => updateRuntime(prev, subId, (r) => ({
         ...r,
         status: 'paid',
@@ -315,6 +364,11 @@ function attachStream(
       const subId = numberField(data, 'subId');
       const error = stringField(data, 'error') ?? 'sub-task errored';
       if (subId === null) return;
+      track('composite_run_errored', { phase: 'subtask', subId, error });
+      captureCompositeError(new Error(`subtask #${subId}: ${error}`), 'subtask', {
+        subId,
+        error,
+      });
       setState((prev) => updateRuntime(prev, subId, (r) => ({
         ...r,
         status: 'errored',
@@ -328,13 +382,25 @@ function attachStream(
       const status = stringField(data, 'status') as SubTaskRunStatus | null;
       const subId = numberField(data, 'subId');
       if (subId === null || status !== 'disputed') return;
+      track('composite_subtask_disputed', { subId });
       setState((prev) => updateRuntime(prev, subId, (r) => ({ ...r, status: 'disputed' })));
     },
-    plan_completed: () => {
+    plan_completed: (data) => {
+      const durationMs = numberField(data, 'durationMs');
+      track('composite_run_completed', { duration_ms: durationMs ?? null });
       setState((prev) => ({ ...prev, status: 'completed', completedAt: Date.now() }));
     },
     plan_failed: (data) => {
       const error = stringField(data, 'error') ?? 'plan failed';
+      const failedSubId = numberField(data, 'failedSubId');
+      track('composite_run_errored', {
+        phase: 'execute',
+        error,
+        ...(failedSubId !== null ? { failed_sub_id: failedSubId } : {}),
+      });
+      captureCompositeError(new Error(`plan_failed: ${error}`), 'execute', {
+        ...(failedSubId !== null ? { failed_sub_id: failedSubId } : {}),
+      });
       setState((prev) => ({
         ...prev,
         status: 'error',

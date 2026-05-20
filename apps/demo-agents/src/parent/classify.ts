@@ -185,7 +185,21 @@ interface RawClassification {
   signal_trace: { lexical: string[]; semantic: string[]; stakes: string[] };
 }
 
-class ClassifierError extends Error {}
+/**
+ * Classifier-side error wrapper. `transient` distinguishes errors that
+ * are worth retrying (5xx, 429, network blip, malformed LLM response —
+ * default) from errors where retrying is pointless (4xx with bad key
+ * or content filtering — `transient: false`). The retry wrapper in
+ * `classifyLLM` short-circuits to the degraded result on permanent
+ * failures, saving a wasted second call.
+ */
+class ClassifierError extends Error {
+  readonly transient: boolean;
+  constructor(message: string, transient: boolean = true) {
+    super(message);
+    this.transient = transient;
+  }
+}
 
 function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value);
@@ -313,7 +327,13 @@ async function callOpenAIOnce(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new ClassifierError(`OpenAI ${res.status}: ${body.slice(0, 200)}`);
+    // 5xx and 429 are transient; other 4xx (401/403/422/content-filter) are
+    // permanent — retrying with the same payload won't change the answer.
+    const transient = res.status >= 500 || res.status === 429;
+    throw new ClassifierError(
+      `OpenAI ${res.status}: ${body.slice(0, 200)}`,
+      transient,
+    );
   }
 
   const data = (await res.json()) as OpenAIChatResponse;
@@ -365,15 +385,34 @@ async function classifyLLM(
     return r;
   } catch (err1) {
     const reason1 = err1 instanceof Error ? err1.message : String(err1);
-    trace('parent.classify.llm_attempt', { attempt: 1, ok: false, reason: reason1 });
+    const transient1 = err1 instanceof ClassifierError ? err1.transient : true;
+    trace('parent.classify.llm_attempt', {
+      attempt: 1,
+      ok: false,
+      reason: reason1,
+      transient: transient1,
+    });
+
+    // Permanent failure → don't burn a second call.
+    if (!transient1) {
+      trace('parent.classify.degraded', { reason: reason1, after_attempt: 1 });
+      return degradedClassification(reason1);
+    }
+
     try {
       const r = await callOpenAIOnce(brief, apiKey, fetchImpl);
       trace('parent.classify.llm_attempt', { attempt: 2, ok: true });
       return r;
     } catch (err2) {
       const reason2 = err2 instanceof Error ? err2.message : String(err2);
-      trace('parent.classify.llm_attempt', { attempt: 2, ok: false, reason: reason2 });
-      trace('parent.classify.degraded', { reason: reason2 });
+      const transient2 = err2 instanceof ClassifierError ? err2.transient : true;
+      trace('parent.classify.llm_attempt', {
+        attempt: 2,
+        ok: false,
+        reason: reason2,
+        transient: transient2,
+      });
+      trace('parent.classify.degraded', { reason: reason2, after_attempt: 2 });
       return degradedClassification(reason2);
     }
   }

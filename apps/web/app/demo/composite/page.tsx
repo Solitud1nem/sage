@@ -8,6 +8,7 @@ import { PlanEditor } from '@/components/demo/plan-editor';
 import { PlanGraph } from '@/components/demo/plan-graph';
 import { SubtaskDrawer } from '@/components/demo/subtask-drawer';
 import { ErrorPanel } from '@/components/demo/error-panel';
+import { track } from '@/lib/posthog';
 import {
   useCompositeDemo,
   planFromClassification,
@@ -149,6 +150,16 @@ export default function CompositePage() {
           <PlanEditor
             initialPlan={planForDisplay}
             onSave={(p) => {
+              const before = planForDisplay.subtasks.length;
+              const after = p.subtasks.length;
+              track('composite_plan_edited', {
+                subtask_count_before: before,
+                subtask_count_after: after,
+                count_delta: after - before,
+                cost_delta_units:
+                  Number(p.estimated_total_cost_units) -
+                  Number(planForDisplay.estimated_total_cost_units),
+              });
               setEditedPlan(p);
               setEditing(false);
             }}
