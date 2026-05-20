@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
+import { ARC } from '@/chains/arc';
 import { DocsLayout, DocsNextLink } from '@/components/docs/docs-layout';
 import { GradientText } from '@/components/gradient-text';
 import { githubBlobUrl, githubTreeUrl } from '@/lib/site-config';
@@ -117,9 +118,15 @@ export default function DocsArchitecturePage() {
       <Section id="chains" title="Chains" tag="03">
         <p>
           Live on Base today. Other EVM chains land via the same{' '}
-          <Mono>TaskEscrow</Mono> + same salts → same address pattern. Non-EVM
-          (Solana, NEAR) lives behind a separate adapter package and is
-          v3+ work.
+          <Mono>TaskEscrow</Mono> + same salts → same address pattern. Arc
+          is the exception — it gets a dedicated adapter
+          (<Mono>@sage/adapter-arc</Mono>) that wraps native ERC-8183 +
+          ERC-8004 rather than deploying our contracts there (
+          <ExternalLink href={githubBlobUrl('docs/adr/0014-arc-adapter-native-erc-8183.md')}>
+            ADR-0014
+          </ExternalLink>
+          ). Non-EVM (Solana, NEAR) lives behind a separate adapter
+          package and is v3+ work.
         </p>
         <div className="my-4 rounded-[10px] border border-border overflow-hidden">
           <div className="grid grid-cols-[1.5fr_1fr_1fr] gap-4 px-4 py-3 border-b border-border bg-surface font-mono text-[10px] uppercase tracking-[0.06em] text-text-subtle">
@@ -129,6 +136,14 @@ export default function DocsArchitecturePage() {
           </div>
           <ChainRow chain="Base" id="8453" status="Live" era="2026-04-22" />
           <ChainRow chain="Base Sepolia" id="84532" status="Live" era="2026-04-22" />
+          <ChainRow
+            chain={ARC.displayName}
+            id="—"
+            status="Planned"
+            era="ADR-0014"
+            muted
+            title={ARC.note}
+          />
           <ChainRow chain="Arbitrum" id="42161" status="Planned" era="v2.1" muted />
           <ChainRow chain="OP" id="10" status="Planned" era="v2.1" muted />
           <ChainRow chain="BNB" id="56" status="Planned" era="v2.1" muted />
@@ -309,6 +324,7 @@ function ChainRow({
   era,
   muted,
   last,
+  title,
 }: {
   chain: string;
   id: string;
@@ -316,12 +332,14 @@ function ChainRow({
   era: string;
   muted?: boolean;
   last?: boolean;
+  title?: string;
 }) {
   return (
     <div
       className={`grid grid-cols-[1.5fr_1fr_1fr] gap-4 px-4 py-3 ${
         last ? '' : 'border-b border-border'
       } items-baseline`}
+      {...(title ? { title } : {})}
     >
       <div className={muted ? 'text-text-subtle' : ''}>
         <div className="text-[13px] text-text">{chain}</div>

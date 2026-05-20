@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-05-21 — Phase B / ADR-0014: `@sage/adapter-arc` scaffold + Arc as planned sibling chain
+
+ADR-0008's multi-chain framing gets its first sibling adapter. `@sage/adapter-arc` ships as a production-shape scaffold (full ChainAdapter conformance, NotImplementedError everywhere, ADR documenting the design). The structural commitment is in code; runtime operations wait for Arc testnet stabilisation and ERC-8183/8004 reference-contract confirmation.
+
+- `adr` **ADR-0014 Accepted** — Arc as sibling chain via `@sage/adapter-arc` over native ERC-8183 (Jobs) + ERC-8004 (Agent Identity). Sage does NOT deploy `TaskEscrow` / `AgentRegistry` on Arc — on chains with native task-escrow primitives the adapter wraps them; on chains without (Base today), Sage deploys its own. 4 alternatives considered and rejected (deploy our contracts on Arc / fork ERC-8183 / defer until mainnet / build with speculative testnet endpoints). Promoted Proposed → Accepted 2026-05-21.
+- `feat` **`packages/adapter-arc/` (new package).** Production-shape: name `@sage/adapter-arc`, deps `@sage/core: workspace:*`, peer `viem: >=2.0.0`. Mirrors `@sage/adapter-evm` layout (tsup, tsconfig, vitest). Files:
+  - `src/index.ts` — `createSageArcClient()` returns a typed ChainAdapter where every method throws `NotImplementedError` with a message pointing at ADR-0014 + the operation name (dotted path).
+  - `src/chain.ts` — `ARC_TESTNET_CHAIN_INFO` with `chainId: '0'` (TBD when Arc publishes), `name: 'Arc'`, `explorerUrl: 'https://explorer.arc.network'` (placeholder, verify when testnet block explorer is live).
+  - `src/abi/README.md` — explicit gate: ERC-8183 + ERC-8004 ABIs go here once reference contracts on Arc testnet are confirmed. Do NOT copy from draft EIPs.
+  - `test/index.test.ts` — 17 conformance tests (3 structural + 14 NotImplementedError-per-op).
+  - `README.md` — public-facing status + 8-item checklist for scaffold → live.
+- `feat` **`apps/web/chains/arc.ts` (new).** `PlannedChainConfig` shape distinct from `SageChainConfig` (no `contracts` field — Arc doesn't get our contract deploys). `ARC` constant + `SAGE_PLANNED_CHAINS` map for any future UI that iterates planned chains.
+- `feat` **`/docs/architecture` chain table.** New Arc row between Base Sepolia and Arbitrum: `Arc · Planned · ADR-0014`, hover tooltip carries `ARC.note` ("Coming when Arc testnet stabilises…"). Chains section intro paragraph mentions Arc as the exception to same-address pattern + links ADR-0014. ChainRow extended with optional `title` prop.
+- `decision` **Skip silent stubs, mock RPC, fake tx hashes, hard-coded unknown chainId, ABIs copied from draft EIP.** Acceptance criteria from session 2026-05-21 (per user spec): scaffold must be production-shape package, NotImplementedError everywhere instead of silent stubs, explicit TBD comments where information is missing. Honest stake: visible structural declaration of multi-chain readiness + formal document explaining why exactly this approach on Arc. Stronger than a half-working adapter.
+- `release` **17 new tests** in `@sage/adapter-arc`. demo-agents 112, @sage/core 11, @sage/adapter-evm 12, @sage/adapter-arc 17 (new) = 152 tests in TS layer. Production build clean: `@sage/adapter-arc` 2.09KB ESM + 3.21KB CJS + 4.51KB d.ts. tsc strict clean on adapter-arc + web (chain row addition + new chains/arc.ts).
+
+---
+
 ## 2026-05-21 — M10.5.A dispute-path completion (pause-on-dispute, retry endpoint, replan-prompt buttons live)
 
 Closes the "present-but-disabled Retry / Change-executor" wart on `/demo/composite`. The canonical demo's dispute path is now end-to-end functional; ADR-0008's "one-click verifiability" claim no longer ships with visible TODO buttons. Backend pauses on dispute via an in-memory registry instead of failing the plan; frontend's existing `replan-prompt.tsx` gains a worker picker for Change-executor.
