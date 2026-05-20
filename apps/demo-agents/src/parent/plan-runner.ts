@@ -241,6 +241,17 @@ async function pollUntilCompleted(
         return task.resultUri;
       }
       if (task.status === TaskStatus.Disputed) {
+        // M10.4.1: dedicated event for dispute resolution UI (M10.4.3
+        // replan-prompt). Plus the firehose `subtask_status` event for
+        // graph-rendering consistency. Both fire, then the runner throws
+        // — the v1 hook surfaces `disputedSubId` and shows the prompt;
+        // actual retry / change-executor wiring needs M10.5 backend
+        // endpoint and is not in this iteration.
+        channel.emit('subtask_disputed', {
+          subId,
+          taskId: taskId.toString(),
+          resultUri: task.resultUri,
+        });
         channel.emit('subtask_status', { subId, status: 'disputed' satisfies SubTaskRunStatus });
         throw new PlanError(`subtask #${subId} disputed`);
       }

@@ -143,6 +143,12 @@ export interface CompositeState {
   error: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  /**
+   * Sub-task that just transitioned to `disputed` and needs user attention.
+   * Drives the inline `replan-prompt` UI (M10.4.3). Reset when the user
+   * picks an action.
+   */
+  disputedSubId: number | null;
 }
 
 const INITIAL_STATE: CompositeState = {
@@ -158,6 +164,7 @@ const INITIAL_STATE: CompositeState = {
   error: null,
   startedAt: null,
   completedAt: null,
+  disputedSubId: null,
 };
 
 export function useCompositeDemo() {
@@ -376,13 +383,26 @@ function attachStream(
         completedAt: Date.now(),
       })));
     },
+    subtask_disputed: (data) => {
+      // M10.4.2: dedicated handler for dispute event. Mirrors subtask_status
+      // firehose but carries richer payload (taskId, resultUri) and sets
+      // `disputedSubId` so the replan-prompt UI can target the right node.
+      const subId = numberField(data, 'subId');
+      if (subId === null) return;
+      track('composite_subtask_disputed', { subId });
+      setState((prev) => ({
+        ...updateRuntime(prev, subId, (r) => ({ ...r, status: 'disputed' })),
+        disputedSubId: subId,
+      }));
+    },
     subtask_status: (data) => {
-      // Specific events already cover created/accepted/completed/paid; this
-      // catches disputed (which doesn't have a dedicated event in M10.2.4).
+      // Firehose status event — kept for graph-rendering consistency. The
+      // dedicated `subtask_disputed` handler above does the heavy lifting
+      // for dispute UI state; this branch is a safety net if the dedicated
+      // event ever drops.
       const status = stringField(data, 'status') as SubTaskRunStatus | null;
       const subId = numberField(data, 'subId');
       if (subId === null || status !== 'disputed') return;
-      track('composite_subtask_disputed', { subId });
       setState((prev) => updateRuntime(prev, subId, (r) => ({ ...r, status: 'disputed' })));
     },
     plan_completed: (data) => {

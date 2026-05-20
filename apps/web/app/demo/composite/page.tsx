@@ -7,6 +7,7 @@ import { PlanCard } from '@/components/demo/plan-card';
 import { PlanEditor } from '@/components/demo/plan-editor';
 import { PlanGraph } from '@/components/demo/plan-graph';
 import { SubtaskDrawer } from '@/components/demo/subtask-drawer';
+import { ReplanPrompt } from '@/components/demo/replan-prompt';
 import { ErrorPanel } from '@/components/demo/error-panel';
 import { track } from '@/lib/posthog';
 import {
@@ -183,6 +184,44 @@ export default function CompositePage() {
             runtimes={demo.runtimes}
             onSubtaskClick={setSelectedSubId}
           />
+          {(() => {
+            // M10.4.3: show the replan-prompt inline when a sub-task either
+            // explicitly disputed (via SSE) or surfaced as errored. Disputed
+            // takes precedence — it's the user-attention path.
+            const disputedSub =
+              demo.disputedSubId !== null
+                ? planForDisplay.subtasks.find((s) => s.id === demo.disputedSubId)
+                : undefined;
+            if (disputedSub) {
+              return (
+                <ReplanPrompt
+                  subtask={disputedSub}
+                  runtime={demo.runtimes[disputedSub.id]}
+                  reason="disputed"
+                  onCancelRun={handleReset}
+                />
+              );
+            }
+            const erroredSubId = Object.entries(demo.runtimes).find(
+              ([, r]) => r.status === 'errored',
+            )?.[0];
+            if (erroredSubId !== undefined) {
+              const sub = planForDisplay.subtasks.find(
+                (s) => s.id === Number(erroredSubId),
+              );
+              if (sub) {
+                return (
+                  <ReplanPrompt
+                    subtask={sub}
+                    runtime={demo.runtimes[sub.id]}
+                    reason="errored"
+                    onCancelRun={handleReset}
+                  />
+                );
+              }
+            }
+            return null;
+          })()}
           {isDone && (
             <div className="flex justify-end">
               <button
