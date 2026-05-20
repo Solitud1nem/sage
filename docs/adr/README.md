@@ -27,22 +27,24 @@
 | [0004](./0004-settlement-usdc-permit.md) | Settlement currency: USDC-only + EIP-2612 permit in v2.0 | Accepted | 2026-04-22 |
 | [0005](./0005-monorepo-foundry-viem.md) | Repo structure: pnpm monorepo + Foundry + viem | Accepted | 2026-04-22 |
 | [0006](./0006-web-integration-topology.md) | Web frontend integration: static export on Cloudflare Pages + Alchemy RPC proxy + Fly.io demo-agents + PostHog | Accepted | 2026-04-23 |
+| [0007](./0007-observable-decomposition.md) | Observable decomposition: plan-then-execute as the default flow for composite agent tasks | Accepted | 2026-05-19 |
+| [0008](./0008-sage-angle-position.md) | Sage angle / position: multi-chain settlement infrastructure for AI agents, distinguished by observable decomposition | Accepted | 2026-05-20 |
 
 ## Ожидаемые ADR (черновик)
 
-Эти ADR мы будем оформлять по мере прохождения 10 архитектурных осей. Порядок — примерный.
+Эти ADR мы будем оформлять по мере прохождения архитектурных осей. Порядок — примерный.
 
 | # (планируется) | Тема | Ось из `project-sage` |
 |------|------|-----------------------|
-| ~~0001~~ | ✅ Accepted — см. индекс выше | A1 |
-| ~~0002~~ | ✅ Accepted — см. индекс выше | A2 |
-| ~~0003~~ | ✅ Accepted — см. индекс выше | A4 (D5 формализован) |
-| ~~0004~~ | ✅ Accepted — см. индекс выше | A3 |
-| ~~0005~~ | ✅ Accepted — см. индекс выше | A8 |
-| 0006 | Task escrow lifecycle inherited from v1 | A5 (JIT — оформить перед стартом кода контрактов) |
-| 0007 | Upgradability: immutable TaskEscrow, UUPS AgentRegistry | A6 (JIT — перед mainnet deploy) |
-| 0008 | Event indexer tooling | A7 (JIT — при имплементации индексера) |
-| 0009 | Gas abstraction (ERC-4337 + paymaster) | A9 (JIT — v2.1) |
-| 0010 | Chain-agnostic protocol spec + ChainAdapter SDK interface | A10 (JIT — встраивается в процесс) |
+| ~~0001–0006~~ | ✅ Accepted — см. индекс выше | A1, A2, A3, A4, A8, web-axis |
+| ~~0007~~ | ✅ Accepted — см. индекс выше (observable decomposition) | A11 — composition pattern |
+| ~~0008~~ | ✅ Accepted — Sage angle / position (см. индекс) | meta-position — ethos formalisation |
+| 0009 | Task escrow lifecycle inherited from v1 (formalisation) | A5 (JIT — оформить при ревизии контрактов) |
+| 0010 | Upgradability: immutable TaskEscrow, UUPS AgentRegistry | A6 (JIT — перед каждым mainnet deploy) |
+| 0011 | Event indexer tooling | A7 (JIT — при имплементации индексера) |
+| 0012 | Gas abstraction (ERC-4337 + paymaster) | A9 (JIT — v2.1) |
+| 0013 | Chain-agnostic protocol spec + `ChainAdapter` SDK interface | A10 (JIT — встраивается в процесс) |
+| 0014 | Arc as sibling chain via `@sage/adapter-arc` over native ERC-8183/8004 | новая ось: chain expansion |
+| 0015 | Plan artifact storage (off-chain indexer / IPFS / wallet metadata) | follows 0007 |
 
 _(Эти номера могут измениться в зависимости от порядка принятия.)_

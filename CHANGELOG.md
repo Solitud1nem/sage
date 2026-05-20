@@ -8,6 +8,28 @@
 
 ---
 
+## 2026-05-20 — M10 Week 3 shipped + Week 4 narrative close-out
+
+- `milestone` **Milestone 10 Week 3 closed (M10.3.1–M10.3.9).** Frontend для observable-decomposition живёт на `sage-protocol.pages.dev/demo/composite`:
+  - `@xyflow/react` ~12 добавлен в `apps/web/package.json` (justification: DAG-визуализация — single-purpose, ~150KB gzipped, нативные node/edge primitives).
+  - `apps/web/hooks/use-composite-demo.ts` — state machine `idle → classifying → plan-ready → executing → completed|error`, SSE consumption mirror'ит `use-demo-stream.ts` shape, `planFromClassification` auto-resolves `executor_address` через stem-based mapping (`translat` → translator, `summari/compar/research/analy/write` → summarizer, `sentiment/classif/emotion` → sentiment, `vision/image/describ` → vision).
+  - 4 новых компонента в `apps/web/components/demo/`: `plan-card` (read-only review + Approve/Edit/Cancel + decomposability/stakes badges + confidence pills), `plan-editor` (↑↓ reorder без drag-deps, executor dropdown, live cost), `plan-graph` (xyflow DAG с topological layout + цветами по runtime status, click handling на `onNodeClick` уровне), `subtask-drawer` (slide-out detail с executor / Task ID / timing / result / tx hashes).
+  - `apps/web/app/demo/composite/page.tsx` — page orchestrator с local UI state (`editing`, `selectedSubId`).
+  - Bundle: `/demo/composite` — 66KB page-specific / 234KB First Load (без wagmi pull-in — нет wallet path в composite UI).
+- `release` **Live на prod 2026-05-19 ~23:00 UTC** через manual `wrangler pages deploy apps/web/out` (GH Actions workflow `deploy-web.yml` сломан pre-existing — wrangler-action монорепо-incompatible, документирован для future fix).
+- `incident` **Build chain regression chain** (M10.3.9 deployment): три отдельных fix'а потребовались чтобы build прошёл end-to-end. Все коммиты:
+  - `079cdb4` fix(web): `site-config.ts` `??` → `||` — GitHub Actions `${{ vars.X }}` интерполируется в `''` когда repo-var не выставлен, не в `undefined`. `??` не ловил empty string → `new URL('')` в `app/layout.tsx:16` крашил Next.js static export при `Collecting page data for /changelog`.
+  - `43f3f50` fix(infra): repo-level `.npmrc` `ignore-workspace-root-check=true` — `cloudflare/wrangler-action@v3` инвокает `pnpm add wrangler@<v>` в monorepo-root без `-w` flag, pnpm v9 отказывается. Action не модифицируем, поэтому через `.npmrc`.
+  - `f9c373c` fix(web,agents): три hot-fix'а после prod-bring-up: (a) `planFromClassification` теперь auto-assign'ит executor через stem-matching (LLM не эмитит executor, mock'и тоже — gap не был покрыт), (b) `plan-graph.tsx` переехал на `ReactFlow.onNodeClick` API вместо inner `<button onClick>` (xyflow's pan layer eats inner clicks — drawer не открывался), (c) `summarizer/agent.ts` стал dual-mode: detect `data:application/json,{parent,spec}` envelope → execution prompt; raw text → existing summarize prompt. Tactical fix чтобы composite results не были echo-style. Translator/sentiment/vision остаются single-mode (deferred).
+- `milestone` **Milestone 10 Week 4 narrative close-out частично** (M10.4.7-10 + M10.4.9 + M10.4.12). Operational polish (M10.4.4-6, telemetry/retry/Sentry) и dispute path (M10.4.1-3) перенесены в следующую сессию.
+  - `apps/demo-agents/src/parent/README.md` обновлён до production-ready: добавлен frontend section (UI компоненты), dual-mode worker contract subsection, production smoke brief patterns, expanded debugging entries, refreshed Out-of-scope statuses.
+  - `docs/research/observable-decomposition.md` §11 аннотирован: 7 оригинальных вопросов получили post-build статусы (resolved / deepened / unchanged), плюс новая sub-section «Surfaced during implementation» с 6 свежими вопросами (type→executor mapping locality, worker prompt protocol, stem-matching limits, result aggregation, cost calibration, sequential-only execution).
+  - `docs/blog/observable-decomposition-shipped.md` — 1755-слов reflective blog (close to ~1500 target). Что построили / что surprise'нуло (executor_address gap, single-mode workers, stakes over-conservatism, LLM type wildness) / что не сработало / что осталось открытым. Tone matches research notebook.
+- `adr` **ADR-0008 Accepted** — `docs/adr/0008-sage-angle-position.md`. Формальная декларация позиционирования: «multi-chain settlement infrastructure for AI agents, distinguished by observable decomposition». 4 альтернативы рассмотрены и отклонены (general platform / Base-only / research-only / OD-only). Promoted Proposed → Accepted 2026-05-20 после Alex review.
+- `decision` Артефакт-набор для external-facing audience сформирован: ADR-0007 (pattern decision) + ADR-0008 (position) + research/observable-decomposition.md (reasoning) + research/classification-trigger-design.md (technical design) + blog/observable-decomposition-shipped.md (reflective build account) + live `/demo/composite`. Это полный «как нас читать» набор.
+
+---
+
 ## 2026-05-19 (continued — M10 Week 1 + Week 2 shipped)
 
 - `milestone` **Milestone 10 Week 1 closed (M10.1.1–M10.1.7).** Foundation для observable-decomposition в коде:

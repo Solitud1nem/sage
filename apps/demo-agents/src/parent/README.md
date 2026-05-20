@@ -6,7 +6,10 @@ a brief is classified into a structured `Plan`, the user approves (and
 optionally edits) the plan card, and each approved sub-task becomes a real
 on-chain `TaskEscrow` record carrying a `parent_id` link back to the run.
 
-It's a thin coordinator. Most of the work happens in:
+**Live on prod:** `https://sage-protocol.pages.dev/demo/composite` →
+`https://sage-demo-agents.fly.dev/api/demo/composite/*` → Base mainnet.
+
+This module is a thin coordinator. Most of the work happens in:
 - [`@sage/core`](../../../../packages/core/src/types/plan.ts) — shared
   types (`Plan`, `SubTask`, `ClassificationResult`, `Decomposability`, `Stakes`)
 - [`@sage/adapter-evm`](../../../../packages/adapter-evm/src/task-escrow.ts)
@@ -16,12 +19,25 @@ It's a thin coordinator. Most of the work happens in:
 
 | File | What it does |
 |------|-------------|
-| `classify.ts` | LLM-backed brief classifier (gpt-4o-mini, function-calling). Falls back to a 5-template mock when `openaiApiKey` is absent. Retries once on malformed responses; returns a degraded `confidence_*=0` result on second failure. |
+| `classify.ts` | LLM-backed brief classifier (gpt-4o-mini, function-calling). Falls back to a 5-template mock when `openaiApiKey` is absent. Retries once on malformed responses; returns a degraded `confidence_*=0` result on second failure. Emits 5 structured trace events per pass. |
 | `heuristic.ts` | Deterministic cross-check that halves `confidence_*` when the brief contains ≥ 2 composite cues or any stakes cues. Pure function. |
 | `parent-id-codec.ts` | `encodeParentId({run, sub}, spec)` → `data:application/json,...` URI carrying both the parent_id and the executor-facing spec text. `decodeParentId(specUri)` extracts the pair; returns `null` for non-envelope URIs. |
 | `plan-runner.ts` | `runPlan(plan, channel, bundle, {runId})` — executes the plan one sub-task at a time in topological order, polling `getTask` every 10s, emitting lifecycle events into the SSE channel. |
 | `agent.ts` | Two entry points: `executePlan(plan, bundle)` (pre-approved Plan) and `classifyAndExecute(brief, bundle, env)` (autonomous one-shot). Both register progress channels with `demoRegistry`. |
 | `index.ts` | Barrel re-exporting the public surface. |
+
+## Frontend counterpart
+
+Lives in `apps/web/`, parallel to (not modifying) the existing 3-mode `/demo`.
+
+| File | What it does |
+|------|-------------|
+| `app/demo/composite/page.tsx` | Page orchestrator. Local UI state: `editing` (toggles between plan-card and plan-editor), `selectedSubId` (drives the drawer). |
+| `hooks/use-composite-demo.ts` | State machine `idle → classifying → plan-ready → executing → completed \| error`. SSE consumption. `planFromClassification` derives an approved Plan from a `ClassificationResult` and **auto-resolves `executor_address`** by mapping `type` against capability stems (`translat` → translator, `summari/compar/research/analy/write` → summarizer, `sentiment/classif/emotion` → sentiment, `vision/image/describ` → vision). |
+| `components/demo/plan-card.tsx` | Read-only review with decomposability/stakes badges, confidence pills (tinted when below 0.7), per-subtask rows, three actions (Approve / Edit / Cancel). |
+| `components/demo/plan-editor.tsx` | Toggle from plan-card. `↑↓` reorder (no drag dep — by design), executor dropdown reading `NEXT_PUBLIC_DEMO_*_ADDRESS` env vars, add/remove. Live total cost. |
+| `components/demo/plan-graph.tsx` | DAG via `@xyflow/react`. Layout by topological depth. Nodes colored per runtime status (`waiting` slate, `created` purple, `accepted` cyan, `completed` pink, `paid` mint, `errored`/`disputed` red). Click handling at `ReactFlow.onNodeClick` level. |
+| `components/demo/subtask-drawer.tsx` | Slide-out right-side drawer per node. Shows status / spec / executor (Basescan-linked) / on-chain Task ID / timing / cost / result / tx hashes. |
 
 ## How to add a new sub-task type
 
@@ -31,27 +47,15 @@ It's a thin coordinator. Most of the work happens in:
      `classify.ts` whose `build()` produces a `proposed_plan` containing
      the new type, and a `matches()` predicate for the trigger keywords.
    - **LLM path:** the system prompt does not enumerate types — the LLM
-     can emit any string. Make sure the new type is described in the
-     prompt only if it needs special instructions.
-3. Register an executor for the new type. Either:
-   - Re-use an existing worker (e.g. point `executor_address` at the
-     summarizer wallet) — fast but conflates capability with executor.
-   - Add a dedicated worker under `apps/demo-agents/src/<type>/` mirroring
-     the existing `summarizer/agent.ts` pattern, with its own Fly process
-     and private key.
-4. Wire the executor address into the Plan flow. For mock plans, set
-   `executor_address` in the template's `build()`. For LLM-generated
-   plans, either:
-   - Have the LLM emit `executor_address` directly (only if you give it
-     the executor catalogue in the prompt), or
-   - Resolve type → address in a pre-execute hook on the server.
-
-> **Important:** the existing 4 workers (summarizer/translator/vision/sentiment)
-> read `specUri` as raw text and pass it straight to OpenAI. The composite
-> flow wraps `specUri` in a `data:application/json,{...}` envelope, which
-> the existing workers will treat as JSON text. That works (the LLM is
-> happy to summarize JSON), but isn't ideal. A composite-aware worker
-> generation that uses `decodeSpec()` is a future task.
+     can emit any string. Add the type description to the prompt only if
+     it needs special instructions.
+3. Add a stem to `resolveExecutorByType` in `apps/web/hooks/use-composite-demo.ts`
+   so the frontend auto-assigns this type to an existing worker, OR add a
+   dedicated worker (see step 4).
+4. **Optionally** stand up a dedicated worker under
+   `apps/demo-agents/src/<capability>/agent.ts` mirroring `summarizer/agent.ts`
+   pattern, with its own Fly process + private key. Cleaner than reusing
+   an existing worker for a new capability, but adds operational surface.
 
 ## `parent_id` convention
 
@@ -68,10 +72,33 @@ Every sub-task's `specUri` is a `data:application/json,` data URI with the shape
 - `sub` is the 1-indexed ordinal within the plan (matches `SubTask.id`).
 - Both are positive integers / non-empty strings.
 
-The off-chain indexer rebuilds the parent → sub-task graph by scanning
+Off-chain indexers can rebuild the parent → sub-task graph by scanning
 `TaskCreated` events and calling `decodeParentId(specUri)` on each. Events
 whose specUri is not a properly-formed envelope are treated as standalone
-non-composite tasks.
+non-composite tasks. (We don't currently run an indexer — the in-memory
+runtime tracks the graph for the active SSE channel.)
+
+## Worker dual-mode contract
+
+The existing 4 demo workers (`summarizer` / `translator` / `vision` /
+`sentiment`) were originally built for the 3-mode `/demo` flow where
+`specUri = CONTENT` (an article, an image URL). Composite hands them
+`specUri = ENVELOPE` carrying an INSTRUCTION. Two interpretations of the
+same field. Without disambiguation, the worker politely summarizes the
+instruction back instead of executing it.
+
+As of 2026-05-20, **only `summarizer/agent.ts` is composite-aware**: it
+detects the envelope (inlined decoder mirroring `parent-id-codec`),
+extracts the inner `spec`, and switches its system prompt to an
+execution-style template ("execute the task and return the result
+directly"). The 3-mode raw-text path is preserved as fallback.
+
+`translator` / `sentiment` / `vision` are still single-mode. Composite
+sub-tasks routed to them produce echo-style results ("the task is
+to translate…"). The frontend's stem matcher routes most composite types
+to summarizer to avoid this, but pure `translate` / `sentiment` / `vision`
+plans still hit the gap. Dedicated dual-mode prompts for those three are
+M10.4 / Phase B work.
 
 ## Lifecycle events emitted on the SSE channel
 
@@ -81,7 +108,7 @@ event payload is JSON.
 | Event | Payload | When |
 |-------|---------|------|
 | `plan_started` | `{runId, plan_summary, order, startedAt}` | First thing after validation. `order` is the topological order. |
-| `subtask_status` | `{subId, status}` | Every status transition (`created` → `accepted` → `completed` → `paid`, or `errored` / `disputed`). Flat firehose-style event for graph rendering. |
+| `subtask_status` | `{subId, status}` | Every status transition. Flat firehose-style event for graph rendering. |
 | `subtask_created` | `{subId, taskId, executor, amount, deadline}` | `createTask` returned. |
 | `subtask_accepted` | `{subId, taskId}` | First poll where status === Accepted. |
 | `subtask_completed` | `{subId, taskId, resultUri}` | First poll where status === Completed. |
@@ -91,7 +118,7 @@ event payload is JSON.
 | `plan_failed` | `{runId, failedSubId, error}` | Plan aborted due to a sub-task failure. |
 | `done` | `{runId, ok, ...}` | Emitted by `SseChannel.close()`. Final event in the stream. |
 
-## Endpoints (added in `server.ts` M10.2.6)
+## Endpoints
 
 ```
 POST /api/demo/composite/classify
@@ -99,7 +126,7 @@ POST /api/demo/composite/classify
   → 200 { classification: ClassificationResult }   // bigints serialized as strings
 
 POST /api/demo/composite/execute
-  body: Plan (with cost fields as decimal strings)
+  body: Plan (with cost fields as decimal strings, executor_address required per sub-task)
   → 202 { runId, streamUrl, chainId, chainName, explorerUrl }
   → 400 { error: "<validation>" }
   → 503 { error: "sponsor_exhausted", ... }
@@ -112,11 +139,12 @@ GET  /api/demo/composite/stream/:runId
 Existing `/api/demo/start` + `/api/demo/stream/:id` are unchanged; the
 3-mode demo (pipeline/sentiment/vision) is untouched by this work.
 
-## Local smoke (mock classifier — safe)
+## Local smoke (mock classifier — safe, no money)
 
 Skip the LLM call by NOT setting `OPENAI_API_KEY`. The classifier falls back
-to the 5-template mock, no money is spent, runs hit the mock executors only
-if you supply real `executor_address` values.
+to the 5 mock templates (`translate this`, `summarize this`, `research X and
+write Y`, `plan a Tokyo trip`, `send $X USDC`). The frontend auto-assigns
+executor addresses; from curl you have to set them manually.
 
 ```bash
 # In one terminal, start the orchestrator
@@ -126,9 +154,9 @@ pnpm dev:orchestrator   # reads .env.orchestrator
 # In another terminal, classify a brief
 curl -s -X POST http://localhost:3000/api/demo/composite/classify \
   -H 'Content-Type: application/json' \
-  -d '{"brief":"translate this paragraph"}' | jq
+  -d '{"brief":"translate this paragraph"}' | python3 -m json.tool
 
-# Execute a hand-crafted Plan
+# Execute a hand-crafted Plan (executor_address required for each sub-task)
 curl -s -X POST http://localhost:3000/api/demo/composite/execute \
   -H 'Content-Type: application/json' \
   -d '{
@@ -138,30 +166,36 @@ curl -s -X POST http://localhost:3000/api/demo/composite/execute \
     "subtasks": [{
       "id": 1,
       "type": "translate-text",
-      "executor_address": "0xa61b00000000000000000000000000000000001c",
+      "executor_address": "0xa61bd5efa704805B08970C34Cd639fA5D6Ce1c8c",
       "estimated_cost_units": "100000",
       "deadline_offset_s": 600,
       "spec": "translate me"
     }],
     "estimated_total_cost_units": "100000",
     "estimated_duration_ms": 8000
-  }' | jq
+  }' | python3 -m json.tool
 
 # Tail the stream
 curl -N http://localhost:3000/api/demo/composite/stream/<runId>
 ```
 
-## Mainnet smoke (M10.2.7 — uses real USDC)
+## Production smoke (uses real USDC)
 
-The full smoke requires:
-- `PRIVATE_KEY` for the sponsor wallet (≥ 1 USDC on Base mainnet)
-- `OPENAI_API_KEY` to exercise the real classifier path
-- `CHAIN=mainnet`, `CHAIN_ID=8453`, `RPC_URL=...`
-- Real worker addresses set as `executor_address` on each sub-task
+The live URL is `https://sage-protocol.pages.dev/demo/composite`. Each
+sub-task spends `estimated_cost_units` USDC from the sponsor wallet
+(locked in escrow, paid to executor on completion). A 3-step composite at
+~100k units each is ~0.3 USDC. Sponsor balance visible via
+`https://sage-demo-agents.fly.dev/health`.
 
-Each sub-task spends `estimated_cost_units` USDC from the sponsor (locked
-in escrow, paid to executor on completion). A 3-step composite at 100_000
-units each is ~0.3 USDC. Budget accordingly.
+Brief patterns that exercise the full graph:
+
+| Brief | Shape |
+|-------|-------|
+| `translate this paragraph` | one-shot → 1 sub-task |
+| `summarize this article` | one-shot → 1 sub-task |
+| `research the top 3 stablecoin yield products on Base and write a comparative report` | composite → 2-3 sub-tasks, sequential `research → write` |
+| `plan a Tokyo trip` | composite → 3-4 sub-tasks, sequential |
+| `research the top 5 stablecoin protocols on Base, summarize each, translate the summary to Russian, write a comparative report, and identify the safest one` | composite → 5+ sub-tasks |
 
 ## Debugging
 
@@ -170,21 +204,32 @@ units each is ~0.3 USDC. Budget accordingly.
   Filter with `grep parent.classify` if it gets noisy.
 - **Why is a sub-task stuck on `created`?** The executor for that
   `executor_address` either isn't running or isn't watching `TaskCreated`
-  for that chain. Check the appropriate worker process.
-- **Why does the plan run but produce garbage results?** Existing workers
-  treat the wrapped `data:application/json,{...}` `specUri` as text. The
-  LLM summary of a JSON envelope is a summary OF the envelope, not of the
-  sub-task spec. See "How to add a new sub-task type" for the composite-aware
-  worker plan.
+  for that chain. Check the appropriate worker process via
+  `fly logs -a sage-demo-agents | grep '\[<Worker>\]'`.
+- **Why does the plan run but produce echo-style results?** If the
+  sub-task is routed to `translator` / `sentiment` / `vision` (not
+  `summarizer`), those workers don't yet decode the envelope. Result will
+  look like "the task is to translate…". Workaround: edit the plan to
+  re-route to summarizer (which handles general execution). Real fix: the
+  M10.4 dual-mode rollout to the other three workers.
 - **Where is the runId logged?** `executePlan` returns it; `plan_started`
   + `plan_completed` + `done` events on the SSE channel carry it.
+- **Frontend says "Executor: unassigned"?** Means the sub-task `type` didn't
+  match any stem in `resolveExecutorByType` and no `executor_address` was
+  provided. Two fixes: (a) add a stem for the type in
+  `use-composite-demo.ts`, (b) open the plan-editor and pick an executor
+  manually.
 
 ## Out-of-scope vs deferred
 
 | Concern | Status | Where it goes |
-|---------|--------|--------------|
-| Modifying existing 4 workers to decode the parent envelope | Deferred | Composite-aware workers, future milestone |
-| Per-sub-task user-approval gate (instead of auto-approve) | Deferred | M10.3 frontend + new endpoint |
-| Dispute path beyond emitting `subtask_disputed` | Partial | M10.4.1–M10.4.3 |
-| Parallel execution of independent sub-tasks | Deferred | Performance work, future |
-| ERC-8004 / AgentRegistry integration for executor discovery | Out of scope (Phase B) | Arc / multi-chain milestone |
+|---------|--------|---------------|
+| Dual-mode prompt for `translator` / `sentiment` / `vision` | Deferred | M10.4 (mirrors the summarizer dual-mode fix from 2026-05-20) |
+| Dedicated composite-aware workers per capability | Deferred | Phase B / future milestone, replaces dual-mode hacks |
+| Per-sub-task user-approval gate (instead of auto-approve) | Deferred | M10.4 + new "user_approval_required" endpoint |
+| Dispute path UI (`subtask_disputed` SSE handling + replan prompt) | M10.4.1–M10.4.3 | Backend emit landed; UI is next |
+| Aggregate result panel (vs per-node drawer) | Deferred | UX polish — drawer is sufficient for v1 |
+| Parallel execution of independent sub-tasks | Deferred | Performance work, future. Sequential is safe and cheap to reason about. |
+| ERC-8004 / AgentRegistry integration for executor discovery | Out of scope | Phase B (Arc / multi-chain milestone) |
+| Drag-and-drop reorder in plan-editor (currently ↑↓ buttons) | Deferred | UX polish — see `IDEAS.md` |
+| Heuristic stem-aware keyword match (`compare`/`comparative`/`comparison`) | Deferred | UX polish — see `IDEAS.md` |
