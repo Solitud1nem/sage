@@ -29,7 +29,8 @@
 | [0006](./0006-web-integration-topology.md) | Web frontend integration: static export on Cloudflare Pages + Alchemy RPC proxy + Fly.io demo-agents + PostHog | Accepted | 2026-04-23 |
 | [0007](./0007-observable-decomposition.md) | Observable decomposition: plan-then-execute as the default flow for composite agent tasks | Accepted | 2026-05-19 |
 | [0008](./0008-sage-angle-position.md) | Sage angle / position: multi-chain settlement infrastructure for AI agents, distinguished by observable decomposition | Accepted | 2026-05-20 |
-| [0014](./0014-arc-adapter-native-erc-8183.md) | Arc as sibling chain via `@sage/adapter-arc` over native ERC-8183 + ERC-8004 (scaffold-first) | Accepted | 2026-05-21 |
+| [0014](./0014-arc-adapter-native-erc-8183.md) | Arc as sibling chain via `@sage/adapter-arc` over native ERC-8183 + ERC-8004 (scaffold-first) | Accepted, partially superseded by 0015 | 2026-05-21 |
+| [0015](./0015-arc-deploy-bridge.md) | Arc testnet bridge: deploy Sage contracts on Arc via Arachnid CREATE2 (interim, until native ERC-8183/8004 ship) | Accepted | 2026-05-21 |
 
 ## Ожидаемые ADR (черновик)
 
@@ -45,7 +46,8 @@
 | 0011 | Event indexer tooling | A7 (JIT — при имплементации индексера) |
 | 0012 | Gas abstraction (ERC-4337 + paymaster) | A9 (JIT — v2.1) |
 | 0013 | Chain-agnostic protocol spec + `ChainAdapter` SDK interface | A10 (JIT — встраивается в процесс) |
-| ~~0014~~ | ✅ Accepted — см. индекс выше (Arc adapter scaffold) | новая ось: chain expansion |
+| ~~0014~~ | ✅ Accepted (partially superseded by 0015) — Arc adapter scaffold | новая ось: chain expansion |
+| ~~0015~~ | ✅ Accepted — Arc deploy bridge (interim) | chain expansion / bridge |
 | 0015 | Plan artifact storage (off-chain indexer / IPFS / wallet metadata) | follows 0007 |
 
 _(Эти номера могут измениться в зависимости от порядка принятия.)_

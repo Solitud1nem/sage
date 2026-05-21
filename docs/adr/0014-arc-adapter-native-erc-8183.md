@@ -1,10 +1,11 @@
 # ADR-0014 — Arc as sibling chain via `@sage/adapter-arc` over native ERC-8183 + ERC-8004
 
-- **Status:** Accepted
+- **Status:** Accepted, partially superseded by [ADR-0015](./0015-arc-deploy-bridge.md) (2026-05-21)
 - **Date:** 2026-05-21
 - **Deciders:** Alex, Claude
 - **Supersedes:** —
-- **Related:** ADR-0001 (deterministic addresses); ADR-0002 (agent identity); ADR-0008 (Sage angle / position); `docs/market/chain-expansion-recon-2026-05-13.md` Phase 1b (Arc testnet readiness); `packages/adapter-arc/`; `apps/web/chains/arc.ts`.
+- **Partially superseded by:** [ADR-0015](./0015-arc-deploy-bridge.md) — the "Sage does not deploy `TaskEscrow` / `AgentRegistry` on Arc" sentence is overridden for the interim period. The native-wrap *direction* and the `@sage/adapter-arc` package as its eventual home are unchanged. See ADR-0015 *Migration trigger* for conditions under which this ADR returns to fully canonical.
+- **Related:** ADR-0001 (deterministic addresses); ADR-0002 (agent identity); ADR-0008 (Sage angle / position); ADR-0015 (Arc deploy bridge); `docs/market/chain-expansion-recon-2026-05-13.md` Phase 1b (Arc testnet readiness); `packages/adapter-arc/`; `apps/web/chains/arc.ts`.
 
 ## Context
 
