@@ -26,6 +26,7 @@ export type { CreateSageClientOptions, SageClient } from './client.js';
 
 // Chain configs
 export { base, baseSepolia } from './chains/base.js';
+export { arcTestnet } from './chains/arc.js';
 export type { ChainConfig } from './chains/base.js';
 
 // x402 pay-per-call

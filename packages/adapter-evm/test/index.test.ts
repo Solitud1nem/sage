@@ -3,6 +3,7 @@ import {
   SAGE_PROTOCOL_VERSION,
   baseSepolia,
   base,
+  arcTestnet,
   createSageClient,
   agentRegistryAbi,
   taskEscrowAbi,
@@ -56,6 +57,24 @@ describe('chain configs', () => {
   it('both chains have x402 facilitator', () => {
     expect(baseSepolia.x402FacilitatorDefault).toBe('https://facilitator.coinbase.com');
     expect(base.x402FacilitatorDefault).toBe('https://facilitator.coinbase.com');
+  });
+
+  it('arcTestnet has Arc chainId + verified USDC + omits chain-specific fields', () => {
+    // Per ADR-0015: Arc bridge state. USDC address is verified canonical
+    // Circle USDC v2; agentRegistry + taskEscrow are zero-sentinels until
+    // first deploy lands. EAS / CreateX / x402 facilitator are absent on
+    // Arc and intentionally omitted from the config.
+    expect(arcTestnet.chainId).toBe(5042002);
+    expect(arcTestnet.name).toBe('arc-testnet');
+    expect(arcTestnet.rpc).toBe('https://rpc.testnet.arc.network');
+    expect(arcTestnet.explorer).toBe('https://testnet.arcscan.app');
+    expect(arcTestnet.contracts.usdc).toBe('0x3600000000000000000000000000000000000000');
+    expect(arcTestnet.contracts.agentRegistry).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    expect(arcTestnet.contracts.taskEscrow).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    expect(arcTestnet.contracts.eas).toBeUndefined();
+    expect(arcTestnet.contracts.easSchemaRegistry).toBeUndefined();
+    expect(arcTestnet.contracts.createX).toBeUndefined();
+    expect(arcTestnet.x402FacilitatorDefault).toBeUndefined();
   });
 });
 

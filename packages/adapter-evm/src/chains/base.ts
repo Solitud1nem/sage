@@ -1,6 +1,9 @@
 /**
- * Base chain configuration for Sage protocol.
- * Base Sepolia for testnet, Base mainnet for production.
+ * Sage chain configuration. Shared across all EVM chains the adapter
+ * supports. Base mainnet + Base Sepolia define the canonical shape;
+ * additional chains (Arc per ADR-0015) may omit fields that don't
+ * apply to them — `eas`, `easSchemaRegistry`, `createX`, and
+ * `x402FacilitatorDefault` are optional for that reason.
  */
 
 export interface ChainConfig {
@@ -12,11 +15,20 @@ export interface ChainConfig {
     readonly agentRegistry: `0x${string}`;
     readonly taskEscrow: `0x${string}`;
     readonly usdc: `0x${string}`;
-    readonly eas: `0x${string}`;
-    readonly easSchemaRegistry: `0x${string}`;
-    readonly createX: `0x${string}`;
+    /** EAS attestation contract — present on Base + OP-stack chains; absent on Arc. */
+    readonly eas?: `0x${string}`;
+    /** EAS schema registry — pairs with `eas`. Same availability. */
+    readonly easSchemaRegistry?: `0x${string}`;
+    /** CreateX factory (`0xba5Ed099…`) — present on Base + most EVM chains, NOT documented on Arc per ADR-0015. */
+    readonly createX?: `0x${string}`;
   };
-  readonly x402FacilitatorDefault: string;
+  /**
+   * x402 facilitator URL — Coinbase-hosted, supports chains they facilitate.
+   * Not currently available for Arc per `docs.arc.io`; omit on chains
+   * where x402 pay-per-call is not in scope (Sage's task-escrow path on
+   * Arc works independently of x402 — ADR-0003).
+   */
+  readonly x402FacilitatorDefault?: string;
 }
 
 export const baseSepolia: ChainConfig = {
