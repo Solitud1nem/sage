@@ -8,6 +8,33 @@
 
 ---
 
+## 2026-05-21 — Arc testnet bridge LIVE (ADR-0015 deploy + adapter-evm + web wiring)
+
+Sage's multi-chain framing from ADR-0008 is operational on two chains as of today: Base mainnet (deployed 2026-04-22) and Arc testnet (deployed 2026-05-21). The Arc deployment is the ADR-0015 *interim bridge* — our own `AgentRegistry` + `TaskEscrow` on Arc testnet via Arachnid CREATE2, retaining the ADR-0014 native-wrap direction as target for when Arc publishes ERC-8183/8004 reference contracts.
+
+- `chain` **Arc testnet contracts deployed via `forge script DeployArc.s.sol --broadcast`.** Sponsor `0x6D8aCa48c1E064e71078656f7fB946e52cd8376d`. Total gas ~0.043 USDC at native 18-decimal scale (~2.17M gas at 20 gwei base fee). Block 43314118 + 43314119.
+  - **AgentRegistry**: `0xD100d7CE4f610dDb59C276AF293aA79F9Fcff936` — [tx `0x6fa2eff0…6fffa`](https://testnet.arcscan.app/tx/0x6fa2eff00879df8cb268cfc2c37ca1f59f8c90ccd728196257f7353a6906fffa).
+  - **TaskEscrow**: `0xA9e6Dc31F21149868C0fd43C83038C74cC8Ffcdb` — [tx `0xb6ce44ab…2a37f29`](https://testnet.arcscan.app/tx/0xb6ce44abcdd1cbf7e8862ae8a13755b59ad0c43701ecfec57128cc1112a37f29).
+  - **USDC** (Circle canonical, verified per ADR-0015 verification runbook): `0x3600000000000000000000000000000000000000`.
+  - Salts: `keccak256("sage:arc:registry:v1")` = `0x5a687719…6ff88716`, `keccak256("sage:arc:escrow:v1")` = `0x735bb30d…ac37f5dd`. Arc-specific salts (NOT the same as Base salts — addresses differ from Base by design per ADR-0015 because CreateX is not deployed on Arc).
+  - Post-deploy verification via `cast`: `TaskEscrow.USDC()` = `0x3600…`, `TaskEscrow.GRACE_PERIOD()` = 300, `AgentRegistry.owner()` = sponsor, `paused()` = false, code lengths 5320 bytes (escrow) + 3948 bytes (registry).
+- `feat` **`packages/adapter-evm/src/chains/arc.ts`** populated with real addresses. `arcTestnet` exported from package index. `ChainConfig` interface: `eas` / `easSchemaRegistry` / `createX` / `x402FacilitatorDefault` made optional (Arc has none of them per `docs.arc.io`). Existing Base configs unchanged.
+- `feat` **`apps/web/chains/arc.ts`** flipped from `PlannedChainConfig` to live `SageChainConfig`. Exports `ARC_TESTNET` + `ARC_TESTNET_NOTE` (UI hover text). Old `PlannedChainConfig` / `SAGE_PLANNED_CHAINS` types removed.
+- `feat` **`apps/web/chains/base.ts` `SAGE_CHAINS` widened** to include `5042002 → ARC_TESTNET`. `SageChainConfig.chainId` union: `8453 | 84532 | 5042002`. `useSageChain` hook picks up Arc automatically via existing `keyof typeof SAGE_CHAINS` pattern.
+- `feat` **`/docs/architecture` chain table**: Arc row flipped from `Planned · ADR-0014` to `Live (bridge) · 2026-05-21 · ADR-0015` with hover-tooltip pointing at ADR-0015. Section intro paragraph rewritten to mention Arc as live exception (Arachnid CREATE2, different addresses from Base) with both ADR-0014 (future direction) + ADR-0015 (current bridge) links.
+- `docs` **`packages/adapter-arc/README.md`** rewritten: explicit "this package does NOT drive Arc traffic today, bridge does" header; table of where Arc actually flows; ADR-0014 + ADR-0015 cross-references; scaffold-to-live checklist updated (chainId / explorer / RPC items now done, ERC-8183/8004 items remain blocked on substrate).
+- `docs` **`packages/adapter-arc/src/chain.ts`** chainId placeholder `'0'` → confirmed `'5042002'`; explorer URL confirmed per `docs.arc.io`. Test updated to assert the real values.
+- `release` **167 TS tests green** end-of-session: @sage/adapter-evm 13 (+1 Arc shape test), @sage/demo-agents 126, @sage/core 11, @sage/adapter-arc 17. Web tsc strict clean (typecheck).
+- `decision` **Arc bridge ≠ Base same-address.** ADR-0001's same-address invariant explicitly does NOT hold for Arc — `AgentRegistry`/`TaskEscrow` addresses on Arc are different from Base because CreateX is absent on Arc and the deploy used Arachnid CREATE2 with Arc-specific salts. ADR-0015 documents this divergence and the reversal path when ERC-8183/8004 native primitives arrive (the bridge retires entirely; native-wrap takes over via `@sage/adapter-arc`).
+
+Not yet shipped (next iteration):
+- Fly orchestrator + workers running against Arc — would need `sage-demo-agents-arc` app (or a CHAIN switch in existing `sage-demo-agents`).
+- `/demo/composite` UI chain selector — current demo is hard-bound to whichever orchestrator URL the worker-gateway routes to.
+- Worker EOAs faucet'd on Arc (sponsor is faucet'd; workers still need drips for acceptTask gas).
+- End-to-end smoke on Arc through `/demo/composite`.
+
+---
+
 ## 2026-05-21 — M10.5.B worker dual-mode rollout (translator / sentiment / vision composite-aware)
 
 All four demo workers (`summarizer` / `translator` / `vision` / `sentiment`) are now composite-aware via a shared decoder. Composite sub-tasks routed to translator / sentiment / vision no longer produce echo-style results ("the task is to translate…"). Where the spec lacks the input the worker needs (vision URL, source text), the worker returns a structured "spec did not include X" message so the operator can fix the plan rather than receive fabricated output.

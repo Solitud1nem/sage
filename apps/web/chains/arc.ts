@@ -1,61 +1,53 @@
 /**
- * Arc chain entry for Sage web UI.
+ * Arc testnet chain config for Sage web UI — LIVE as of 2026-05-21.
  *
- * Status: planned. Arc is testnet-only at time of writing (2026-05-21);
- * the placeholder values here track `packages/adapter-arc/src/chain.ts`
- * and exist so the UI can surface "Arc — coming when testnet stabilises"
- * without committing to a fake chainId or a fake explorer URL.
+ * Per ADR-0015 (bridge state): Sage's own `AgentRegistry` + `TaskEscrow`
+ * are deployed on Arc testnet via Arachnid CREATE2, NOT via CreateX (not
+ * present on Arc). Same `@sage/adapter-evm` SDK code drives Arc and Base;
+ * the only divergence is per-chain contract addresses, USDC address, and
+ * the chain metadata.
  *
- * Once `@sage/adapter-arc` ships a real implementation (Arc testnet
- * chainId + RPC + explorer confirmed, ERC-8183 + ERC-8004 ABIs wired),
- * this file flips `status` to `'live'` and the chainId / rpcUrl /
- * explorer placeholders get real values. The SageChainConfig fields
- * for live EVM chains (`contracts`, `x402FacilitatorDefault`) are
- * intentionally omitted from the planned shape — they describe
- * primitives Sage deploys onto a chain, but Arc does not get our
- * `TaskEscrow` / `AgentRegistry` (per ADR-0014).
+ * Migration path: when Arc publishes ERC-8183 / ERC-8004 reference
+ * contracts at canonical addresses (or mainnet ships with them native),
+ * Arc support migrates to `@sage/adapter-arc` per ADR-0014, ADR-0016
+ * records the cutover, and this file goes through a corresponding
+ * change. Until then, this is the canonical Arc surface.
+ *
+ * Deploy trail: see `docs/runbooks/deploy-arc-testnet.md` +
+ * `docs/runbooks/arc-testnet-verification-2026-05-21.md`.
  */
 
-export interface PlannedChainConfig {
-  /** Always `'planned'` for entries in this file. */
-  readonly status: 'planned';
-  /** Short identifier (matches `name` field on live chains). */
-  readonly name: string;
-  /** Human-readable name surfaced in UI badges, table rows, etc. */
-  readonly displayName: string;
-  /** Block explorer base URL — placeholder until Arc testnet publishes. */
-  readonly explorer: string | null;
-  /**
-   * Free-form note rendered in tooltips / sub-text. Keep terse — UI
-   * surfaces this verbatim. Updated when the blocking condition shifts.
-   */
-  readonly note: string;
-  /**
-   * Path or URL to the ADR or runbook documenting the planned-state
-   * decision. Components can link from a status pill to context.
-   */
-  readonly adr: string;
-}
+import type { SageChainConfig } from './base';
 
-/**
- * Arc — sibling chain to Base via `@sage/adapter-arc` over native
- * ERC-8183 + ERC-8004 (per ADR-0014). Not active in any wallet flow
- * yet; surfaced in `/docs/architecture` chain table as Planned.
- */
-export const ARC: PlannedChainConfig = {
-  status: 'planned',
-  name: 'arc',
+export const ARC_TESTNET: SageChainConfig = {
+  chainId: 5042002,
+  name: 'arc-testnet',
   displayName: 'Arc',
   explorer: 'https://testnet.arcscan.app',
-  note: 'Coming when Arc testnet stabilises. Native ERC-8183 + ERC-8004 wrapper, not a TaskEscrow deploy.',
-  adr: 'docs/adr/0014-arc-adapter-native-erc-8183.md',
+  rpcUrl: 'https://rpc.testnet.arc.network',
+  contracts: {
+    // Deployed 2026-05-21 via Arachnid CREATE2. Tx:
+    // https://testnet.arcscan.app/tx/0x6fa2eff00879df8cb268cfc2c37ca1f59f8c90ccd728196257f7353a6906fffa
+    agentRegistry: '0xD100d7CE4f610dDb59C276AF293aA79F9Fcff936',
+    // Deployed 2026-05-21. Tx:
+    // https://testnet.arcscan.app/tx/0xb6ce44abcdd1cbf7e8862ae8a13755b59ad0c43701ecfec57128cc1112a37f29
+    taskEscrow: '0xA9e6Dc31F21149868C0fd43C83038C74cC8Ffcdb',
+    // Verified canonical Circle USDC v2 on Arc testnet (decimals=6,
+    // version="2", EIP-2612 permit intact). See
+    // docs/runbooks/arc-testnet-verification-2026-05-21.md.
+    usdc: '0x3600000000000000000000000000000000000000',
+    // EAS / EAS schema registry / CreateX intentionally omitted — not
+    // deployed on Arc per docs.arc.io contract-addresses reference.
+  },
+  // x402FacilitatorDefault intentionally omitted — Coinbase x402 doesn't
+  // facilitate Arc at time of writing; Sage's task-escrow path on Arc
+  // works independently of x402 (ADR-0003).
 };
 
 /**
- * Planned chains surfaced in UI alongside `SAGE_CHAINS`. Keyed by
- * `name` (not chainId — these don't have one yet). Components that
- * need to render "all chains, live + planned" iterate over both.
+ * UI hover-text describing the bridge state, surfaced from the chain
+ * row in `/docs/architecture`. Updated to reflect the live-bridge state
+ * after deploy.
  */
-export const SAGE_PLANNED_CHAINS: Readonly<Record<string, PlannedChainConfig>> = {
-  arc: ARC,
-};
+export const ARC_TESTNET_NOTE =
+  'Live on testnet via Arachnid CREATE2 deploy per ADR-0015 (interim bridge). Native ERC-8183/8004 wrap remains target — see ADR-0014.';

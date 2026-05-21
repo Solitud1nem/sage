@@ -90,8 +90,8 @@ ARC_RPC="https://rpc.testnet.arc.network"
 ESCROW=0x<TaskEscrow address from deploy output>
 REGISTRY=0x<AgentRegistry address from deploy output>
 
-# TaskEscrow points at the right USDC?
-cast call --rpc-url "$ARC_RPC" "$ESCROW" "usdc()(address)"
+# TaskEscrow points at the right USDC? (field is uppercase `USDC` per the contract source)
+cast call --rpc-url "$ARC_RPC" "$ESCROW" "USDC()(address)"
 # Expect: 0x3600000000000000000000000000000000000000
 
 # TaskEscrow has GRACE_PERIOD constant?

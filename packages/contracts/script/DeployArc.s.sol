@@ -44,8 +44,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  *   - Verify deployed addresses on https://testnet.arcscan.app
  *   - Update packages/adapter-evm/src/chains/arc.ts with the addresses
  *   - Update apps/web/chains/arc.ts (flip PlannedChainConfig → SageChainConfig)
- *   - Smoke: forge cast call <TaskEscrow> "usdc()(address)" — should return
- *     the same USDC address we passed in.
+ *   - Smoke: cast call <TaskEscrow> "USDC()(address)" — should return
+ *     the same USDC address we passed in (field is uppercase in source).
  */
 contract DeployArc is Script {
     // Arachnid CREATE2 deployer — canonical address per the

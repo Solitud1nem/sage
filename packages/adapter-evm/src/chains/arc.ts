@@ -38,10 +38,11 @@ export const arcTestnet: ChainConfig = {
     rpc: 'https://rpc.testnet.arc.network',
     explorer: 'https://testnet.arcscan.app',
     contracts: {
-        // TBD — fill after `forge script script/DeployArc.s.sol` succeeds.
-        agentRegistry: '0x0000000000000000000000000000000000000000',
-        // TBD — fill after deploy.
-        taskEscrow: '0x0000000000000000000000000000000000000000',
+        // Deployed 2026-05-21 via Arachnid CREATE2 (DeployArc.s.sol).
+        // Tx: https://testnet.arcscan.app/tx/0x6fa2eff00879df8cb268cfc2c37ca1f59f8c90ccd728196257f7353a6906fffa
+        agentRegistry: '0xD100d7CE4f610dDb59C276AF293aA79F9Fcff936',
+        // Tx: https://testnet.arcscan.app/tx/0xb6ce44abcdd1cbf7e8862ae8a13755b59ad0c43701ecfec57128cc1112a37f29
+        taskEscrow: '0xA9e6Dc31F21149868C0fd43C83038C74cC8Ffcdb',
         // Verified canonical Circle USDC v2 on Arc testnet (decimals=6,
         // version="2", EIP-2612 permit intact).
         usdc: '0x3600000000000000000000000000000000000000',

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
-import { ARC } from '@/chains/arc';
+import { ARC_TESTNET, ARC_TESTNET_NOTE } from '@/chains/arc';
 import { DocsLayout, DocsNextLink } from '@/components/docs/docs-layout';
 import { GradientText } from '@/components/gradient-text';
 import { githubBlobUrl, githubTreeUrl } from '@/lib/site-config';
@@ -117,16 +117,23 @@ export default function DocsArchitecturePage() {
 
       <Section id="chains" title="Chains" tag="03">
         <p>
-          Live on Base today. Other EVM chains land via the same{' '}
-          <Mono>TaskEscrow</Mono> + same salts → same address pattern. Arc
-          is the exception — it gets a dedicated adapter
-          (<Mono>@sage/adapter-arc</Mono>) that wraps native ERC-8183 +
-          ERC-8004 rather than deploying our contracts there (
+          Live on Base today, plus Arc testnet as of 2026-05-21. Other
+          EVM chains land via the same <Mono>TaskEscrow</Mono> + same
+          salts → same address pattern. Arc is an interim exception:{' '}
+          <ExternalLink href={githubBlobUrl('docs/adr/0015-arc-deploy-bridge.md')}>
+            ADR-0015
+          </ExternalLink>{' '}
+          ships our contracts on Arc via the Arachnid CREATE2 deployer
+          (different addresses than Base — CreateX is not deployed on
+          Arc). The eventual home is{' '}
+          <Mono>@sage/adapter-arc</Mono> wrapping native ERC-8183 +
+          ERC-8004 per{' '}
           <ExternalLink href={githubBlobUrl('docs/adr/0014-arc-adapter-native-erc-8183.md')}>
             ADR-0014
           </ExternalLink>
-          ). Non-EVM (Solana, NEAR) lives behind a separate adapter
-          package and is v3+ work.
+          , which activates once Arc publishes those reference contracts.
+          Non-EVM (Solana, NEAR) lives behind a separate adapter package
+          and is v3+ work.
         </p>
         <div className="my-4 rounded-[10px] border border-border overflow-hidden">
           <div className="grid grid-cols-[1.5fr_1fr_1fr] gap-4 px-4 py-3 border-b border-border bg-surface font-mono text-[10px] uppercase tracking-[0.06em] text-text-subtle">
@@ -137,12 +144,11 @@ export default function DocsArchitecturePage() {
           <ChainRow chain="Base" id="8453" status="Live" era="2026-04-22" />
           <ChainRow chain="Base Sepolia" id="84532" status="Live" era="2026-04-22" />
           <ChainRow
-            chain={ARC.displayName}
-            id="—"
-            status="Planned"
-            era="ADR-0014"
-            muted
-            title={ARC.note}
+            chain={ARC_TESTNET.displayName + ' testnet'}
+            id={String(ARC_TESTNET.chainId)}
+            status="Live (bridge)"
+            era="2026-05-21 · ADR-0015"
+            title={ARC_TESTNET_NOTE}
           />
           <ChainRow chain="Arbitrum" id="42161" status="Planned" era="v2.1" muted />
           <ChainRow chain="OP" id="10" status="Planned" era="v2.1" muted />

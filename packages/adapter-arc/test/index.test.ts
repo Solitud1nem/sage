@@ -26,11 +26,12 @@ import { agentId, taskId } from '@sage/core';
 describe('@sage/adapter-arc — scaffold conformance', () => {
   const adapter = createSageArcClient();
 
-  it('returns a ChainInfo with Arc name + placeholder chainId', () => {
+  it('returns a ChainInfo with Arc name + confirmed chainId', () => {
     expect(adapter.chain).toEqual(ARC_TESTNET_CHAIN_INFO);
     expect(adapter.chain.name).toBe('Arc');
-    // chainId is a deliberate '0' placeholder — see src/chain.ts.
-    expect(adapter.chain.chainId).toBe('0');
+    // Arc testnet chainId confirmed via docs.arc.io on 2026-05-21.
+    expect(adapter.chain.chainId).toBe('5042002');
+    expect(adapter.chain.explorerUrl).toBe('https://testnet.arcscan.app');
   });
 
   it('exposes an `agents` slot with every AgentClient method', () => {
