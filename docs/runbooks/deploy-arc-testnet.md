@@ -31,10 +31,12 @@ Faucet URL: <https://faucet.circle.com> (select Arc testnet, paste address, drip
 
 | Wallet | Address | Faucet to | Why |
 |--------|---------|-----------|-----|
-| Summarizer | `0x0DA5…2593` (full address required — Alex confirm) | 20-40 USDC | Acceptance + completion txs on assigned tasks. |
-| Translator | `0xa61b…1c8c` (full address required — Alex confirm) | 20-40 USDC | Same. |
-| Sentiment | `0x5218857Ef2631e0AC35fA8062671785954e918B5` | 20-40 USDC | Same. |
-| Vision | `0xB889a7aAe3F9a5DC1CAC68459bc5e3118D9863Fb` | 20-40 USDC | Same. |
+| Summarizer | `0x0DA5892C26222fF2992BEe22613d1f9C06a92593` | 20 USDC | Acceptance + completion txs on assigned tasks. |
+| Translator | `0xa61bd5efa704805B08970C34Cd639fA5D6Ce1c8c` | 20 USDC | Same. |
+| Sentiment | `0x5218857Ef2631e0AC35fA8062671785954e918B5` | 20 USDC | Same. |
+| Vision | `0xB889a7aAe3F9a5DC1CAC68459bc5e3118D9863Fb` | 20 USDC | Same. |
+
+(Same EOAs as Base — single-EOA-across-chains policy per ADR-0002.)
 
 Verify balance via cast after dripping:
 
