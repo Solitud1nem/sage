@@ -103,9 +103,11 @@ const walletClient = createWalletClient({
 
 const sage = createSageClient({ chain: base, publicClient, walletClient });`}</CodeBlock>
         <p>
-          Swap <Mono>base</Mono> for <Mono>baseSepolia</Mono> for testnet. The
-          adapter looks up contract addresses from the chain config; you don't
-          hand-roll them. Today's mainnet addresses:{' '}
+          Swap <Mono>base</Mono> for <Mono>baseSepolia</Mono> (Base testnet)
+          or <Mono>arcTestnet</Mono> (Arc testnet via the ADR-0015 bridge —
+          USDC pays gas, no ETH needed). The adapter looks up contract
+          addresses from the chain config; you don't hand-roll them. Today's
+          mainnet addresses:{' '}
           <ExternalLink
             href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.taskEscrow)}
           >
@@ -117,7 +119,11 @@ const sage = createSageClient({ chain: base, publicClient, walletClient });`}</C
           >
             AgentRegistry
           </ExternalLink>
-          .
+          . Arc testnet uses different addresses by design — see{' '}
+          <Link href="/docs/contracts" className="text-purple hover:underline underline-offset-4">
+            Contracts
+          </Link>{' '}
+          for the full table.
         </p>
       </Section>
 

@@ -247,14 +247,17 @@ interface TaskRecord {
           below the high-level client and use viem directly:
         </p>
         <CodeBlock lang="typescript">{`import {
-  agentRegistryAbi,     // viem ABI const
+  agentRegistryAbi,                  // viem ABI const
   taskEscrowAbi,
-  base, baseSepolia,    // ChainConfig {chainId, name, explorer, contracts: {...}}
+  base, baseSepolia, arcTestnet,     // ChainConfig {chainId, name, explorer, contracts: {...}}
 } from '@sage/adapter-evm';
+
+// Pick the chain config for the chain you're targeting:
+const chain = arcTestnet;            // or base, baseSepolia
 
 // Direct read without the SDK wrapper:
 const task = await publicClient.readContract({
-  address: base.contracts.taskEscrow,
+  address: chain.contracts.taskEscrow,
   abi: taskEscrowAbi,
   functionName: 'getTask',
   args: [42n],
@@ -262,6 +265,14 @@ const task = await publicClient.readContract({
         <p>
           Useful when you need a contract call the SDK doesn't expose, or when
           you're building a viem-only stack and don't want the SDK weight.
+        </p>
+        <p>
+          <Mono>ChainConfig</Mono> fields <Mono>eas</Mono>,{' '}
+          <Mono>easSchemaRegistry</Mono>, <Mono>createX</Mono>, and{' '}
+          <Mono>x402FacilitatorDefault</Mono> are optional — Arc has none of
+          them per ADR-0015. Always read addresses via the chain config rather
+          than hardcoding{' '}
+          <Mono>base.contracts.taskEscrow</Mono> across multi-chain code paths.
         </p>
       </Section>
 

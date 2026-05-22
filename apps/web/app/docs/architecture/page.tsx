@@ -22,10 +22,24 @@ export default function DocsArchitecturePage() {
         How it fits together. <GradientText>End to end</GradientText>.
       </h1>
       <p className="text-[16px] leading-[1.6] text-text-muted">
-        Sage spans a browser, a Cloudflare Worker, a Fly app, and two
-        contracts on Base. Each piece has one job; none of them can do
-        each other's. This page is the bird's-eye view; the full developer
-        version lives in{' '}
+        Sage spans a browser, a Cloudflare Worker, two Fly apps (one per
+        active chain), and a pair of contracts on each chain. Each piece
+        has one job; none of them can do each other's. The angle ties them
+        together —{' '}
+        <ExternalLink href={githubBlobUrl('docs/adr/0008-sage-angle-position.md')}>
+          ADR-0008
+        </ExternalLink>
+        : multi-chain settlement infrastructure for AI agents, distinguished
+        by observable decomposition (
+        <ExternalLink href={githubBlobUrl('docs/adr/0007-observable-decomposition.md')}>
+          ADR-0007
+        </ExternalLink>
+        ; visible at{' '}
+        <Link href="/demo/composite" className="text-purple hover:underline underline-offset-4">
+          /demo/composite
+        </Link>
+        ). This page is the bird's-eye view; the full developer version lives
+        in{' '}
         <ExternalLink href={githubBlobUrl('docs/architecture/overview.md')}>
           docs/architecture/overview.md
         </ExternalLink>
@@ -43,24 +57,31 @@ export default function DocsArchitecturePage() {
 │  Browser (sage-protocol.pages.dev)                              │
 │    Next.js 15 static export + wagmi + ConnectKit                │
 │    Watch-live (SSE) + Try-with-wallet (EIP-2612 permit)         │
+│    /demo · /demo/composite (chain picker: Base | Arc)           │
 └──────────────────┬──────────────────────────┬───────────────────┘
                    │                          │
-       (POST /api/demo/start)         (eth_* RPC reads)
+       (POST /api/demo/* ?chain=…)    (eth_* RPC reads)
                    │                          │
 ┌──────────────────▼──────────────────────────▼───────────────────┐
 │  Cloudflare Worker (sage-gateway.a-t-somnia.workers.dev)        │
-│    /api/demo/*  → passthrough на Fly + D1 rate-limit            │
-│    /api/rpc     → Alchemy proxy with hidden ALCHEMY_KEY         │
+│    /api/demo/*  → routes to chain-specific Fly + D1 rate-limit  │
+│    /api/rpc     → Alchemy proxy with hidden ALCHEMY_KEY (Base)  │
 └──────────────────┬──────────────────────────┬───────────────────┘
                    │                          │
        (HTTP + SSE)                       (Alchemy)
                    │                          │
 ┌──────────────────▼─────────────┐  ┌─────────▼────────────────────┐
-│  Fly.io: sage-demo-agents      │  │  Base mainnet (chain 8453)   │
-│    orchestrator x2 HA + 2 std  │  │    AgentRegistry (anchor)    │
-│    summarizer + translator     │  │    TaskEscrow                │
-│    vision + sentiment          │  │    USDC (Circle)             │
-└────────────────────────────────┘  └──────────────────────────────┘`}</Diagram>
+│  Fly: sage-demo-agents         │  │  Base mainnet (chain 8453)   │
+│    1 orch + 4 workers          │  │    AgentRegistry (anchor)    │
+│    (chain: Base)               │  │    TaskEscrow                │
+│                                │  │    USDC (Circle)             │
+│  Fly: sage-demo-agents-arc     │  └──────────────────────────────┘
+│    1 orch + 4 workers          │  ┌──────────────────────────────┐
+│    (chain: Arc testnet)        │  │  Arc testnet (chain 5042002) │
+│                                │  │    AgentRegistry  (bridge)   │
+│                                │  │    TaskEscrow     (bridge)   │
+└────────────────────────────────┘  │    USDC (Circle, gas-token)  │
+                                    └──────────────────────────────┘`}</Diagram>
         <p>
           The browser never holds secrets. The Worker holds the Alchemy key
           and the daily-quota table. Fly holds the agent keys, sponsor key,
@@ -184,7 +205,20 @@ export default function DocsArchitecturePage() {
           <ExternalLink href={githubBlobUrl('docs/adr/0001-deterministic-addresses.md')}>
             ADR-0001
           </ExternalLink>
-          ).
+          ). Arc testnet uses a different address pair —{' '}
+          <ExternalLink href={`https://testnet.arcscan.app/address/${ARC_TESTNET.contracts.taskEscrow}`}>
+            <Mono>TaskEscrow</Mono>
+          </ExternalLink>{' '}
+          ·{' '}
+          <ExternalLink href={`https://testnet.arcscan.app/address/${ARC_TESTNET.contracts.agentRegistry}`}>
+            <Mono>AgentRegistry</Mono>
+          </ExternalLink>{' '}
+          — the explicit ADR-0001 exception per ADR-0015. Full deployment
+          table at{' '}
+          <Link href="/docs/contracts" className="text-purple hover:underline underline-offset-4">
+            Contracts
+          </Link>
+          .
         </p>
       </Section>
 
@@ -256,8 +290,11 @@ export default function DocsArchitecturePage() {
           accent="green"
           items={[
             'AgentRegistry + TaskEscrow on Base mainnet + Sepolia',
+            'Arc testnet bridge (ADR-0015) — separate Fly app, chain picker in UI',
             '@sage/core + @sage/adapter-evm (workspace-only today)',
+            '@sage/adapter-arc scaffold — reserved for native ERC-8183 / ERC-8004 wrap (ADR-0014)',
             'Demo: pipeline / sentiment / vision through Pages + Worker + Fly',
+            'Composite demo: observable decomposition (ADR-0007) — classify → plan card → approve → settle',
             'M9 operational hardening: sponsor guard, HA orchestrator, rate limits',
           ]}
         />

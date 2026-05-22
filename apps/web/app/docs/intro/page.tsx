@@ -21,8 +21,9 @@ export default function DocsIntroPage() {
       <p className="text-[16px] leading-[1.6] text-text-muted">
         It is task-level escrow for AI agents — built so two parties (a client and
         an agent) can commit to multi-step work, lock USDC against a deadline, and
-        settle on-chain when the work is delivered. Live on Base, deterministic
-        across every EVM.
+        settle on-chain when the work is delivered. Live on Base mainnet and
+        Arc testnet (bridge state), with deterministic addresses across CreateX-
+        compatible EVM chains.
       </p>
 
       <Section id="what-it-is" title="What Sage is">
@@ -43,9 +44,35 @@ export default function DocsIntroPage() {
           <ExternalLink href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.agentRegistry)}>
             <Mono>AgentRegistry</Mono>
           </ExternalLink>{' '}
-          (an optional discovery layer). Both are deployed at deterministic
-          addresses on Base mainnet and Base Sepolia today, with Arbitrum,
-          Optimism, and BNB on the v2.1 path.
+          (an optional discovery layer). Both are live at deterministic
+          addresses on Base mainnet and Base Sepolia (via CreateX + CREATE3),
+          plus an Arc testnet bridge deployment at distinct addresses via
+          Arachnid CREATE2 — Arc lacks CreateX, so it's a documented
+          exception, recorded in{' '}
+          <ExternalLink href="https://github.com/Solitud1nem/sage/blob/main/docs/adr/0015-arc-deploy-bridge.md">
+            ADR-0015
+          </ExternalLink>
+          . Arbitrum, Optimism, and BNB are on the v2.1 path (same-address
+          deploys via CreateX).
+        </p>
+        <p>
+          Sage's angle, beyond the escrow primitive, is{' '}
+          <em>observable decomposition</em> — when work is composite, the
+          plan is surfaced as a structured artifact (one sub-task per
+          on-chain TaskEscrow record) so the user reviews it before any
+          spawn. Live at{' '}
+          <Link href="/demo/composite" className="text-purple hover:underline underline-offset-4">
+            /demo/composite
+          </Link>
+          ; rationale in{' '}
+          <ExternalLink href="https://github.com/Solitud1nem/sage/blob/main/docs/adr/0007-observable-decomposition.md">
+            ADR-0007
+          </ExternalLink>{' '}
+          and{' '}
+          <ExternalLink href="https://github.com/Solitud1nem/sage/blob/main/docs/adr/0008-sage-angle-position.md">
+            ADR-0008
+          </ExternalLink>
+          .
         </p>
       </Section>
 

@@ -150,6 +150,22 @@ export default function DocsUseCasesPage() {
           is the two-stage version of this shape; the protocol doesn't care
           how deep the chain goes.
         </p>
+        <p>
+          <Label>Live instance.</Label> Sage ships a reference orchestrator
+          for this exact pattern at{' '}
+          <Link href="/demo/composite" className="text-purple hover:underline underline-offset-4">
+            /demo/composite
+          </Link>{' '}
+          — observable decomposition per ADR-0007: brief → classifier →
+          plan card (visible before approve) → per-sub-task settle →{' '}
+          completed. Use it as a working example or fork it for your own
+          flow; classifier prompt, plan-editor UX, and dispute-pause loop
+          are all in{' '}
+          <ExternalLink href={githubBlobUrl('apps/demo-agents/src/parent')}>
+            apps/demo-agents/src/parent ↗
+          </ExternalLink>
+          .
+        </p>
       </UseCase>
 
       <UseCase

@@ -28,8 +28,8 @@ export default function DocsConceptsPage() {
           An <strong className="text-text font-medium">agent</strong> in Sage is
           just an EOA — a regular Ethereum address controlled by a private key.
           Same address identifies the same agent on every EVM chain Sage deploys
-          to (mainnet Base today; Arbitrum / OP / BNB on the v2.1 path). There is
-          no per-chain agent contract.
+          to (Base mainnet + Sepolia + Arc testnet today; Arbitrum / OP / BNB
+          on the v2.1 path). There is no per-chain agent contract.
         </p>
         <p>
           Agents <em>can</em> register themselves in the canonical{' '}

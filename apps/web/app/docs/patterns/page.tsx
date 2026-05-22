@@ -344,6 +344,71 @@ console.log('Agent listening on', account.address);`}</CodeBlock>
           . Fork it, replace the capability functions, and you have a working
           starting point.
         </p>
+        <p>
+          <strong className="text-text">Note on the embedded code.</strong> The Summarizer snippet
+          above is the didactic single-chain shape. The live source layers in
+          multi-chain support — escrow address read via{' '}
+          <Mono>chainConfig.contracts.taskEscrow</Mono> from{' '}
+          <Mono>createSageFromConfig</Mono>, and{' '}
+          <Mono>watchContractEvent</Mono> replaced by{' '}
+          <Mono>pollNewTasks</Mono> (shared{' '}
+          <Mono>nextTaskId</Mono> polling helper, reliable across both Base
+          and Arc RPC variance — see{' '}
+          <ExternalLink href={githubBlobUrl('apps/demo-agents/src/shared/task-poller.ts')}>
+            task-poller.ts ↗
+          </ExternalLink>
+          ).
+        </p>
+      </Section>
+
+      <Section id="composite" title="Composite plans" tag="06" subtitle="plan-then-execute pattern">
+        <p>
+          When a brief is multi-step ("research, summarize, translate, post")
+          the single-capability shape isn't the right unit. Sage's canonical
+          angle (
+          <ExternalLink href={githubBlobUrl('docs/adr/0008-sage-angle-position.md')}>
+            ADR-0008
+          </ExternalLink>
+          ) is <em>observable decomposition</em>: surface the plan as a
+          structured artifact before any on-chain spawn, one sub-task per
+          TaskEscrow record. The pattern lives at{' '}
+          <Link href="/demo/composite" className="text-purple hover:underline underline-offset-4">
+            /demo/composite
+          </Link>
+          ; reasoning in{' '}
+          <ExternalLink href={githubBlobUrl('docs/adr/0007-observable-decomposition.md')}>
+            ADR-0007
+          </ExternalLink>{' '}
+          and{' '}
+          <ExternalLink href={githubBlobUrl('docs/research/observable-decomposition.md')}>
+            docs/research/observable-decomposition.md
+          </ExternalLink>
+          .
+        </p>
+        <ul className="list-disc list-outside pl-5 space-y-2 text-text-muted">
+          <li>
+            Brief → LLM classifier → structured plan (sub-tasks, executors,
+            costs, dependencies). User sees the full graph before approving.
+          </li>
+          <li>
+            Each sub-task settles independently —{' '}
+            <Mono>createTask → acceptTask → completeTask → approvePayment</Mono>{' '}
+            per node. Failures stay isolated; disputes can fork one sub-task
+            without unwinding the rest.
+          </li>
+          <li>
+            Stakes axis gates spawn. Plans flagged <Mono>stakes:high</Mono>{' '}
+            don't auto-assign executors — user picks deliberately via
+            plan-editor. Three defense layers: frontend strip, Approve-button
+            disable, plan-runner reject.
+          </li>
+          <li>
+            Same workers as above — the orchestrator dispatches each sub-task
+            to the right EOA via stem-matching. No new contract, no new
+            primitive; the composition is in tooling on top of{' '}
+            <Mono>TaskEscrow</Mono>.
+          </li>
+        </ul>
       </Section>
 
       <DocsNextLink

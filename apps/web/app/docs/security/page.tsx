@@ -94,7 +94,7 @@ export default function DocsSecurityPage() {
           <Stat label="Solidity tests" value="77" detail="unit + integration + fuzz" />
           <Stat label="Contract coverage" value="100%" detail="branches + lines" />
           <Stat label="Invariant runs" value="600k" detail="4 invariants × 10k × depth 15" />
-          <Stat label="SDK tests" value="12" detail="@sage/adapter-evm unit suite" />
+          <Stat label="TypeScript tests" value="167" detail="core 11 · adapter-evm 13 · adapter-arc 17 · demo-agents 126" />
         </div>
         <p>
           The invariant suite checks the four properties that we never want

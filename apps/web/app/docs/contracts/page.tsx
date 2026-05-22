@@ -1,12 +1,15 @@
 import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
+import { ARC_TESTNET } from '@/chains/arc';
 import { DocsLayout, DocsNextLink } from '@/components/docs/docs-layout';
 import { GradientText } from '@/components/gradient-text';
 import { githubBlobUrl, githubTreeUrl } from '@/lib/site-config';
 
 const REGISTRY = BASE_MAINNET.contracts.agentRegistry;
 const ESCROW = BASE_MAINNET.contracts.taskEscrow;
+const ARC_REGISTRY = ARC_TESTNET.contracts.agentRegistry;
+const ARC_ESCROW = ARC_TESTNET.contracts.taskEscrow;
 
 /**
  * Docs / Contracts — compact Solidity reference. Methods/events/errors
@@ -21,12 +24,17 @@ export default function DocsContractsPage() {
         contracts
       </div>
       <h1 className="text-[clamp(32px,3.6vw,44px)] font-medium leading-[1.15] tracking-[-0.015em] mb-6">
-        On-chain reference. <GradientText>Two contracts</GradientText>, one address each.
+        On-chain reference. <GradientText>Two contracts</GradientText>, three live deployments.
       </h1>
       <p className="text-[16px] leading-[1.6] text-text-muted">
-        <Mono>AgentRegistry</Mono> and <Mono>TaskEscrow</Mono>. Deployed at
-        deterministic addresses on Base mainnet and Base Sepolia today,
-        identical across both chains via CreateX + CREATE3. Source under{' '}
+        <Mono>AgentRegistry</Mono> and <Mono>TaskEscrow</Mono>. Same Solidity
+        source on Base mainnet, Base Sepolia, and Arc testnet — identical
+        addresses on Base via CreateX + CREATE3, distinct addresses on Arc via
+        Arachnid CREATE2 (the bridge state per{' '}
+        <ExternalLink href={githubBlobUrl('docs/adr/0015-arc-deploy-bridge.md')}>
+          ADR-0015
+        </ExternalLink>
+        ). Source under{' '}
         <ExternalLink href={githubTreeUrl('packages/contracts/src')}>
           packages/contracts/src ↗
         </ExternalLink>
@@ -40,10 +48,12 @@ export default function DocsContractsPage() {
             <span>Address</span>
             <span>Status</span>
           </div>
-          <Row chain="Base · 8453" address={REGISTRY} label="AgentRegistry" status="Live" />
-          <Row chain="Base · 8453" address={ESCROW} label="TaskEscrow" status="Live" />
-          <Row chain="Base Sepolia · 84532" address={REGISTRY} label="AgentRegistry" status="Live" sepolia />
-          <Row chain="Base Sepolia · 84532" address={ESCROW} label="TaskEscrow" status="Live" sepolia />
+          <Row chain="Base · 8453" address={REGISTRY} label="AgentRegistry" status="Live" explorer="basescan" />
+          <Row chain="Base · 8453" address={ESCROW} label="TaskEscrow" status="Live" explorer="basescan" />
+          <Row chain="Base Sepolia · 84532" address={REGISTRY} label="AgentRegistry" status="Live" explorer="basescanSepolia" />
+          <Row chain="Base Sepolia · 84532" address={ESCROW} label="TaskEscrow" status="Live" explorer="basescanSepolia" />
+          <Row chain="Arc testnet · 5042002" address={ARC_REGISTRY} label="AgentRegistry" status="Bridge" explorer="arcscan" />
+          <Row chain="Arc testnet · 5042002" address={ARC_ESCROW} label="TaskEscrow" status="Bridge" explorer="arcscan" />
         </div>
         <p>
           Deployer / sponsor wallet:{' '}
@@ -58,13 +68,32 @@ export default function DocsContractsPage() {
           <Mono>unpause()</Mono> for emergency stop only.
         </p>
         <p>
-          Salts: <Mono>keccak256(&quot;sage:registry:v1&quot;)</Mono> and{' '}
-          <Mono>keccak256(&quot;sage:escrow:v1&quot;)</Mono>. Future versions
-          land at new addresses; old ones stay frozen. See{' '}
+          Base salts: <Mono>keccak256(&quot;sage:registry:v1&quot;)</Mono> and{' '}
+          <Mono>keccak256(&quot;sage:escrow:v1&quot;)</Mono> via CreateX +
+          CREATE3 → same address on Base mainnet + Sepolia (and any future
+          EVM chain that has CreateX deployed). See{' '}
           <ExternalLink href={githubBlobUrl('docs/adr/0001-deterministic-addresses.md')}>
             ADR-0001
           </ExternalLink>
           .
+        </p>
+        <p>
+          Arc salts: <Mono>keccak256(&quot;sage:arc:registry:v1&quot;)</Mono>{' '}
+          and <Mono>keccak256(&quot;sage:arc:escrow:v1&quot;)</Mono> via
+          Arachnid CREATE2 (CreateX is not deployed on Arc). Addresses
+          intentionally diverge from Base — recorded as an explicit ADR-0001
+          exception in{' '}
+          <ExternalLink href={githubBlobUrl('docs/adr/0015-arc-deploy-bridge.md')}>
+            ADR-0015
+          </ExternalLink>
+          . The bridge is interim: if Arc publishes ERC-8183 / ERC-8004
+          reference contracts at canonical addresses, Sage migrates to a thin
+          wrapper over those primitives per{' '}
+          <ExternalLink href={githubBlobUrl('docs/adr/0014-arc-adapter-native-erc-8183.md')}>
+            ADR-0014
+          </ExternalLink>
+          's design — bridge contracts stay readable for any in-flight tasks
+          but no new tasks route through them.
         </p>
       </Section>
 
@@ -181,24 +210,45 @@ export default function DocsContractsPage() {
 
       <Section id="deterministic" title="Deterministic addresses" tag="05">
         <p>
-          Both contracts deploy via{' '}
+          On Base + Sepolia + any future EVM with CreateX deployed (Arbitrum,
+          OP, BNB on the v2.1 path), the contracts go through{' '}
           <ExternalLink href="https://github.com/pcaversaccio/createx">
             CreateX
           </ExternalLink>{' '}
-          + CREATE3, so the address depends only on the salt — not on the
-          deployer bytecode, not on the chain. Same salt on every chain →
-          same address. This is why mainnet and Sepolia have identical
-          addresses today and why Arbitrum / OP / BNB will have the same
-          addresses after v2.1 deploys.
+          + CREATE3 — address depends only on the salt, not on the deployer
+          bytecode, not on the chain. Same salt everywhere → same address.
+          That&apos;s the ADR-0001 invariant for the EVM cohort.
         </p>
         <p>
-          Deploy script:{' '}
+          Arc testnet is the documented exception. CreateX is not deployed on
+          Arc, so Sage deploys via the canonical Arachnid CREATE2 deployer
+          (<Mono>0x4e59b44847b379578588920cA78FbF26c0B4956C</Mono>) with
+          Arc-specific salts. Addresses differ from Base by design — UI
+          surfaces and integrators can no longer assume{' '}
+          <em>&quot;Sage contract X is at address Y everywhere&quot;</em>.
+          Read the chain config via <Mono>@sage/adapter-evm</Mono> instead of
+          hardcoding addresses across chains. The exception is recorded in{' '}
+          <ExternalLink href={githubBlobUrl('docs/adr/0015-arc-deploy-bridge.md')}>
+            ADR-0015
+          </ExternalLink>{' '}
+          (see <em>ADR-0001 footnote</em> there).
+        </p>
+        <p>
+          Deploy scripts:{' '}
           <ExternalLink href={githubBlobUrl('packages/contracts/script/Deploy.s.sol')}>
-            packages/contracts/script/Deploy.s.sol ↗
-          </ExternalLink>
-          . Runbook for replicating mainnet deploy:{' '}
+            Deploy.s.sol ↗
+          </ExternalLink>{' '}
+          (Base, CreateX) and{' '}
+          <ExternalLink href={githubBlobUrl('packages/contracts/script/DeployArc.s.sol')}>
+            DeployArc.s.sol ↗
+          </ExternalLink>{' '}
+          (Arc, Arachnid). Runbooks:{' '}
           <ExternalLink href={githubBlobUrl('docs/runbooks/deploy-base-mainnet.md')}>
             deploy-base-mainnet.md ↗
+          </ExternalLink>{' '}
+          ·{' '}
+          <ExternalLink href={githubBlobUrl('docs/runbooks/deploy-arc-testnet.md')}>
+            deploy-arc-testnet.md ↗
           </ExternalLink>
           .
         </p>
@@ -218,16 +268,22 @@ function Row({
   address,
   label,
   status,
-  sepolia,
+  explorer,
 }: {
   chain: string;
   address: string;
   label: string;
   status: string;
-  sepolia?: boolean;
+  explorer: 'basescan' | 'basescanSepolia' | 'arcscan';
 }) {
-  // Sepolia addresses are the same as mainnet by design; explorer differs.
-  const explorerBase = sepolia ? 'https://sepolia.basescan.org' : 'https://basescan.org';
+  const explorerBase =
+    explorer === 'basescan'
+      ? 'https://basescan.org'
+      : explorer === 'basescanSepolia'
+        ? 'https://sepolia.basescan.org'
+        : 'https://testnet.arcscan.app';
+  // "Bridge" status uses a softer accent to distinguish from prod-Live rows.
+  const statusColor = status === 'Bridge' ? 'text-cyan' : 'text-green';
   return (
     <div className="grid grid-cols-[160px_1fr_auto] gap-4 px-4 py-3 border-b border-border last:border-b-0 items-baseline">
       <span className="text-[12px] text-text-muted">{chain}</span>
@@ -242,7 +298,7 @@ function Row({
           {address}
         </a>
       </div>
-      <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-green">
+      <span className={`font-mono text-[10px] uppercase tracking-[0.06em] ${statusColor}`}>
         {status}
       </span>
     </div>
