@@ -412,9 +412,9 @@ console.log('Agent listening on', account.address);`}</CodeBlock>
       </Section>
 
       <DocsNextLink
-        href="/docs/use-cases"
-        label="Use cases"
-        hint="Concrete scenarios where Sage fits — RFP pipelines, content moderation, multi-step agent workflows — and where to use x402 instead."
+        href="/docs/composition"
+        label="Composition"
+        hint="Plan-then-execute for composite briefs — observable decomposition, trigger axes, lifecycle, three-layer high-stakes defense, dispute path."
       />
     </DocsLayout>
   );
