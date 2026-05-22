@@ -21,8 +21,9 @@
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
 import { decodeCompositeSpec } from '../shared/composite-codec.js';
+import { pollNewTasks } from '../shared/task-poller.js';
 import { taskId } from '@sage/core';
-import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
+import { taskEscrowAbi } from '@sage/adapter-evm';
 
 // Multi-process Fly: each process inherits the same env, so workers read a
 // role-specific override before falling back to the shared PRIVATE_KEY.
@@ -31,10 +32,8 @@ if (process.env.TRANSLATOR_PRIVATE_KEY) {
 }
 
 const config = loadConfig(3002);
-const { sage, publicClient, account } = createSageFromConfig(config);
-const escrowAddress = config.chain === 'mainnet'
-  ? base.contracts.taskEscrow
-  : baseSepolia.contracts.taskEscrow;
+const { sage, publicClient, account, chainConfig } = createSageFromConfig(config);
+const escrowAddress = chainConfig.contracts.taskEscrow;
 
 const RAW_SYSTEM_PROMPT =
   'Translate the following text. If it is in English, translate to Russian. If in Russian, translate to English.';
@@ -122,18 +121,17 @@ const agent = new BaseAgent({
   async onStart() {
     console.error('[Translator] Watching for TaskCreated events...');
 
-    publicClient.watchContractEvent({
-      address: escrowAddress,
+    // Direct polling — viem event watchers fail on Arc, see
+    // GOTCHAS 2026-05-22 + shared/task-poller.ts.
+    pollNewTasks({
+      publicClient,
+      escrowAddress,
       abi: taskEscrowAbi,
-      eventName: 'TaskCreated',
-      onLogs(logs) {
-        for (const log of logs) {
-          handleTaskCreated(
-            log.args.taskId!,
-            log.args.client!,
-            log.args.executor!,
-          ).catch(console.error);
-        }
+      myAddress: account.address,
+      pollIntervalMs: 15_000,
+      tag: 'Translator',
+      onTaskForMe: (id, clientAddr, executor) => {
+        handleTaskCreated(id, clientAddr, executor).catch(console.error);
       },
     });
   },

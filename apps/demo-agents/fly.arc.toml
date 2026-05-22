@@ -1,0 +1,97 @@
+#
+# Sage demo-agents — Arc testnet Fly.io app config.
+#
+# Mirror of fly.toml for sage-demo-agents (Base mainnet). Per ADR-0015
+# bridge state we run a separate Fly app on Arc testnet — same image, same
+# 5 processes, different env (CHAIN_ID + RPC_URL pointing at Arc).
+# Reasoning for separate-app over CHAIN switch: production isolation
+# (Arc bug can't bring down Base mainnet path), simpler code (no
+# per-chain dual-paths in orchestrator/server.ts), per-chain
+# sponsor-balance / nonce / run-registry naturally segregated by process.
+#
+# Deploy:
+#   fly apps create sage-demo-agents-arc           (one-time)
+#   fly secrets set --app sage-demo-agents-arc \
+#     PRIVATE_KEY=... SPONSOR_ADDRESS=... \
+#     SUMMARIZER_PRIVATE_KEY=... SUMMARIZER_ADDRESS=... \
+#     TRANSLATOR_PRIVATE_KEY=... TRANSLATOR_ADDRESS=... \
+#     VISION_PRIVATE_KEY=... VISION_ADDRESS=... \
+#     SENTIMENT_PRIVATE_KEY=... SENTIMENT_ADDRESS=... \
+#     OPENAI_API_KEY=... SPONSOR_MIN_BALANCE_USDC=1000000
+#   fly deploy . --config apps/demo-agents/fly.arc.toml \
+#                --dockerfile apps/demo-agents/Dockerfile
+#
+# See docs/runbooks/deploy-arc-fly-app.md for the full procedure.
+#
+
+app = "sage-demo-agents-arc"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  # Arc public testnet RPC — no proxy, no key. Differs from Base which
+  # goes through the Cloudflare Worker /api/rpc (Alchemy-backed).
+  RPC_URL = "https://rpc.testnet.arc.network"
+  # Authoritative chain selector (per shared/config.ts resolveChain).
+  CHAIN_ID = "5042002"
+  CHAIN = "arc-testnet"
+  ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage.xyz"
+
+[processes]
+  orchestrator = "node dist/orchestrator/server.js"
+  summarizer   = "node dist/summarizer/agent.js"
+  translator   = "node dist/translator/agent.js"
+  vision       = "node dist/vision/agent.js"
+  sentiment    = "node dist/sentiment/agent.js"
+
+# Only the orchestrator handles external HTTP.
+[[services]]
+  processes       = ["orchestrator"]
+  protocol        = "tcp"
+  internal_port   = 3000
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port     = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "connections"
+    soft_limit = 20
+    hard_limit = 50
+
+  [[services.tcp_checks]]
+    interval      = "15s"
+    timeout       = "2s"
+    grace_period  = "10s"
+
+  [[services.http_checks]]
+    interval      = "30s"
+    timeout       = "5s"
+    grace_period  = "20s"
+    method        = "GET"
+    path          = "/health"
+    protocol      = "http"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["orchestrator", "summarizer", "translator", "vision", "sentiment"]
+
+[deploy]
+  strategy = "rolling"
+
+[metrics]
+  port = 9091
+  path = "/metrics"

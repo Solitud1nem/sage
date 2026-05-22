@@ -8,6 +8,66 @@
 
 ---
 
+## 2026-05-22 — Arc composite demo END-TO-END LIVE (5 root causes fixed + 3-layer high-stakes guard)
+
+`/demo/composite?chain=arc` is operational. Composite plans classify, approve, execute, and settle on Arc testnet through the full Pages → Worker → Fly → Arc TaskEscrow stack — the same shape Base mainnet runs on, with a chain selector at the top of the demo UI. ADR-0008's multi-chain framing is operationally true on **two parallel chains** now (Base mainnet for production; Arc testnet for the ADR-0015 bridge), not one + one scaffold.
+
+The session bracketed two evenings (2026-05-21 wiring → 2026-05-22 e2e). Wiring landed clean on local tests; production smoke surfaced 5 distinct root causes — each documented below alongside its fix — because the previous CHANGELOG entries treated "tests green + typecheck clean" as a strong signal it would work. It wasn't. None of the bugs were visible without booting the stack on Arc with real RPC + real workers.
+
+**Live ops:**
+- Arc Fly app: `sage-demo-agents-arc.fly.dev` (1 orchestrator + 4 workers, no standby; `--ha=false`).
+- Worker gateway routing: `?chain=arc` → Arc Fly; default / `?chain=base` → existing Base Fly.
+- Sponsor on Arc: `0x6D8aCa48c1E064e71078656f7fB946e52cd8376d`, ~19.8 USDC remaining after smoke.
+- First settled sub-tasks on Arc: taskId 3 ([tx `0xeef83dc7…`](https://testnet.arcscan.app/tx/0xeef83dc7db1479989a601df1f722bec79825dac91d7701c582ff2d8be6ae21d5)) + taskId 4 ([tx `0x9ebc9c7c…`](https://testnet.arcscan.app/tx/0x9ebc9c7cada22cb394a62274dfd7f5722ea5a2d788d6bd148b7902bee01a11d7)).
+
+### Wiring (pre-deploy)
+
+- `feat` **`apps/demo-agents/fly.arc.toml` (new).** Sibling Fly config: `app = "sage-demo-agents-arc"`, `[env].CHAIN_ID = "5042002"`, `[env].CHAIN = "arc-testnet"`, `[env].RPC_URL = "https://rpc.testnet.arc.network"` (direct, no Cloudflare proxy — Arc RPC has no API key). Same image, same 5 processes as Base; production isolation per session-2026-05-21 decision.
+- `feat` **`apps/demo-agents/src/shared/config.ts`** — additive Arc chain support. `AgentConfig.chain` union widened; `resolveChain` recognises `CHAIN=arc`/`arc-testnet`, `CHAIN_ID=5042002`, RPC URL sniff. `CHAIN_MAP['arc-testnet']` uses `viem.defineChain` (viem ships no native Arc) + `arcTestnet` from `@sage/adapter-evm`. Also exports `chainConfig` on the `createSageFromConfig` return so callers don't re-derive contract addresses via ternaries (see root cause #3).
+- `feat` **`orchestrator/guards.ts`** `USDC_BY_CHAIN[5042002] = 0x3600…`. `orchestrator/server.ts` `EXPLORERS[5042002] = 'Arc Testnet' / testnet.arcscan.app`.
+- `feat` **`apps/worker-gateway/`** chain-aware routing: `?chain=arc` (with `ORCHESTRATOR_URL_ARC` set) → Arc Fly; param stripped on forward (orchestrator knows its own chain via env). Rate limit shared across chains (a prototype-stage chain switch shouldn't double the budget).
+- `feat` **`apps/web/components/demo/chain-picker.tsx` (new) + `app/demo/composite/page.tsx` + `hooks/use-composite-demo.ts`** chain-aware URLs. URL-state sync (`?chain=arc`) wrapped in Suspense for Next 15 + static export. `useCompositeDemo(chainId)` carries the selected chain; `urlFor()` decorates all four endpoints + the SSE stream URL. `runChainRef` freezes the chain at classify time as a backstop against mid-run picker changes.
+- `docs` **`docs/runbooks/deploy-arc-fly-app.md` (new)** — faucet 4 worker EOAs, `fly apps create`, secrets, `fly deploy . --config apps/demo-agents/fly.arc.toml`, `/health` smoke, gateway redeploy, frontend deploy, rollback. Includes common failure modes.
+
+### Root causes found during e2e smoke
+
+1. `incident` **Fly machine limit reached at 20 machines org-wide.** Initial deploy succeeded (10 machines: orchestrator x2 + 4 workers + 4 standby). Subsequent `fly deploy` failed with "Your organization has reached its machine limit." even with `--strategy immediate` — `immediate` doesn't spawn temp duplicates but the baseline 10+10 across Arc + Base apps already breached. **Fix:** destroyed 4 worker standby machines on Arc (`fly machine destroy --force` for each `state=stopped` worker machine); added `--ha=false` to subsequent deploys so Fly stops auto-recreating them. Arc steady-state now 6 machines (1 orch + 4 workers + 1 autostopped orch standby), org-wide 16. Base prod stack untouched.
+
+2. `fix` **Workers hardcoded `escrowAddress` via a `chain === 'mainnet' ? base : baseSepolia` ternary, silently misrouted to Base Sepolia contract on Arc.** All 4 worker bundles had `const escrowAddress = config.chain === 'mainnet' ? base.contracts.taskEscrow : baseSepolia.contracts.taskEscrow;`. With Arc chain, the `false` branch fired → workers polled events for `0x12aeF3…` (Base Sepolia escrow) on Arc RPC — an address with no contract → empty event stream. Confirmed via on-chain probe: `cast call nextTaskId() → 2` (tasks created), `getTask(0/1).status → 0 Created` (never accepted). **Fix:** replaced the ternary with `chainConfig.contracts.taskEscrow` from the SDK chain config that already knew about Arc via the `CHAIN_MAP['arc-testnet']` extension. Removed the now-unused `base`/`baseSepolia` imports.
+
+3. `fix` **`viem.publicClient.watchContractEvent` does not deliver events on Arc testnet RPC** — neither in filter mode (default) nor with `poll: true`. Raw `eth_getLogs` works (verified via curl: returns both TaskCreated events for taskIds 0 and 1 with the right topic0). `eth_newFilter` succeeds and returns a filter ID; subsequent `eth_getFilterChanges` returns empty consistently. Diagnosis: Arc RPC's filter implementation is broken or doesn't index our address, and viem's `poll: true` mode under the hood still emits getLogs calls in a shape Arc rejects (likely topic-filter + narrow-range issue). **Fix:** `apps/demo-agents/src/shared/task-poller.ts` (new) — sidesteps event-log infrastructure entirely. Polls `TaskEscrow.nextTaskId()` every 15s, iterates new IDs, reads `getTask(id)` to check `executor`, dispatches to handler if `executor == myAddress`. Same callback shape as the old `watchContractEvent` setup; swapped into all 4 workers (summarizer / translator / sentiment / vision). Trade-off: ~3 RPC reads per task creation vs. one event delivery; well within the 23k/day baseline budget per GOTCHAS 2026-05-13.
+
+4. `fix` **`createTask` reverted with `DeadlinePast()` on Arc** because the LLM classifier emitted short `deadline_offset_s` (60-90s) and Arc's inter-block timestamp variance plus tx mining latency landed `block.timestamp >= deadline` before mining. ADR-0015 verification flagged exactly this ("Multiple blocks may share a timestamp (affects deadline assertions; mitigated by deadline_offset_s minimums)") but the minimum wasn't enforced anywhere. **Fix:** `plan-runner.ts` floors `deadline_offset_s` at 600s (10 min). Math.max preserves longer LLM-emitted offsets; absorbs Arc mining + accept-window. Same floor works fine on Base (~2s blocks, no variance issue).
+
+5. `fix` **High-stakes guard had two holes** that let auto-routing slip through and execute `send 0.1 USDC to 0xKnownWorker`-style briefs without manual assignment. First hole: `autoAssignExecutor` checked `isKnownWorker(llmAddr)` BEFORE `isHighStakesType(sub.type)` — if the LLM echoed a recipient address from the brief that happened to match a known worker EOA (e.g. `send to 0x0DA5…2593` matches Summarizer), the trust check passed silently. **Fix order #1:** swapped check order — high-stakes check now runs first, never trusts LLM-emitted executor for pay/send/book/etc. Second hole: high-stakes check only inspected per-subtask `type` string-stem matching (`'send' | 'transfer' | 'book' | 'purchase' | 'sign' | 'pay'`), but the LLM emits unpredictable types (`crypto-transaction`, `usdc-transaction`, `wallet-action` — none stem-match). Meanwhile `classify` correctly flagged `stakes: high` at the plan level. **Fix #2:** `planFromClassification` passes `plan.stakes` into `autoAssignExecutor`; guard now triggers on `planStakes === 'high' || isHighStakesType(type)`. Plan-level stakes is authoritative; type-stem is a secondary belt for low-stakes plans with one pay-shaped sub-task.
+
+### Polish on the back of those root causes
+
+- `feat` **`apps/web/components/demo/plan-card.tsx` — Approve button disabled when any sub-task is unassigned.** Layer-2 gate on top of `planFromClassification`'s strip (layer 1) and `plan-runner`'s spawn-time rejection (layer 3). Pink hint banner under footer with `Click Edit to assign before approving`. Polish — security already worked via layer 3, but failing earlier avoids the wasted execute round-trip + a confusing error.
+
+### Final defense-in-depth on high-stakes (verified end-to-end 2026-05-22)
+
+| Layer | Where | Action |
+|------|------|------|
+| 1 | `useCompositeDemo.autoAssignExecutor` | Strip executor on `plan.stakes='high'` OR `isHighStakesType(type)` |
+| 2 | `PlanCard` | Disable Approve button when any sub-task unassigned + hint banner |
+| 3 | `plan-runner.runSubtask` | Refuse to spawn TaskEscrow if executor_address missing |
+
+Test brief `Send 0.1 USDC to 0x0DA5892C26222fF2992BEe22613d1f9C06a92593` exercises all three; through-flow only proceeds after user opens plan-editor and picks a worker deliberately.
+
+### Tests + build (post-fixes)
+
+- `release` **167 TS tests green** end-of-session unchanged: `@sage/core 11`, `@sage/contracts 77 + 4 invariants` (Solidity, unchanged), `@sage/adapter-evm 13`, `@sage/adapter-arc 17`, `@sage/demo-agents 126`. tsc strict clean on demo-agents, web, worker-gateway. Web build static export: `/demo/composite` 70 kB / 241 kB First Load. Suspense boundary holds.
+
+### Decisions (rationale recorded for future readers)
+
+- `decision` **Separate Fly app over CHAIN switch in shared app.** Production isolation (Arc bug can't affect Base prod), simpler code (no per-chain dual-paths), per-chain state segregation. Cost +$X/mo small machines. Bridge is production-equivalent per ADR-0015 maintenance commitment.
+- `decision` **Inline chain picker + URL state sync over hidden query param.** Multi-chain framing visible in canonical demo, deep links shareable, refresh preserves choice.
+- `decision` **`task-poller.ts` over reattempting viem event watching.** Arc RPC event delivery is broken in multiple ways; further viem-side debug had unclear cost. nextTaskId polling is dead-simple, depends only on reads that already work, and the same code path runs on Base unchanged. If Arc RPC ever fixes event indexing, we can swap back — meanwhile this is dependable.
+- `decision` **`MIN_DEADLINE_OFFSET_S = 600` in plan-runner over per-chain minimums.** ADR-0015 hinted at "minimums" without specifying. 600s is comfortable for Arc inter-block variance + accept window; on Base it's invisible (LLM-emitted offsets are usually ≥600 anyway). Per-chain table can come later if any chain needs different behavior.
+
+---
+
 ## 2026-05-21 — Arc testnet bridge LIVE (ADR-0015 deploy + adapter-evm + web wiring)
 
 Sage's multi-chain framing from ADR-0008 is operational on two chains as of today: Base mainnet (deployed 2026-04-22) and Arc testnet (deployed 2026-05-21). The Arc deployment is the ADR-0015 *interim bridge* — our own `AgentRegistry` + `TaskEscrow` on Arc testnet via Arachnid CREATE2, retaining the ADR-0014 native-wrap direction as target for when Arc publishes ERC-8183/8004 reference contracts.

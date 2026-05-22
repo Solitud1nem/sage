@@ -228,7 +228,16 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
   }
 
   const specUri = encodeParentId({ run: runId, sub: sub.id }, sub.spec);
-  const deadline = Math.floor(Date.now() / 1000) + sub.deadline_offset_s;
+  // Floor `deadline_offset_s` at MIN_DEADLINE_OFFSET_S so we don't trip
+  // TaskEscrow's `deadline <= block.timestamp` check when the LLM
+  // classifier emits a short value (60-90s observed). Arc testnet block
+  // timestamps have inter-block variance (multiple blocks can share a
+  // ts), so a 600s minimum absorbs mining latency + accept-window. Same
+  // floor works fine on Base (~2s blocks). See ADR-0015 verification +
+  // GOTCHAS 2026-05-22.
+  const MIN_DEADLINE_OFFSET_S = 600;
+  const effectiveOffset = Math.max(sub.deadline_offset_s, MIN_DEADLINE_OFFSET_S);
+  const deadline = Math.floor(Date.now() / 1000) + effectiveOffset;
 
   channel.emit('subtask_status', { subId: sub.id, status: 'created' satisfies SubTaskRunStatus });
 

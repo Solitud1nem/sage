@@ -54,6 +54,27 @@ function captureCompositeError(
 const ORCHESTRATOR_URL =
   process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? 'http://localhost:3000';
 
+/**
+ * Worker gateway routes `?chain=arc` to the sibling Fly app per ADR-0015.
+ * Empty string for Base chains lets us concat without checking — the
+ * Worker treats absence and `chain=base` identically.
+ */
+function chainQs(chainId: number): string {
+  return chainId === 5042002 ? '?chain=arc' : '';
+}
+
+/**
+ * Build an upstream URL that carries the chain selector. Used for the
+ * three POST endpoints (`/classify`, `/execute`, `/retry-subtask`) and to
+ * decorate the relative SSE URL returned by `/execute`.
+ */
+function urlFor(path: string, chainId: number): string {
+  const base = path.startsWith('http') ? path : `${ORCHESTRATOR_URL}${path}`;
+  const qs = chainQs(chainId);
+  if (!qs) return base;
+  return base.includes('?') ? `${base}&${qs.slice(1)}` : `${base}${qs}`;
+}
+
 export type CompositeStatus =
   | 'idle'
   | 'classifying'
@@ -167,21 +188,26 @@ const INITIAL_STATE: CompositeState = {
   disputedSubId: null,
 };
 
-export function useCompositeDemo() {
+export function useCompositeDemo(chainId: number) {
   const [state, setState] = useState<CompositeState>(INITIAL_STATE);
   const esRef = useRef<EventSource | null>(null);
   const eventIdRef = useRef(0);
+  // Freeze the chain at classify-time so a mid-run picker change can't
+  // misroute approve/execute/retry. The page UI also disables the picker
+  // once status !== 'idle' — this ref is a belt-and-braces backstop.
+  const runChainRef = useRef<number>(chainId);
 
   /** POST /classify. Status: idle → classifying → plan-ready | error. */
   const classify = useCallback(async (brief: string): Promise<void> => {
     closeStream(esRef);
     eventIdRef.current = 0;
+    runChainRef.current = chainId;
     setState({ ...INITIAL_STATE, status: 'classifying' });
-    track('composite_classify_started', { brief_len: brief.length });
+    track('composite_classify_started', { brief_len: brief.length, chain_id: chainId });
     const startedAt = Date.now();
 
     try {
-      const res = await fetch(`${ORCHESTRATOR_URL}/api/demo/composite/classify`, {
+      const res = await fetch(urlFor('/api/demo/composite/classify', chainId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brief }),
@@ -215,7 +241,7 @@ export function useCompositeDemo() {
         error: message,
       }));
     }
-  }, []);
+  }, [chainId]);
 
   /**
    * POST /execute with the (possibly user-edited) `Plan`. Status: plan-ready → executing.
@@ -223,15 +249,17 @@ export function useCompositeDemo() {
    * events into `runtimes[subId]`.
    */
   const approve = useCallback(async (plan: WirePlan): Promise<void> => {
+    const runChainId = runChainRef.current;
     track('composite_plan_approved', {
       decomposability: plan.decomposability,
       stakes: plan.stakes,
       subtask_count: plan.subtasks.length,
       estimated_total_cost_units: plan.estimated_total_cost_units,
+      chain_id: runChainId,
     });
     setState((prev) => ({ ...prev, status: 'executing', plan, runtimes: {} }));
     try {
-      const res = await fetch(`${ORCHESTRATOR_URL}/api/demo/composite/execute`, {
+      const res = await fetch(urlFor('/api/demo/composite/execute', runChainId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(plan),
@@ -261,7 +289,7 @@ export function useCompositeDemo() {
         ),
       }));
 
-      attachStream(data.streamUrl, setState, esRef, eventIdRef);
+      attachStream(data.streamUrl, runChainId, setState, esRef, eventIdRef);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       track('composite_run_errored', { phase: 'execute', error: message });
@@ -305,12 +333,14 @@ export function useCompositeDemo() {
         setState((prev) => ({ ...prev, error: 'Cannot retry: no active run.' }));
         return;
       }
+      const runChainId = runChainRef.current;
       track('composite_subtask_retry_requested', {
         subId: opts.subId,
         hasNewExecutor: !!opts.newExecutorAddress,
+        chain_id: runChainId,
       });
       try {
-        const res = await fetch(`${ORCHESTRATOR_URL}/api/demo/composite/retry-subtask`, {
+        const res = await fetch(urlFor('/api/demo/composite/retry-subtask', runChainId), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -370,13 +400,15 @@ function closeStream(esRef: React.MutableRefObject<EventSource | null>): void {
 
 function attachStream(
   streamUrl: string,
+  chainId: number,
   setState: React.Dispatch<React.SetStateAction<CompositeState>>,
   esRef: React.MutableRefObject<EventSource | null>,
   eventIdRef: React.MutableRefObject<number>,
 ): void {
-  const fullUrl = streamUrl.startsWith('http')
-    ? streamUrl
-    : `${ORCHESTRATOR_URL}${streamUrl}`;
+  // urlFor handles both absolute (rare) and relative orchestrator paths
+  // and tacks on `?chain=arc` when applicable so the Worker proxy
+  // routes the long-lived SSE connection to the right Fly app.
+  const fullUrl = urlFor(streamUrl, chainId);
   const es = new EventSource(fullUrl);
   esRef.current = es;
 
@@ -618,7 +650,7 @@ export function planFromClassification(
     brief,
     decomposability: c.decomposability,
     stakes: c.stakes,
-    subtasks: c.proposed_plan.map(autoAssignExecutor),
+    subtasks: c.proposed_plan.map((sub) => autoAssignExecutor(sub, c.stakes)),
     estimated_total_cost_units: c.estimated_total_cost_units,
     estimated_duration_ms: c.estimated_duration_ms,
   };
@@ -664,7 +696,32 @@ function isHighStakesType(type: string): boolean {
   return HIGH_STAKES_TYPE_STEMS.some((stem) => lower.includes(stem));
 }
 
-function autoAssignExecutor(sub: WireSubTask): WireSubTask {
+function autoAssignExecutor(
+  sub: WireSubTask,
+  planStakes: 'low' | 'high',
+): WireSubTask {
+  // Block auto-routing for ANY high-stakes plan, regardless of whether
+  // the per-subtask `type` stem matches our `HIGH_STAKES_TYPE_STEMS` list.
+  // The classifier emits `stakes: high` at the plan level when the brief
+  // is irreversible / financial, but the per-subtask `type` it produces
+  // is unpredictable (`crypto-transaction`, `usdc-transaction`,
+  // `wallet-action` — none of which stem-match `send`/`transfer`/etc.).
+  // Trusting only type-stem matching let high-stakes plans slip through
+  // auto-routing — observed 2026-05-22 with the "Send 0.1 USDC to 0x…"
+  // smoke. plan-level `stakes` is the authoritative axis; type-stem is
+  // a secondary belt for low-stakes plans that nevertheless carry one
+  // pay-shaped sub-task.
+  //
+  // This MUST run before the `isKnownWorker` trust check below — the
+  // LLM sometimes echoes a recipient address from the brief into
+  // `executor_address`, and if that recipient address coincidentally
+  // matches one of our 4 known worker EOAs, the trust check would
+  // silently pass and the guard wouldn't fire. See GOTCHAS 2026-05-22.
+  if (planStakes === 'high' || isHighStakesType(sub.type)) {
+    const { executor_address: _stripped, ...rest } = sub;
+    return rest;
+  }
+
   // Trust the classifier's `executor_address` ONLY if it's one of our
   // 4 production workers. The LLM occasionally echoes addresses from the
   // brief text into this field — e.g. a "send $500 to 0xABCDeF…" brief
@@ -675,16 +732,6 @@ function autoAssignExecutor(sub: WireSubTask): WireSubTask {
   // violation. Strip and re-resolve via stem matcher.
   const llmAddr = sub.executor_address;
   if (llmAddr && isKnownWorker(llmAddr)) return sub;
-
-  // High-stakes types (transfer/send/book/etc.) intentionally do NOT
-  // auto-route to summarizer — leave unassigned so the user has to make
-  // a deliberate choice in the plan-editor. This is what makes the
-  // `stakes: high` axis behaviourally meaningful at the spawn boundary,
-  // not just a UI badge.
-  if (isHighStakesType(sub.type)) {
-    const { executor_address: _stripped, ...rest } = sub;
-    return rest;
-  }
 
   const resolved = resolveExecutorByType(sub.type);
   // Strip any LLM-emitted address first so we don't keep a hallucinated

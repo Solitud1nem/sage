@@ -41,8 +41,26 @@ export async function handleOrchestrator(
     }
   }
 
-  // Forward to Fly.io.
-  const upstream = new URL(url.pathname + url.search, env.ORCHESTRATOR_URL);
+  // Chain selection: `?chain=arc` routes to the Arc Fly app per ADR-0015.
+  // Everything else (default, `?chain=base`, malformed values) goes to the
+  // Base mainnet app. We intentionally keep the rate limit shared across
+  // chains — a prototype-stage chain switch shouldn't double the budget.
+  const chainParam = url.searchParams.get('chain');
+  const upstreamBase =
+    chainParam === 'arc' && env.ORCHESTRATOR_URL_ARC
+      ? env.ORCHESTRATOR_URL_ARC
+      : env.ORCHESTRATOR_URL;
+
+  // Forward to Fly.io. Strip the `chain` param from the forwarded URL so
+  // the orchestrator sees clean paths; it already knows which chain it's
+  // talking to from its own CHAIN_ID env.
+  const forwardSearch = new URLSearchParams(url.search);
+  forwardSearch.delete('chain');
+  const forwardQs = forwardSearch.toString();
+  const upstream = new URL(
+    url.pathname + (forwardQs ? `?${forwardQs}` : ''),
+    upstreamBase,
+  );
   const upstreamReq = new Request(upstream.toString(), {
     method: req.method,
     headers: stripHopByHop(req.headers),

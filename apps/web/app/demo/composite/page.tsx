@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useCallback, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
+import { ChainPicker } from '@/components/demo/chain-picker';
 import { PlanCard } from '@/components/demo/plan-card';
 import { PlanEditor } from '@/components/demo/plan-editor';
 import { PlanGraph } from '@/components/demo/plan-graph';
@@ -30,7 +32,49 @@ import {
  * approve / edit / cancel. Existing 3-mode `/demo` route is unaffected.
  */
 export default function CompositePage() {
-  const demo = useCompositeDemo();
+  // useSearchParams reads from the URL on the client. Next.js 15 + static
+  // export ('output: export') requires a Suspense boundary around any
+  // component that uses it, or the prerender step errors out.
+  return (
+    <Suspense fallback={<CompositePageFallback />}>
+      <CompositePageInner />
+    </Suspense>
+  );
+}
+
+function CompositePageFallback() {
+  return (
+    <div className="mx-auto max-w-[1200px] px-6 md:px-10 py-14">
+      <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
+        loading…
+      </div>
+    </div>
+  );
+}
+
+function CompositePageInner() {
+  // URL-state for chain selection (per ADR-0015): `?chain=arc` opens the
+  // composite demo against the Arc testnet bridge orchestrator; absent or
+  // `chain=base` opens against the Base mainnet orchestrator. Shareable
+  // deep links work; refresh keeps the selection.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const chainId: 8453 | 5042002 =
+    searchParams.get('chain') === 'arc' ? 5042002 : 8453;
+
+  const demo = useCompositeDemo(chainId);
+
+  const setChain = useCallback(
+    (next: 8453 | 5042002) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === 5042002) params.set('chain', 'arc');
+      else params.delete('chain');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   const [brief, setBrief] = useState('');
   const [editing, setEditing] = useState(false);
@@ -92,7 +136,12 @@ export default function CompositePage() {
       </p>
 
       {isInputPhase && (
-        <section className="mt-10">
+        <section className="mt-10 space-y-6">
+          <ChainPicker
+            chainId={chainId}
+            onChange={setChain}
+            disabled={demo.status !== 'idle'}
+          />
           <form
             onSubmit={submitBrief}
             className="rounded-[14px] border border-border bg-surface p-6 md:p-8"

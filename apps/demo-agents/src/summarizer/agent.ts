@@ -20,8 +20,9 @@
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
 import { decodeCompositeSpec } from '../shared/composite-codec.js';
+import { pollNewTasks } from '../shared/task-poller.js';
 import { taskId } from '@sage/core';
-import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
+import { taskEscrowAbi } from '@sage/adapter-evm';
 
 // Multi-process Fly: each process inherits the same env, so workers read a
 // role-specific override before falling back to the shared PRIVATE_KEY.
@@ -30,10 +31,8 @@ if (process.env.SUMMARIZER_PRIVATE_KEY) {
 }
 
 const config = loadConfig(3001);
-const { sage, publicClient, account } = createSageFromConfig(config);
-const escrowAddress = config.chain === 'mainnet'
-  ? base.contracts.taskEscrow
-  : baseSepolia.contracts.taskEscrow;
+const { sage, publicClient, account, chainConfig } = createSageFromConfig(config);
+const escrowAddress = chainConfig.contracts.taskEscrow;
 
 // Composite-envelope detection is shared across all four worker agents.
 // See `apps/demo-agents/src/shared/composite-codec.ts` — the worker
@@ -126,18 +125,20 @@ const agent = new BaseAgent({
   async onStart() {
     console.error('[Summarizer] Watching for TaskCreated events...');
 
-    publicClient.watchContractEvent({
-      address: escrowAddress,
+    // Direct nextTaskId polling instead of `watchContractEvent`. viem's
+    // event watchers (filter + poll modes) both fail to deliver
+    // TaskCreated on Arc testnet RPC, even though raw `eth_getLogs`
+    // works for address-only filters. See GOTCHAS 2026-05-22 +
+    // shared/task-poller.ts header.
+    pollNewTasks({
+      publicClient,
+      escrowAddress,
       abi: taskEscrowAbi,
-      eventName: 'TaskCreated',
-      onLogs(logs) {
-        for (const log of logs) {
-          handleTaskCreated(
-            log.args.taskId!,
-            log.args.client!,
-            log.args.executor!,
-          ).catch(console.error);
-        }
+      myAddress: account.address,
+      pollIntervalMs: 15_000,
+      tag: 'Summarizer',
+      onTaskForMe: (id, clientAddr, executor) => {
+        handleTaskCreated(id, clientAddr, executor).catch(console.error);
       },
     });
   },

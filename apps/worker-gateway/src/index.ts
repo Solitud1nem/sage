@@ -18,6 +18,13 @@ import { applyCors, corsPreflight } from './cors';
 export interface Env {
   DB: D1Database;
   ORCHESTRATOR_URL: string;
+  /**
+   * Arc-testnet orchestrator URL (per ADR-0015). Optional — empty/unset
+   * means `?chain=arc` requests fall through to the Base orchestrator
+   * (which will return chainId 8453 and the frontend can surface that
+   * as a chain-mismatch).
+   */
+  ORCHESTRATOR_URL_ARC: string;
   ALCHEMY_BASE_URL: string;
   ALCHEMY_KEY: string;
   DAILY_LIMIT: string;

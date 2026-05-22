@@ -21,18 +21,17 @@
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
 import { decodeCompositeSpec } from '../shared/composite-codec.js';
+import { pollNewTasks } from '../shared/task-poller.js';
 import { taskId } from '@sage/core';
-import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
+import { taskEscrowAbi } from '@sage/adapter-evm';
 
 if (process.env.VISION_PRIVATE_KEY) {
   process.env.PRIVATE_KEY = process.env.VISION_PRIVATE_KEY;
 }
 
 const config = loadConfig(3003);
-const { sage, publicClient, account } = createSageFromConfig(config);
-const escrowAddress = config.chain === 'mainnet'
-  ? base.contracts.taskEscrow
-  : baseSepolia.contracts.taskEscrow;
+const { sage, publicClient, account, chainConfig } = createSageFromConfig(config);
+const escrowAddress = chainConfig.contracts.taskEscrow;
 
 const MAX_DESCRIPTION_CHARS = 500;
 
@@ -160,16 +159,16 @@ const agent = new BaseAgent({
   async onStart() {
     console.error('[Vision] Watching for TaskCreated events...');
 
-    publicClient.watchContractEvent({
-      address: escrowAddress,
+    // Direct polling — viem event watchers fail on Arc (GOTCHAS 2026-05-22).
+    pollNewTasks({
+      publicClient,
+      escrowAddress,
       abi: taskEscrowAbi,
-      eventName: 'TaskCreated',
-      onLogs(logs) {
-        for (const log of logs) {
-          handleTaskCreated(log.args.taskId!, log.args.client!, log.args.executor!).catch(
-            console.error,
-          );
-        }
+      myAddress: account.address,
+      pollIntervalMs: 15_000,
+      tag: 'Vision',
+      onTaskForMe: (id, clientAddr, executor) => {
+        handleTaskCreated(id, clientAddr, executor).catch(console.error);
       },
     });
   },

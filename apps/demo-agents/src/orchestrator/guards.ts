@@ -12,6 +12,7 @@ import type { Address, PublicClient } from 'viem';
 const USDC_BY_CHAIN: Record<number, Address> = {
   8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Base mainnet
   84532: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', // Base Sepolia
+  5042002: '0x3600000000000000000000000000000000000000', // Arc testnet (verified per ADR-0015)
 };
 
 const ERC20_BALANCE_OF_ABI = [

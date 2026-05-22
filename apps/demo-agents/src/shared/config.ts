@@ -1,15 +1,17 @@
-import { createPublicClient, createWalletClient, http, type Chain } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, http, type Chain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base as baseMainnetChain, baseSepolia as baseSepoliaChain } from 'viem/chains';
-import { createSageClient, base, baseSepolia } from '@sage/adapter-evm';
+import { createSageClient, base, baseSepolia, arcTestnet } from '@sage/adapter-evm';
 import type { ChainConfig } from '@sage/adapter-evm';
+
+export type ChainKey = 'mainnet' | 'sepolia' | 'arc-testnet';
 
 export interface AgentConfig {
   privateKey: `0x${string}`;
   rpcUrl: string;
   openaiApiKey: string | undefined;
   port: number;
-  chain: 'mainnet' | 'sepolia';
+  chain: ChainKey;
 }
 
 function requireEnv(name: string): string {
@@ -18,25 +20,45 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function resolveChain(env: string | undefined): 'mainnet' | 'sepolia' {
+function resolveChain(env: string | undefined): ChainKey {
   if (env === 'mainnet' || env === 'base') return 'mainnet';
   if (env === 'sepolia' || env === 'base-sepolia') return 'sepolia';
+  if (env === 'arc' || env === 'arc-testnet') return 'arc-testnet';
   // CHAIN_ID is authoritative when set. Falls through to RPC sniffing
   // for legacy configs.
   const chainId = process.env['CHAIN_ID'];
   if (chainId === '8453') return 'mainnet';
   if (chainId === '84532') return 'sepolia';
+  if (chainId === '5042002') return 'arc-testnet';
   // Last-resort URL sniff. Note: proxied RPCs (e.g. through a Cloudflare
   // Worker) won't contain 'mainnet'/'sepolia' tokens — set CHAIN or
   // CHAIN_ID explicitly in those deployments.
   const rpc = process.env['RPC_URL'] ?? '';
+  if (rpc.includes('arc.network')) return 'arc-testnet';
   if (rpc.includes('mainnet') && !rpc.includes('sepolia')) return 'mainnet';
   return 'sepolia';
 }
 
-const CHAIN_MAP: Record<'mainnet' | 'sepolia', { viem: Chain; sage: ChainConfig }> = {
+// viem doesn't ship a built-in Arc definition. Native currency is USDC
+// (decorative for our paths — we don't use viem's gas estimation here,
+// the RPC returns gas pricing in USDC base-units directly).
+const arcTestnetViem: Chain = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.testnet.arc.network'] },
+  },
+  blockExplorers: {
+    default: { name: 'Arcscan', url: 'https://testnet.arcscan.app' },
+  },
+  testnet: true,
+});
+
+const CHAIN_MAP: Record<ChainKey, { viem: Chain; sage: ChainConfig }> = {
   mainnet: { viem: baseMainnetChain, sage: base },
   sepolia: { viem: baseSepoliaChain, sage: baseSepolia },
+  'arc-testnet': { viem: arcTestnetViem, sage: arcTestnet },
 };
 
 export function loadConfig(defaultPort: number): AgentConfig {
@@ -53,6 +75,12 @@ export function loadConfig(defaultPort: number): AgentConfig {
 export function createSageFromConfig(config: AgentConfig) {
   const account = privateKeyToAccount(config.privateKey);
   const { viem: viemChain, sage: sageChain } = CHAIN_MAP[config.chain];
+  // Export sage chain config so callers (workers) can read per-chain
+  // contract addresses (taskEscrow, agentRegistry, usdc) without having
+  // to re-derive via `chain === 'mainnet' ? base : baseSepolia`
+  // tertiaries — which silently break the moment we add a third chain
+  // (e.g. Arc → falls through to baseSepolia by default). See GOTCHAS
+  // 2026-05-22.
 
   // Backend-path auth header for the Worker RPC gate. The Worker enforces
   // an allow-list on /api/rpc: browsers pass on the Origin header, the
@@ -90,5 +118,5 @@ export function createSageFromConfig(config: AgentConfig) {
     publicClient,
   });
 
-  return { sage, account, publicClient, walletClient };
+  return { sage, account, publicClient, walletClient, chainConfig: sageChain };
 }

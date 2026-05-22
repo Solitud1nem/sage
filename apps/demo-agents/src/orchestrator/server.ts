@@ -40,6 +40,7 @@ let chainInfo: { chainId: number; displayName: string; explorerUrl: string } = {
 const EXPLORERS: Record<number, { displayName: string; url: string }> = {
   8453: { displayName: 'Base', url: 'https://basescan.org' },
   84532: { displayName: 'Base Sepolia', url: 'https://sepolia.basescan.org' },
+  5042002: { displayName: 'Arc Testnet', url: 'https://testnet.arcscan.app' },
 };
 
 async function resolveChainInfo(): Promise<void> {
