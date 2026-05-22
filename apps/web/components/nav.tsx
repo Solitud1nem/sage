@@ -10,6 +10,7 @@ const links = [
   { href: '/#integrate', label: 'Integrate' },
   { href: '/#live', label: 'Live' },
   { href: '/demo', label: 'Demo' },
+  { href: '/demo/composite', label: 'Composite' },
   { href: '/docs', label: 'Docs' },
 ];
 
