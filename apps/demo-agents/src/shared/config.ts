@@ -1,4 +1,11 @@
-import { createPublicClient, createWalletClient, defineChain, http, type Chain } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  nonceManager,
+  type Chain,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base as baseMainnetChain, baseSepolia as baseSepoliaChain } from 'viem/chains';
 import { createSageClient, base, baseSepolia, arcTestnet } from '@sage/adapter-evm';
@@ -31,7 +38,7 @@ function resolveChain(env: string | undefined): ChainKey {
   if (chainId === '84532') return 'sepolia';
   if (chainId === '5042002') return 'arc-testnet';
   // Last-resort URL sniff. Note: proxied RPCs (e.g. through a Cloudflare
-  // Worker) won't contain 'mainnet'/'sepolia' tokens — set CHAIN or
+  // Worker) won't contain 'mainnet'/'sepolia' tokens -- set CHAIN or
   // CHAIN_ID explicitly in those deployments.
   const rpc = process.env['RPC_URL'] ?? '';
   if (rpc.includes('arc.network')) return 'arc-testnet';
@@ -40,7 +47,7 @@ function resolveChain(env: string | undefined): ChainKey {
 }
 
 // viem doesn't ship a built-in Arc definition. Native currency is USDC
-// (decorative for our paths — we don't use viem's gas estimation here,
+// (decorative for our paths -- we don't use viem's gas estimation here,
 // the RPC returns gas pricing in USDC base-units directly).
 const arcTestnetViem: Chain = defineChain({
   id: 5042002,
@@ -73,18 +80,28 @@ export function loadConfig(defaultPort: number): AgentConfig {
 }
 
 export function createSageFromConfig(config: AgentConfig) {
-  const account = privateKeyToAccount(config.privateKey);
+  // Attach viem's nonceManager (jsonRpc source) so nonces are tracked
+  // locally per (chainId, address) and assignment is serialized in-process.
+  // Without it, every sponsor-side write fetches the nonce via the RPC's
+  // getTransactionCount(pending). Behind the Cloudflare -> Alchemy proxy
+  // that value lags right after a confirmed tx, so the next createTask
+  // reuses a nonce still in the mempool -> "replacement transaction
+  // underpriced". The composite plan-runner fires several sponsor txs per
+  // run and hit this deterministically on sub-task #2. nonceManager also
+  // serializes nonce assignment across overlapping runs in the same
+  // process. See GOTCHAS 2026-04-29 (nonce race) + plan-runner.ts:274.
+  const account = privateKeyToAccount(config.privateKey, { nonceManager });
   const { viem: viemChain, sage: sageChain } = CHAIN_MAP[config.chain];
   // Export sage chain config so callers (workers) can read per-chain
   // contract addresses (taskEscrow, agentRegistry, usdc) without having
-  // to re-derive via `chain === 'mainnet' ? base : baseSepolia`
-  // tertiaries — which silently break the moment we add a third chain
-  // (e.g. Arc → falls through to baseSepolia by default). See GOTCHAS
+  // to re-derive via chain === 'mainnet' ? base : baseSepolia
+  // tertiaries -- which silently break the moment we add a third chain
+  // (e.g. Arc -> falls through to baseSepolia by default). See GOTCHAS
   // 2026-05-22.
 
   // Backend-path auth header for the Worker RPC gate. The Worker enforces
   // an allow-list on /api/rpc: browsers pass on the Origin header, the
-  // orchestrator (Node — no Origin) passes via this shared secret. Absent
+  // orchestrator (Node -- no Origin) passes via this shared secret. Absent
   // in local dev when RPC_URL points straight at a public node.
   const backendKey = process.env['SAGE_BACKEND_KEY'];
   const transportOpts = backendKey
@@ -93,10 +110,10 @@ export function createSageFromConfig(config: AgentConfig) {
 
   // Bumped from viem's default 4s. The four worker agents
   // (summarizer/translator/vision/sentiment) each use watchContractEvent
-  // on TaskCreated; at 4s × 4 = ~86k requests/day → exhausted the
+  // on TaskCreated; at 4s x 4 = ~86k requests/day exhausted the
   // Cloudflare Workers Free-tier 100k/day quota on 2026-05-13. At 15s
   // baseline is ~23k/day, plenty of headroom. Average task detection
-  // latency goes from 2s to ~7.5s — acceptable demo UX.
+  // latency goes from 2s to ~7.5s -- acceptable demo UX.
   const POLL_INTERVAL_MS = 15_000;
 
   const publicClient = createPublicClient({
