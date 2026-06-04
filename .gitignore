@@ -51,3 +51,12 @@ IDEAS.md
 PLANNING.md
 PRD.md
 TASKS.md
+
+# Private artifacts (local only — investor materials, history-rewrite tooling,
+# tsup temp builds). These live in the working tree but must not reach the
+# public repo.
+*.pptx
+SAGE-EMAIL-CLEANUP.md
+sage-history-backup-*.bundle
+sage-mailmap.txt
+tsup.config.bundled_*.mjs
