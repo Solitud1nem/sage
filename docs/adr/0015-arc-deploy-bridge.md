@@ -1,11 +1,11 @@
 # ADR-0015 — Arc testnet bridge: deploy Sage contracts on Arc via Arachnid CREATE2, defer native ERC-8183/8004 wrap
 
-- **Status:** Accepted
+- **Status:** Accepted, partially superseded by [ADR-0016](./0016-erc-8183-discovery-correction.md) (Discovery table rows for ERC-8183 / ERC-8004 + Migration trigger #1 corrected 2026-05-22; the deploy-our-own decision itself stands on revised rationale)
 - **Date:** 2026-05-21
 - **Deciders:** Alex, Claude
 - **Supersedes:** ADR-0014 (partially — see *Relation to ADR-0014* below)
-- **Superseded by:** — (future ADR-0016 will document the native-primitive migration when conditions trigger)
-- **Related:** ADR-0001 (deterministic addresses); ADR-0014 (Arc as sibling chain via native ERC-8183 + ERC-8004); `packages/adapter-arc/`; `apps/web/chains/arc.ts`; Arc testnet docs at `https://docs.arc.io/`.
+- **Superseded by:** [ADR-0016](./0016-erc-8183-discovery-correction.md) (partial — Discovery + Migration trigger only; bridge decision stands)
+- **Related:** ADR-0001 (deterministic addresses); ADR-0014 (Arc as sibling chain via native ERC-8183 + ERC-8004); ADR-0016 (Discovery correction); `packages/adapter-arc/`; `apps/web/chains/arc.ts`; Arc testnet docs at `https://docs.arc.io/` + `https://docs.arc.network/`.
 
 ## Context
 
@@ -23,8 +23,8 @@ On 2026-05-21, during scoping of a real Arc demo, we fetched `https://docs.arc.i
 | `SELFDESTRUCT` at deploy | ❌ Restricted (does not affect us — we don't use it). |
 | `block.prevrandao` | ❌ Always 0 (does not affect us — we don't use it). |
 | Block timestamp uniqueness | ⚠️ Multiple blocks may share a timestamp (affects deadline assertions; mitigated by deadline_offset_s minimums). |
-| **ERC-8183 Job reference contracts** | ❌ **Not deployed at canonical addresses on testnet.** Not present in `docs/arc/references/contract-addresses`. |
-| **ERC-8004 Agent Identity reference contracts** | ❌ **Not deployed at canonical addresses on testnet.** Not present in same reference list. |
+| **ERC-8183 Job reference contracts** | ❌ ~~**Not deployed at canonical addresses on testnet.** Not present in `docs/arc/references/contract-addresses`.~~ **Correction (2026-05-22, ADR-0016):** ERC-8183 IS deployed on Arc testnet at `0x0747EEf0706327138c69792bF28Cd525089e4583`, documented at `arc.network/blog` and `docs.arc.network` (which we did not check during this recon). The bridge decision still holds — see ADR-0016 for the revised shape-mismatch rationale. |
+| **ERC-8004 Agent Identity reference contracts** | ❌ ~~**Not deployed at canonical addresses on testnet.** Not present in same reference list.~~ **Correction (2026-05-22, ADR-0016):** ERC-8004 support on Arc is documented at `docs.arc.network/arc/tutorials/register-your-first-ai-agent`. ERC-8004 went live on Ethereum mainnet 2026-01-29. |
 | CreateX factory (`0xba5Ed099…`) | ❌ Not documented; same-address property from ADR-0001 cannot be assumed for Arc. |
 
 The substrate ADR-0014 was designed around does not exist yet. We have two honest options: defer Arc support indefinitely (await native primitives), or change tactic and deploy our own contracts on Arc testnet as an interim, with an explicit migration path back to ADR-0014's native-wrap direction.

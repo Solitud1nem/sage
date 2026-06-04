@@ -30,7 +30,8 @@
 | [0007](./0007-observable-decomposition.md) | Observable decomposition: plan-then-execute as the default flow for composite agent tasks | Accepted | 2026-05-19 |
 | [0008](./0008-sage-angle-position.md) | Sage angle / position: multi-chain settlement infrastructure for AI agents, distinguished by observable decomposition | Accepted | 2026-05-20 |
 | [0014](./0014-arc-adapter-native-erc-8183.md) | Arc as sibling chain via `@sage/adapter-arc` over native ERC-8183 + ERC-8004 (scaffold-first) | Accepted, partially superseded by 0015 | 2026-05-21 |
-| [0015](./0015-arc-deploy-bridge.md) | Arc testnet bridge: deploy Sage contracts on Arc via Arachnid CREATE2 (interim, until native ERC-8183/8004 ship) | Accepted | 2026-05-21 |
+| [0015](./0015-arc-deploy-bridge.md) | Arc testnet bridge: deploy Sage contracts on Arc via Arachnid CREATE2 (interim, until native ERC-8183/8004 ship) | Accepted, partially superseded by 0016 | 2026-05-21 |
+| [0016](./0016-erc-8183-discovery-correction.md) | Discovery correction: ERC-8183 was deployed on Arc testnet all along; bridge stands on shape-mismatch rationale | Accepted | 2026-05-22 |
 
 ## Ожидаемые ADR (черновик)
 
