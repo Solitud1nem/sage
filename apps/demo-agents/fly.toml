@@ -1,7 +1,7 @@
 #
 # Sage demo-agents — Fly.io app config.
-# One app, three processes (orchestrator, summarizer, translator).
-# Orchestrator is the only process exposed on public HTTP; the other two watch
+# One app, five processes (orchestrator + summarizer/translator/vision/sentiment).
+# Orchestrator is the only process exposed on public HTTP; the four workers watch
 # on-chain events directly and don't need inbound HTTP.
 #
 # Deploy:

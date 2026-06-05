@@ -21,7 +21,8 @@ import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
 import { decodeCompositeSpec } from '../shared/composite-codec.js';
 import { pollNewTasks } from '../shared/task-poller.js';
-import { taskId } from '@sage/core';
+import { awaitTaskState } from '../shared/await-task-state.js';
+import { TaskStatus, taskId } from '@sage/core';
 import { taskEscrowAbi } from '@sage/adapter-evm';
 
 // Multi-process Fly: each process inherits the same env, so workers read a
@@ -98,12 +99,12 @@ async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, e
     }
     console.error(`[Summarizer] Task ${id} accepted (tx: ${acceptHash}), working...`);
 
-    // Wait for state propagation before reading/writing
-    await new Promise(r => setTimeout(r, 2000));
-
-    const task = await sage.tasks.getTask(id);
+    // Wait for the RPC read replica to reflect Accepted state before reading
+    // specUri. Bounded retry replaces a flat 2s sleep that silently abandoned
+    // the task whenever the replica lagged longer. See await-task-state.ts.
+    const task = await awaitTaskState((tid) => sage.tasks.getTask(tid), id, TaskStatus.Accepted);
     if (!task) {
-      console.error(`[Summarizer] Task ${id} not found after accept — skipping`);
+      console.error(`[Summarizer] Task ${id} state did not become Accepted within 10s — skipping`);
       return;
     }
     console.error(`[Summarizer] Task ${id} status: ${task.status}, specUri: ${task.specUri.slice(0,50)}`);

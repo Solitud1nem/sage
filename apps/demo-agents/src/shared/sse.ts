@@ -113,13 +113,23 @@ export class SseChannel {
  * page can still retrieve the final result.
  */
 export class SseRegistry {
-  private readonly channels = new Map<string, { channel: SseChannel; createdAt: number }>();
-  private readonly RETENTION_MS = 5 * 60 * 1000; // 5 minutes
+  private readonly channels = new Map<string, { channel: SseChannel; closedAt: number | null }>();
+  private readonly RETENTION_MS = 5 * 60 * 1000; // 5 minutes post-close
   private gcInterval: NodeJS.Timeout | null = null;
 
   create(id: string): SseChannel {
     const channel = new SseChannel(id);
-    this.channels.set(id, { channel, createdAt: Date.now() });
+    const entry = { channel, closedAt: null as number | null };
+    this.channels.set(id, entry);
+    // Stamp closedAt when the channel actually closes so the GC window is
+    // measured post-close. Tracking createdAt instead would GC long-running
+    // closed channels too early — a 4-minute run would only stay reloadable
+    // for 1 minute after `done`.
+    const originalClose = channel.close.bind(channel);
+    channel.close = (finalPayload?: unknown) => {
+      originalClose(finalPayload);
+      entry.closedAt = Date.now();
+    };
     this.ensureGc();
     return channel;
   }
@@ -145,8 +155,8 @@ export class SseRegistry {
 
   private gc(): void {
     const now = Date.now();
-    for (const [id, { channel, createdAt }] of this.channels) {
-      if (channel.isClosed && now - createdAt > this.RETENTION_MS) {
+    for (const [id, { channel, closedAt }] of this.channels) {
+      if (channel.isClosed && closedAt !== null && now - closedAt > this.RETENTION_MS) {
         this.channels.delete(id);
       }
     }

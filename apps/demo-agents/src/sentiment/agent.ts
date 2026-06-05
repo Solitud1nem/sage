@@ -22,7 +22,8 @@ import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
 import { decodeCompositeSpec } from '../shared/composite-codec.js';
 import { pollNewTasks } from '../shared/task-poller.js';
-import { taskId } from '@sage/core';
+import { awaitTaskState } from '../shared/await-task-state.js';
+import { TaskStatus, taskId } from '@sage/core';
 import { taskEscrowAbi } from '@sage/adapter-evm';
 
 if (process.env.SENTIMENT_PRIVATE_KEY) {
@@ -115,11 +116,11 @@ async function handleTaskCreated(
     }
     console.error(`[Sentiment] Task ${id} accepted (tx: ${acceptHash}), working...`);
 
-    await new Promise((r) => setTimeout(r, 2000));
-
-    const task = await sage.tasks.getTask(id);
+    // Bounded poll for Accepted state — see await-task-state.ts. Replaces
+    // a flat 2s sleep that abandoned tasks whenever the RPC replica lagged.
+    const task = await awaitTaskState((tid) => sage.tasks.getTask(tid), id, TaskStatus.Accepted);
     if (!task) {
-      console.error(`[Sentiment] Task ${id} not found after accept — skipping`);
+      console.error(`[Sentiment] Task ${id} state did not become Accepted within 10s — skipping`);
       return;
     }
     console.error(
