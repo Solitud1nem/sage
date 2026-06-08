@@ -111,14 +111,24 @@ function decodeJob(specUri: string): { spec: string; material: string | null } {
 // ── Self-registration (idempotent) ────────────────────────────────────────────
 
 async function ensureRegistered(): Promise<void> {
+  let existing = null;
   try {
-    const existing = await registry.getAgent(agentId(account.address));
-    if (existing && existing.capabilities.some((c) => c.name === capabilityName)) {
-      log(`already registered for "${capabilityName}" — skipping registration`);
-      return;
-    }
+    existing = await registry.getAgent(agentId(account.address));
   } catch {
-    // getAgent reverts / returns nothing for an unregistered address → register.
+    // getAgent reverts / returns nothing for an unregistered address.
+  }
+  if (existing && existing.capabilities.some((c) => c.name === capabilityName)) {
+    // Already registered. If we paused ourselves on a prior shutdown, resume so
+    // the classifier can pick us again.
+    if (!existing.active) {
+      log('registered but paused — resuming…');
+      const h = await registry.resumeAgent();
+      await publicClient.waitForTransactionReceipt({ hash: h as `0x${string}` });
+      log('resumed (active)');
+    } else {
+      log(`already registered + active for "${capabilityName}" — skipping`);
+    }
+    return;
   }
   log(`registering for "${capabilityName}" at ${priceUnits} units…`);
   const hash = await registry.registerAgent({
@@ -129,6 +139,30 @@ async function ensureRegistered(): Promise<void> {
   await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` });
   log(`registered (tx ${hash})`);
 }
+
+/**
+ * Pause our registry entry on shutdown so a stopped/redeploying agent does not
+ * black-hole its capability: `pauseAgent` sets active=false, and the Sage
+ * classifier only picks active agents — so tasks fall back to another provider.
+ * Best-effort + bounded (the host's kill timeout may cut it short on a hard
+ * kill); a crashed agent that can't pause is recovered by your restart policy.
+ */
+let shuttingDown = false;
+async function pauseOnShutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log(`${signal} — pausing registry entry…`);
+  try {
+    const h = await registry.pauseAgent();
+    await publicClient.waitForTransactionReceipt({ hash: h as `0x${string}` });
+    log('paused — safe to stop');
+  } catch (e) {
+    log(`pause-on-shutdown failed (continuing to exit): ${e}`);
+  }
+  process.exit(0);
+}
+process.on('SIGINT', () => void pauseOnShutdown('SIGINT'));
+process.on('SIGTERM', () => void pauseOnShutdown('SIGTERM'));
 
 // ── Task loop ─────────────────────────────────────────────────────────────────
 

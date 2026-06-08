@@ -1,0 +1,34 @@
+#
+# Sage reference foreign-agent — Fly.io app config.
+# A single always-on worker process. No public HTTP surface (it polls the chain
+# and submits results); the health endpoint is internal only.
+#
+# Deploy (from repo root):
+#   fly launch --no-deploy --name sage-foreign-agent -c templates/foreign-agent/fly.toml
+#   fly secrets set PRIVATE_KEY=0x... OPENAI_API_KEY=... -a sage-foreign-agent
+#   fly deploy -c templates/foreign-agent/fly.toml --ha=false
+#
+# --ha=false keeps it to one machine (personal-org machine budget — see
+# GOTCHAS fly-org-machine-limit). The agent pauses its registry entry on
+# SIGTERM so rolling restarts fall back to another provider cleanly.
+
+app = "sage-foreign-agent"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3010"
+  CHAIN = "mainnet"
+  RPC_URL = "https://base.publicnode.com"
+  CAPABILITY = "summarize"
+  PRICE_UNITS = "500"
+  ENDPOINT = "https://github.com/Solitud1nem/sage/tree/main/templates/foreign-agent"
+
+# Single worker process, one machine. Health check is process-local; no public
+# routing needed.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
