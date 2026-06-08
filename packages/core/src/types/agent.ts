@@ -60,3 +60,31 @@ export interface PricingEntry {
 // Re-exported from the barrel (types/index.ts).
 import type { PriceSpec } from './payment.js';
 export type { PriceSpec } from './payment.js';
+
+// ───────── V2 registry types (ADR-0008 amendment, M11.2) ─────────
+
+/**
+ * A capability claimed by an agent in `AgentRegistryV2`, with its flat
+ * per-task price. Distinct from the off-chain `PricingEntry` shape — the
+ * on-chain registry stores a single price per capability in USDC base
+ * units (6 decimals), which the classifier / plan-editor uses as cost
+ * estimate when selecting executors.
+ */
+export interface RegistryCapability {
+  readonly name: Capability;
+  /** USDC base units per task (6 decimals). Must be > 0n. */
+  readonly price: bigint;
+}
+
+/**
+ * Extended on-chain agent record returned by `AgentRegistryV2`. Adds
+ * `profileUri` (optional off-chain rich-metadata pointer) and
+ * `capabilities` (priced capability list). All v1 `AgentRecord` fields
+ * are preserved.
+ */
+export interface AgentRecordV2 extends AgentRecord {
+  /** IPFS / HTTPS URI for rich agent profile, or empty string if not set. */
+  readonly profileUri: string;
+  /** Priced capabilities. Empty array means agent is identity-only. */
+  readonly capabilities: readonly RegistryCapability[];
+}

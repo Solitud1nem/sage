@@ -2,7 +2,15 @@
  * Barrel export for all Sage protocol types.
  */
 
-export type { AgentId, Capability, AgentRecord, AgentProfile, PricingEntry } from './agent.js';
+export type {
+  AgentId,
+  Capability,
+  AgentRecord,
+  AgentRecordV2,
+  AgentProfile,
+  PricingEntry,
+  RegistryCapability,
+} from './agent.js';
 export { agentId, capability } from './agent.js';
 
 export type { TaskId, TaskRecord, TaskSpec, DisputeOutcome } from './task.js';

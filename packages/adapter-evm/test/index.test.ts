@@ -6,7 +6,9 @@ import {
   arcTestnet,
   createSageClient,
   createTaskEscrowV2Client,
+  createAgentRegistryV2Client,
   agentRegistryAbi,
+  agentRegistryV2Abi,
   taskEscrowAbi,
   taskEscrowV2Abi,
 } from '../src/index.js';
@@ -208,5 +210,74 @@ describe('V2 arbitration surface (ADR-0017)', () => {
     for (const name of v1Functions) {
       expect(v2Functions).toContain(name);
     }
+  });
+});
+
+describe('AgentRegistryV2 surface (M11.2)', () => {
+  it('exports agentRegistryV2Abi', () => {
+    expect(agentRegistryV2Abi).toBeDefined();
+    expect(Array.isArray(agentRegistryV2Abi)).toBe(true);
+    expect(agentRegistryV2Abi.length).toBeGreaterThan(agentRegistryAbi.length);
+  });
+
+  it('exports createAgentRegistryV2Client factory', () => {
+    expect(typeof createAgentRegistryV2Client).toBe('function');
+  });
+
+  it('agentRegistryV2Abi contains registerAgent with 3-arg signature', () => {
+    const fn = agentRegistryV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'registerAgent',
+    ) as { inputs: { type: string }[] } | undefined;
+    expect(fn).toBeDefined();
+    expect(fn!.inputs).toHaveLength(3);
+    expect(fn!.inputs[0]?.type).toBe('string'); // endpoint
+    expect(fn!.inputs[1]?.type).toBe('string'); // profileUri
+    expect(fn!.inputs[2]?.type).toBe('tuple[]'); // capabilities
+  });
+
+  it('agentRegistryV2Abi contains granular update functions', () => {
+    const names = agentRegistryV2Abi
+      .filter((item: any) => item.type === 'function')
+      .map((item: any) => item.name);
+    expect(names).toContain('updateEndpoint');
+    expect(names).toContain('updateProfileUri');
+    expect(names).toContain('updateCapabilities');
+  });
+
+  it('agentRegistryV2Abi has new events for granular updates', () => {
+    const events = agentRegistryV2Abi
+      .filter((item: any) => item.type === 'event')
+      .map((item: any) => item.name);
+    expect(events).toContain('AgentRegistered');
+    expect(events).toContain('AgentEndpointUpdated');
+    expect(events).toContain('AgentProfileUriUpdated');
+    expect(events).toContain('AgentCapabilitiesUpdated');
+    expect(events).toContain('AgentPaused');
+    expect(events).toContain('AgentResumed');
+  });
+
+  it('agentRegistryV2Abi Agent struct has capabilities + profileUri fields', () => {
+    const getAgent = agentRegistryV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'getAgent',
+    ) as { outputs: { components?: { name: string; type: string }[] }[] } | undefined;
+    expect(getAgent).toBeDefined();
+    const components = getAgent!.outputs[0]?.components ?? [];
+    const fieldNames = components.map((c) => c.name);
+    expect(fieldNames).toContain('owner');
+    expect(fieldNames).toContain('endpoint');
+    expect(fieldNames).toContain('profileUri');
+    expect(fieldNames).toContain('capabilities');
+    expect(fieldNames).toContain('registeredAt');
+    expect(fieldNames).toContain('active');
+  });
+
+  it('agentRegistryV2Abi has Ownable + Pausable surface', () => {
+    const names = agentRegistryV2Abi
+      .filter((item: any) => item.type === 'function')
+      .map((item: any) => item.name);
+    expect(names).toContain('owner');
+    expect(names).toContain('pause');
+    expect(names).toContain('unpause');
+    expect(names).toContain('paused');
   });
 });

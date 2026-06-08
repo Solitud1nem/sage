@@ -10,13 +10,16 @@ export { SAGE_PROTOCOL_VERSION } from '@sage/core';
 export type {
   AgentId,
   AgentRecord,
+  AgentRecordV2,
   AgentProfile,
+  RegistryCapability,
   TaskId,
   TaskRecord,
   TaskSpec,
   TaskStatus,
   DisputeOutcome,
   AgentClient,
+  AgentClientV2,
   TaskClient,
   TaskClientV2,
   ChainAdapter,
@@ -44,7 +47,10 @@ export { createEventSubscriptions } from './events.js';
 export type { SageEventSubscriptions, UnwatchFn } from './events.js';
 
 // ABIs (for advanced usage)
-export { agentRegistryAbi, taskEscrowAbi, taskEscrowV2Abi } from './abi/index.js';
+export { agentRegistryAbi, agentRegistryV2Abi, taskEscrowAbi, taskEscrowV2Abi } from './abi/index.js';
 
 // V2 task-escrow client (ADR-0017 arbitration layer)
 export { createTaskEscrowV2Client } from './task-escrow-v2.js';
+
+// V2 agent-registry client (M11.2 platform layer)
+export { createAgentRegistryV2Client } from './agent-registry-v2.js';
