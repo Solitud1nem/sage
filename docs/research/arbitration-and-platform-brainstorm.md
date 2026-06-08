@@ -24,6 +24,12 @@
 - **ADR-0008 amendment landed** (extension with arbitration layer). Status: Accepted; extended 2026-06-04.
 - **ADR-0017 promoted Proposed → Accepted.** Contract decisions for `TaskEscrowV2` formalized: `resolveDispute(onlyArbiter)`, storage-based arbiter, `Refunded` reachable, split outcomes, versioned `:v2` salt. v2.0 contract stays canonical for trustless cases; v3.0 is opt-in arbitration layer.
 - **ADR index updated** (`docs/adr/README.md`) with both status changes.
+- **M11.1 Phase 1+2 shipped.** Contract `TaskEscrowV2.sol` + `ITaskEscrowV2.sol` + 35 Foundry tests (112/112 across suite, fuzz 256 runs on amount conservation). Slither clean vs v1 baseline. SDK: `TaskClientV2` interface in core, `createTaskEscrowV2Client` factory in adapter-evm, ABI extracted. Commit `3ba7d9c`.
+- **M11.1 Phase 3 shipped.** `DeployV2.s.sol` + runbook + `.env.example` extension. Dry-run on Sepolia fork clean. Commit `6c452da`.
+- **M11.1.9 — Sepolia deploy LIVE.** `TaskEscrowV2` deployed at `0x61c585630B32eee0b8c00306047c301B56419a81` on Base Sepolia (84532). Tx `0xdfa206…624b`, block 42567609, gas 1.72M (~$0.00003 at 0.006 gwei). Constructor args: USDC `0x036CbD…3DCF7e`, owner = arbiter = sponsor `0x6D8a…0376d`. Basescan verify ✅. Salt `0x6d8a…0376d 00 e1b74c…3c7` (deployer + chain-agnostic flag + entropy). Different from v1 sepolia address (`0x12aeF3…3E1e`) — confirms `:v2` salt rotation worked.
+- **M11.1.10 — Live smoke clean.** Six `cast call` reads on Sepolia return expected values: owner / arbiter = sponsor, pendingOwner = 0x0, USDC = Base Sepolia Circle, GRACE_PERIOD = 300, nextTaskId = 0. Full lifecycle smoke (createTask → dispute → resolveDispute(Split)) deferred to frontend integration in M11.1.13 — the contract logic is exhaustively covered by 35 Foundry tests including fuzz, the deploy itself is the on-chain confirmation we wanted from M11.1.10.
+
+**Next: M11.1.11+ — mainnet drain + deploy + orchestrator cutover.** Requires brief orchestrator window where new task acceptance is paused (~5-10 min) so in-flight v2 tasks settle before v3 routing takes over.
 
 ---
 
