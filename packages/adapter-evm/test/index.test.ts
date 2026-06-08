@@ -21,7 +21,7 @@ describe('@sage/adapter-evm exports', () => {
     expect(baseSepolia.chainId).toBe(84532);
     expect(baseSepolia.name).toBe('base-sepolia');
     expect(baseSepolia.contracts.agentRegistry).toBe('0x5e95f92feeb4d46249dc3525c58596856029c661');
-    expect(baseSepolia.contracts.taskEscrow).toBe('0x12aef3529b8404709125b727ba3db40cd5453e1e');
+    expect(baseSepolia.contracts.taskEscrow).toBe('0x61c585630b32eee0b8c00306047c301b56419a81');
 
     expect(base.chainId).toBe(8453);
     expect(base.name).toBe('base');

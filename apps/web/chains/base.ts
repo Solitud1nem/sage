@@ -44,7 +44,9 @@ export const BASE_MAINNET: SageChainConfig = {
   rpcUrl: process.env.NEXT_PUBLIC_RPC_URL ?? 'https://mainnet.base.org',
   contracts: {
     agentRegistry: '0x5e95F92FeEb4D46249DC3525C58596856029c661',
-    taskEscrow: '0x12aeF3529b8404709125b727bA3Db40cD5453E1e',
+    // V3 (arbitration-aware, ADR-0017): 0x61c585630B32eee0b8c00306047c301B56419a81.
+    // V2 (deprecated, in-flight only): 0x12aeF3529b8404709125b727bA3Db40cD5453E1e.
+    taskEscrow: '0x61c585630B32eee0b8c00306047c301B56419a81',
     usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     eas: '0x4200000000000000000000000000000000000021',
     easSchemaRegistry: '0x4200000000000000000000000000000000000020',
@@ -61,7 +63,9 @@ export const BASE_SEPOLIA: SageChainConfig = {
   rpcUrl: 'https://sepolia.base.org',
   contracts: {
     agentRegistry: '0x5e95f92feeb4d46249dc3525c58596856029c661',
-    taskEscrow: '0x12aef3529b8404709125b727ba3db40cd5453e1e',
+    // V3 (arbitration-aware, ADR-0017): 0x61c585630b32eee0b8c00306047c301b56419a81.
+    // V2 (deprecated, in-flight only): 0x12aef3529b8404709125b727ba3db40cd5453e1e.
+    taskEscrow: '0x61c585630b32eee0b8c00306047c301b56419a81',
     // USDC on Base Sepolia (Circle faucet-eligible)
     usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7E',
     eas: '0x4200000000000000000000000000000000000021',
