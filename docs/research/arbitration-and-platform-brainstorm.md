@@ -28,8 +28,13 @@
 - **M11.1 Phase 3 shipped.** `DeployV2.s.sol` + runbook + `.env.example` extension. Dry-run on Sepolia fork clean. Commit `6c452da`.
 - **M11.1.9 — Sepolia deploy LIVE.** `TaskEscrowV2` deployed at `0x61c585630B32eee0b8c00306047c301B56419a81` on Base Sepolia (84532). Tx `0xdfa206…624b`, block 42567609, gas 1.72M (~$0.00003 at 0.006 gwei). Constructor args: USDC `0x036CbD…3DCF7e`, owner = arbiter = sponsor `0x6D8a…0376d`. Basescan verify ✅. Salt `0x6d8a…0376d 00 e1b74c…3c7` (deployer + chain-agnostic flag + entropy). Different from v1 sepolia address (`0x12aeF3…3E1e`) — confirms `:v2` salt rotation worked.
 - **M11.1.10 — Live smoke clean.** Six `cast call` reads on Sepolia return expected values: owner / arbiter = sponsor, pendingOwner = 0x0, USDC = Base Sepolia Circle, GRACE_PERIOD = 300, nextTaskId = 0. Full lifecycle smoke (createTask → dispute → resolveDispute(Split)) deferred to frontend integration in M11.1.13 — the contract logic is exhaustively covered by 35 Foundry tests including fuzz, the deploy itself is the on-chain confirmation we wanted from M11.1.10.
+- **M11.1.12 — Mainnet deploy LIVE.** `TaskEscrowV2` at **the same address as Sepolia** — `0x61c585630B32eee0b8c00306047c301B56419a81` — on Base mainnet (8453). Tx `0x9d5131…ed6d`, block 47057463, gas 1.72M (~$0.00003 at 0.006 gwei). Constructor: mainnet USDC `0x833589fCD…02913`, owner = arbiter = sponsor `0x6D8a…0376d`. Basescan verified ✅. **ADR-0001 invariant held**: same deployer + same `:v2` salt → identical address on Base + Base Sepolia despite chain-specific immutables (USDC differs). All 6 mainnet `cast call` reads return expected values.
 
-**Next: M11.1.11+ — mainnet drain + deploy + orchestrator cutover.** Requires brief orchestrator window where new task acceptance is paused (~5-10 min) so in-flight v2 tasks settle before v3 routing takes over.
+**Next: M11.1.11 + M11.1.13 — drain v2 mainnet + orchestrator cutover.** Brief orchestrator pause window (~5-10 min) while in-flight composite runs terminate, then `chains/base.ts` `taskEscrow` address switches to `0x61c5…9a81`, adapter-evm rebuilt, Fly orchestrator + workers restarted. Then M11.1.14 frontend Pages redeploy + M11.1.15 changelog / KB / git tag `v3.0.0`.
+
+**Reachable across environments (post-deploy):**
+- v3.0 (arbitration-aware): `0x61c585630B32eee0b8c00306047c301B56419a81` on Base mainnet + Base Sepolia.
+- v2.0 (canonical for in-flight): `0x12aeF3529b8404709125b727bA3Db40cD5453E1e` on Base mainnet + Base Sepolia (will deprecate from SDK after drain).
 
 ---
 
