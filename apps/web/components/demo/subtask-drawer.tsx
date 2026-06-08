@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { SubTaskRuntime, WireSubTask } from '@/hooks/use-composite-demo';
 import { formatUsdc } from '@/lib/format-usdc';
@@ -46,10 +46,18 @@ export function SubtaskDrawer({
     return () => window.removeEventListener('keydown', handler);
   }, [subtask, onClose]);
 
+  // Which sub-task the user has clicked "Appeal" on (M11.5 stub notice).
+  const [appealedFor, setAppealedFor] = useState<number | null>(null);
+
   if (!subtask) return null;
 
   const status = runtime?.status ?? 'waiting';
   const elapsed = computeElapsed(runtime);
+  // Appeal is a second-level (human arbiter) review of a council verdict. The
+  // mechanism is surfaced but the human ruling is not wired in this demo
+  // (M11.5 stub) — clicking reveals an honest notice rather than acting.
+  const verdict = runtime?.verdict;
+  const canAppeal = verdict !== undefined && verdict.outcome !== 'client';
 
   return (
     <div className="fixed inset-0 z-50">
@@ -144,18 +152,37 @@ export function SubtaskDrawer({
             </Section>
           )}
 
-          {runtime?.verdict && (
+          {verdict && (
             <Section title="Council verdict">
               <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-[#A78BFA] mb-1">
-                {runtime.verdict.outcome === 'worker'
+                {verdict.outcome === 'worker'
                   ? 'paid · favored executor'
-                  : runtime.verdict.outcome === 'client'
+                  : verdict.outcome === 'client'
                     ? 'refunded · favored client'
-                    : `split · ${runtime.verdict.executorSharePct ?? 50}% to executor`}
+                    : `split · ${verdict.executorSharePct ?? 50}% to executor`}
               </div>
               <p className="text-[13px] leading-[1.6] text-text-muted whitespace-pre-wrap break-words">
-                {runtime.verdict.reasoning}
+                {verdict.reasoning}
               </p>
+
+              {canAppeal && (
+                <div className="mt-3">
+                  {appealedFor === subtask.id ? (
+                    <p className="rounded-[8px] border border-border bg-[#0A0A0F] px-3 py-2 text-[12px] leading-[1.5] text-text-muted">
+                      Appeal is a second-level review by a human arbiter. That ruling is
+                      out of scope for this demo — the council verdict above is final here.
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setAppealedFor(subtask.id)}
+                      className="h-8 px-3 rounded-[8px] border border-border font-mono text-[11px] text-text-muted hover:border-[#A78BFA] hover:text-text transition-colors"
+                    >
+                      Appeal verdict
+                    </button>
+                  )}
+                </div>
+              )}
             </Section>
           )}
 

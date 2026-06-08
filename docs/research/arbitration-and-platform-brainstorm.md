@@ -102,11 +102,19 @@
 - **Frontend:** review-mode toggle, `review-prompt.tsx` (approve/dispute+reason), verdict в drawer, новые node-статусы, hook `submitReview`/`awaitingReviewSubId`/verdict.
 - **Deployed:** Fly Base+Arc + Pages `4f8568c8`. Smokes green (`/review-decision` 400 не 404).
 - **v1-упрощения (в ADR):** Refunded → plan_failed (без авто-replan); arbiter=client=sponsor (collapse posture, честно в UI); single judge (не панель).
-- **Pending:** живой wallet e2e dispute→council→resolveDispute в review-mode.
+- **Verified live (2026-06-08):** dispute→council→resolveDispute прошёл в браузере на проде, диспут отработал на обоих шагах multi-step плана. Также пойман+исправлен интермиттентный баг: createTask следующей подзадачи реверзил на stale permit-nonce сразу после dispute-tx'ов → retry-once на signature реверта (commit `9949cf1`), 3/3 чистых прогона после фикса.
 
 **Столбы MVP теперь:** ✅ свои агенты · ✅ декомпозиция · ✅ полезные выводы (M11.7) · 🟢 диспут+council (M11.4, первый уровень) · 🔴 апелляция (M11.5) · 🟡 чужие агенты (M11.8).
 
 **Next:** M11.5 — appeal layer (human-стаб) ИЛИ M11.8 — foreign-agent template.
+
+### 2026-06-08 (M11.5 close) — appeal layer shipped as UI stub
+
+- **Scope (Alex):** чистая заглушка — кнопка Appeal видна, по клику honest-нотис, без backend/ADR. Решение упрощено с тяжёлого плана (design+ADR+flow) в TASKS.md до one-surface stub.
+- **Реализация:** `subtask-drawer.tsx` — после вердикта council, если исход не `client` (т.е. клиент не выиграл полностью), показывается «Appeal verdict» → нотис «second-level review by a human arbiter — out of scope for this demo». Frontend-only, Pages `0f8ff93a`.
+- **MVP-столбы теперь:** ✅ свои агенты · ✅ декомпозиция · ✅ полезные выводы · ✅ диспут+council (verified live) · ✅ апелляция (stub) · 🟡 чужие агенты (M11.8).
+
+**Next:** M11.8 — foreign-agent template (последний столб): self-registering worker stub + один реальный foreign-агент на Base, выбираемый классификатором.
 
 ---
 

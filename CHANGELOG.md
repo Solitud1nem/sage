@@ -8,6 +8,12 @@
 
 ---
 
+## 2026-06-08 (later still ×2) — M11.5: appeal layer (UI stub) — `feat` (deployed Pages)
+
+Closes the MVP "dispute + **appeal**" pillar at the stub level (Alex's scoping: a visible mechanism, not a wired human ruling). After a council verdict that didn't fully favor the client (`worker` / `split`), the sub-task drawer shows an **Appeal verdict** button; clicking reveals an honest notice — *"Appeal is a second-level review by a human arbiter. That ruling is out of scope for this demo — the council verdict above is final here."* Frontend-only (`subtask-drawer.tsx`); no backend, no ADR (single-surface stub). The real second-level flow (contract appeal window, human arbiter, multi-judge) stays future work. Pages deploy `0f8ff93a`.
+
+M11.4 dispute→council→resolveDispute also **verified live in-browser** this session — dispute exercised on both steps of a multi-step plan; the post-dispute createTask retry fix (`9949cf1`) held (3/3 clean).
+
 ## 2026-06-08 (later still) — M11.4: off-chain council v1 — dispute → verdict → on-chain resolution — `feat` (deployed Fly Base+Arc + Pages)
 
 Makes the ADR-0017 arbitration substrate operational end-to-end (MVP pillar 5, automated first level). Per **ADR-0019**: an opt-in review gate lets a client dispute a completed sub-task; a single LLM-judge (the "council") returns a verdict; the arbiter EOA executes it on-chain via `resolveDispute`. Human appeal (second level) remains M11.5.
