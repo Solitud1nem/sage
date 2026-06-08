@@ -8,6 +8,60 @@
 
 ---
 
+## 2026-06-08 (later) — AgentRegistryV2 (platform substrate) LIVE on Base mainnet + Sepolia — `v3.1.0`
+
+M11.2 substrate per the ADR-0008 amendment §M11.2: the registry gains capability + per-task price + rich-profile fields. The v1 `AgentRegistry` at `0x5e95F92F…29c661` stays canonical for legacy agents; v2 is parallel at **the same deterministic address on Base mainnet + Sepolia** — `0x8df78599868Ec740C26F0eb0b660519b166cDd9e`. All 4 demo workers registered themselves on mainnet with their capability + flat 0.001-USDC-per-task price.
+
+**Live ops:**
+- **AgentRegistryV2** at `0x8df78599868Ec740C26F0eb0b660519b166cDd9e` on Base mainnet ([Basescan](https://basescan.org/address/0x8df78599868Ec740C26F0eb0b660519b166cDd9e), verified) + Base Sepolia ([Sepolia Basescan](https://sepolia.basescan.org/address/0x8df78599868ec740c26f0eb0b660519b166cDd9e), verified).
+- Owner = sponsor `0x6D8aCa48c1E064e71078656f7fB946e52cd8376d` on launch (collapse posture, same EOA as TaskEscrowV2 owner).
+- Mainnet deploy: [tx `0x9e559f…0aba`](https://basescan.org/tx/0x9e559f66583c73f15b6f7e9d90bcf7e4f196f53b393f65110b16076444160aba), block 47059208. Sepolia deploy: [tx `0xb93bfb…ca42`](https://sepolia.basescan.org/tx/0xb93bfb22773196ff62a2e4c81e03c5ca1125d10b6bd5b529e4f10fabef42ca42).
+- Mainnet registrations (4 demo workers, capabilityName + price 1000 USDC base units = 0.001 USDC):
+  - Summarizer `0x0DA5…2593` → `summarize` ([tx `0x801ea8…2617`](https://basescan.org/tx/0x801ea80ba43fd359f021fdf013e7b9bfcc6c3b85e6e2d094bf5d48038f262617))
+  - Translator `0xa61b…1c8c` → `translate` ([tx `0x6f76af…f0f4`](https://basescan.org/tx/0x6f76afe0668665401c2b68702895268b95329005983393c8d7707dea9b13f0f4))
+  - Sentiment `0x5218…18B5` → `sentiment-classify` ([tx `0xbc53bf…c647`](https://basescan.org/tx/0xbc53bf3b0c72e117b2c3a30324bf452b48c4be58f3d65d49bfc079386ba2c647))
+  - Vision `0xB889…63Fb` → `vision-describe` ([tx `0x702d3c…5c65`](https://basescan.org/tx/0x702d3c1725d19ea3bf11673a22856119a40cf34d87eddf0b3ac202e3f6f75c65))
+- Cloudflare Pages (`sage-protocol.pages.dev`) redeployed with the updated SDK (deployment `8757ee0c`). Fly orchestrator unchanged — no orchestrator code path reads the registry yet (consumer comes in M11.3+).
+
+### Contracts + Foundry
+
+- `feat` **`packages/contracts/src/AgentRegistryV2.sol` (new, 193 lines).** Inherits `Ownable + Pausable`. New `Capability { name: string, price: uint256 }` struct. Agent record now has `capabilities` array + `profileUri` field. Granular update API: `updateEndpoint` / `updateProfileUri` / `updateCapabilities` (each emits its own event). `pauseAgent` self-pauses even when contract is paused (owners can always stop their own agent); `resumeAgent` blocked when contract paused. Validation: empty capability name → `EmptyCapabilityName`; price == 0 → `ZeroCapabilityPrice`; duplicate names → `DuplicateCapability(name)`. O(n²) duplicate check fine for the realistic 1-5 capabilities-per-agent shape.
+- `feat` **`packages/contracts/src/interfaces/IAgentRegistryV2.sol` (new).** `Capability` + extended `Agent` struct. New events: `AgentRegistered`, `AgentEndpointUpdated`, `AgentProfileUriUpdated`, `AgentCapabilitiesUpdated`, `AgentPaused`, `AgentResumed`. New errors.
+- `feat` **`packages/contracts/test/AgentRegistryV2.t.sol` (new, 465 lines).** 37 Foundry tests + 256-run fuzz on `manyCapabilities`. Full coverage: constructor + Ownable + setArbiter — wait, no: this is registry, so coverage = constructor, registerAgent happy + reverts (already registered / empty endpoint / empty capability name / zero price / duplicate / when paused), updateEndpoint / updateProfileUri / updateCapabilities incl. zero/duplicate validation, pauseAgent / resumeAgent incl. contract-pause interplay, listAgents pagination, agentCount, Ownable emergency pause + access control. **149/149** across full Foundry suite (112 from M11.1 + 37 new). Slither **fully clean** — zero detector findings on V2 registry (unlike TaskEscrowV2 which had pre-existing v1 baseline issues).
+- `feat` **`packages/contracts/script/DeployRegistryV2.s.sol` (new).** CreateX + CREATE3 with `:v2` salt. Constructor takes only owner — no chain-specific immutables → identical bytecode + identical address on Base mainnet + Sepolia. Post-deploy sanity reads.
+- `feat` **`packages/contracts/script/RegisterDemoAgents.s.sol` (new).** Idempotent: registers all 4 demo workers in one Foundry run, each signing its own `registerAgent` tx. Capability + flat 1000-unit price per worker. Re-run skips already-registered agents.
+
+### SDK + types
+
+- `feat` **`@sage/core`** — `RegistryCapability { name: Capability, price: bigint }` type. `AgentRecordV2 extends AgentRecord` with `profileUri` + `capabilities`. `AgentClientV2` interface with granular update methods + `getAgent` returning `AgentRecordV2`.
+- `feat` **`@sage/adapter-evm`** — `agentRegistryV2Abi` (554 lines). `createAgentRegistryV2Client` factory returning `AgentClientV2`. Capability encode/decode helpers between viem tuple and SDK shape.
+- `feat` **`@sage/adapter-evm`** `chains/base.ts` — new optional `agentRegistryV2` field added to both `base` (mainnet) and `baseSepolia`. v1 `agentRegistry` unchanged (parallel registries).
+- `test` 30/30 in adapter-evm (7 new V2 registry surface tests).
+
+### Web frontend
+
+- `feat` **`apps/web/chains/base.ts`** — `agentRegistryV2` field added to both `BASE_MAINNET` and `BASE_SEPOLIA`. Cloudflare Pages deploy `8757ee0c` carries the new config.
+
+### Deploy + ops
+
+- `release` Sepolia deploy: same workflow as M11.1 — `forge script DeployRegistryV2.s.sol --broadcast --verify`. ~1.53M gas (~0.000009 ETH at 0.006 gwei). Auto-verify worked on Sepolia.
+- `release` Mainnet deploy: same shape. Address identical to Sepolia ✅. Auto-verify failed (CREATE3 quirk on Basescan mainnet); manual `forge verify-contract` with explicit `--constructor-args` succeeded on second attempt — same fallback documented for TaskEscrowV2.
+- `release` Demo-agent registration (M11.2.11): 4 txs in 2 blocks, total 882,936 gas = 0.0000053 ETH.
+- `release` Cloudflare Pages redeploy with updated SDK chain config. Fly orchestrator NOT redeployed — no current consumer reads the registry.
+- `docs` **`docs/runbooks/deploy-agent-registry-v2.md` (new).** Pre-flight, dry-run, broadcast, manual verify fallback, registration step + worker addresses + gas estimates.
+
+### What's NOT in this release (deferred to M11.3+)
+
+- **Plan-editor / classifier reading the registry** for capability-based executor discovery. Currently classifier uses hardcoded stem-matching (`use-composite-demo.ts resolveExecutorByType`). M11.3 wires it.
+- **Foreign-agent onboarding flow** — registering a non-Sage-hosted worker via the V2 registry. M11.3.
+- **Worker self-registration on boot.** Demo workers were registered by an out-of-band script; production foreign agents would self-register.
+- **V2 registry deploy to Arc testnet.** Arc continues on its own deploy per ADR-0015.
+- **Reputation surface** computed from `TaskPaid` / `TaskDisputed` / `TaskResolved` events. Awaits the indexer (axis A7, M11.6).
+
+`v3.1.0` tagged on commit (this entry).
+
+---
+
 ## 2026-06-08 — TaskEscrowV2 (arbitration layer) LIVE on Base mainnet + Sepolia — `v3.0.0`
 
 `TaskEscrowV2` is operational at the same address on Base mainnet and Base Sepolia (`0x61c585630B32eee0b8c00306047c301B56419a81`). v2.0 contracts (`0x12aeF3…3E1e`) remain deployed but new tasks created via the SDK now route to v3.0. The arbitration layer from ADR-0017 (resolveDispute, configurable arbiter, reachable Refunded, Split outcomes) is the opt-in substrate that future foreign-agent assembly (M11.2+) will need. Same-address invariant from ADR-0001 held under the `:v2` salt despite chain-specific USDC immutables.
