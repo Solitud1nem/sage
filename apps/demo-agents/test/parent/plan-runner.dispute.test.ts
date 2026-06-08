@@ -309,3 +309,131 @@ describe('runPlan — pause-on-dispute', () => {
     ).toMatchObject({ reason: 'user_cancelled_after_dispute' });
   });
 });
+
+// ─── review gate (ADR-0019) ────────────────────────────────────────────
+
+describe('runPlan — review gate (ADR-0019)', () => {
+  beforeEach(() => {
+    registryTesting.clear();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    registryTesting.clear();
+  });
+
+  const REVIEW_OPTS = { reviewTimeoutMs: 60_000 };
+
+  function workerFlow() {
+    return vi.fn(async () => ({
+      verdict: { outcome: 'worker' as const, reasoning: 'result satisfies the instruction' },
+      outcome: 'worker' as const,
+      executorShare: 100_000n,
+      disputeTxHash: '0xdispute',
+      resolveTxHash: '0xresolve',
+    }));
+  }
+
+  it('pauses each completed sub-task for review and approves on decision', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([[TaskStatus.Created, TaskStatus.Accepted, TaskStatus.Completed]]);
+    const runId = 'review-approve';
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+    const disputeFlow = workerFlow();
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId, reviewMode: true, disputeFlow, ...REVIEW_OPTS });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(cap.events.some((e) => e.event === 'subtask_awaiting_review')).toBe(true);
+    expect(hasPendingDecision(runId)).toBe(true);
+
+    expect(resolveUserDecision(runId, 1, { kind: 'approve' })).toBe('ok');
+    await vi.advanceTimersByTimeAsync(30_000);
+    await promise;
+
+    const names = cap.events.map((e) => e.event);
+    expect(names).toContain('subtask_paid');
+    expect(names).toContain('plan_completed');
+    // Approve must NOT touch the dispute path.
+    expect(disputeFlow).not.toHaveBeenCalled();
+    expect(names).not.toContain('subtask_dispute_raised');
+  });
+
+  it('drives the council on dispute and continues when the verdict favors the worker', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([[TaskStatus.Created, TaskStatus.Accepted, TaskStatus.Completed]]);
+    const runId = 'review-dispute-worker';
+    const plan = makePlan([makeSubtask({ id: 1, spec: 'translate this' })]);
+    const disputeFlow = workerFlow();
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId, reviewMode: true, disputeFlow, ...REVIEW_OPTS });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(hasPendingDecision(runId)).toBe(true);
+    expect(resolveUserDecision(runId, 1, { kind: 'dispute', reason: 'looks wrong' })).toBe('ok');
+    await vi.advanceTimersByTimeAsync(30_000);
+    await promise;
+
+    expect(disputeFlow).toHaveBeenCalledOnce();
+    const names = cap.events.map((e) => e.event);
+    expect(names).toContain('subtask_dispute_raised');
+    expect(names).toContain('subtask_dispute_resolved');
+    expect(names).toContain('subtask_paid');
+    expect(names).toContain('plan_completed');
+    const resolved = cap.events.find((e) => e.event === 'subtask_dispute_resolved')!.data as {
+      outcome: string;
+      reasoning: string;
+    };
+    expect(resolved.outcome).toBe('worker');
+  });
+
+  it('fails the plan when the council refunds the client', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([[TaskStatus.Created, TaskStatus.Accepted, TaskStatus.Completed]]);
+    const runId = 'review-dispute-client';
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+    const disputeFlow = vi.fn(async () => ({
+      verdict: { outcome: 'client' as const, reasoning: 'result is empty' },
+      outcome: 'client' as const,
+      executorShare: 0n,
+      disputeTxHash: '0xd',
+      resolveTxHash: '0xr',
+    }));
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId, reviewMode: true, disputeFlow, ...REVIEW_OPTS });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(hasPendingDecision(runId)).toBe(true);
+    resolveUserDecision(runId, 1, { kind: 'dispute', reason: 'nothing returned' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await promise;
+
+    const names = cap.events.map((e) => e.event);
+    expect(names).toContain('subtask_refunded');
+    expect(cap.events.find((e) => e.event === 'plan_failed')!.data).toMatchObject({
+      reason: 'dispute_refunded',
+    });
+    expect(names).not.toContain('plan_completed');
+  });
+
+  it('treats a review-gate timeout as silent approval', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([[TaskStatus.Created, TaskStatus.Accepted, TaskStatus.Completed]]);
+    const runId = 'review-timeout';
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+    const disputeFlow = workerFlow();
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId, reviewMode: true, disputeFlow, ...REVIEW_OPTS });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(hasPendingDecision(runId)).toBe(true);
+    // Let the 60s review window lapse without a decision.
+    await vi.advanceTimersByTimeAsync(70_000);
+    await promise;
+
+    const names = cap.events.map((e) => e.event);
+    expect(names).toContain('subtask_paid');
+    expect(names).toContain('plan_completed');
+    expect(disputeFlow).not.toHaveBeenCalled();
+  });
+});

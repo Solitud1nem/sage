@@ -34,6 +34,7 @@
 | [0016](./0016-erc-8183-discovery-correction.md) | Discovery correction: ERC-8183 was deployed on Arc testnet all along; bridge stands on shape-mismatch rationale | Accepted | 2026-05-22 |
 | [0017](./0017-task-escrow-arbitration.md) | Task escrow arbitration: `resolveDispute`, configurable arbiter, reachable `Refunded`, split outcomes | Accepted | 2026-06-04 |
 | [0018](./0018-composite-content-envelope.md) | Composite content envelope: faithful `source` payload + `inputs` dependency chaining alongside `spec` | Accepted | 2026-06-08 |
+| [0019](./0019-off-chain-council-v1.md) | Off-chain council v1: opt-in review gate, single LLM-judge verdict, arbiter EOA auto-executes `resolveDispute` | Accepted | 2026-06-08 |
 
 ## Ожидаемые ADR (черновик)
 

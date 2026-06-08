@@ -186,9 +186,11 @@ const STATUS_DESCRIPTORS: Record<SubTaskRunStatus, { color: string; label: strin
   created: { color: '#A78BFA', label: 'created · accepting' },
   accepted: { color: '#5EE3F5', label: 'accepted · working' },
   completed: { color: '#F472B6', label: 'completed · awaiting approval' },
+  'awaiting-review': { color: '#A78BFA', label: 'awaiting review' },
   paid: { color: '#6EE7B7', label: 'paid · settled' },
   errored: { color: '#F87171', label: 'errored' },
-  disputed: { color: '#F87171', label: 'disputed' },
+  disputed: { color: '#A78BFA', label: 'disputed · council' },
+  refunded: { color: '#F59E0B', label: 'refunded' },
 };
 
 /**

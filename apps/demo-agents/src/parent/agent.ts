@@ -26,9 +26,15 @@ import type { ClassificationResult, Plan } from '@sage/core';
 import { demoRegistry } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { classifyBrief, type ParentEnv } from './classify.js';
-import { runPlan } from './plan-runner.js';
+import { runPlan, type DisputeFlow } from './plan-runner.js';
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
+
+/** Optional execution knobs threaded into `runPlan` (ADR-0019). */
+export interface ExecutePlanOptions {
+  readonly reviewMode?: boolean;
+  readonly disputeFlow?: DisputeFlow;
+}
 
 export interface ExecuteResult {
   /** Plan-run identifier — encoded as the `run` half of every sub-task's parent_id. */
@@ -52,11 +58,19 @@ const STREAM_URL_PREFIX = '/api/demo/composite/stream/';
  * Errors raised by `runPlan` are caught and surfaced via `plan_failed` SSE
  * events; this function itself does not throw post-registration.
  */
-export function executePlan(plan: Plan, bundle: SageClientBundle): ExecuteResult {
+export function executePlan(
+  plan: Plan,
+  bundle: SageClientBundle,
+  options: ExecutePlanOptions = {},
+): ExecuteResult {
   const runId = randomUUID();
   const channel = demoRegistry.create(runId);
 
-  void runPlan(plan, channel, bundle, { runId }).catch((err) => {
+  void runPlan(plan, channel, bundle, {
+    runId,
+    ...(options.reviewMode ? { reviewMode: true } : {}),
+    ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
+  }).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[parent.agent] runPlan(${runId}) threw:`, err);
     if (!channel.isClosed) {

@@ -34,8 +34,33 @@ import type { SseChannel } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { encodeParentId, type EnvelopeContent } from './parent-id-codec.js';
 import { awaitUserDecision } from './run-registry.js';
+import type { CouncilOutcome, CouncilVerdict } from './council.js';
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
+
+/**
+ * Resolves a disputed sub-task end-to-end (ADR-0019): raise the dispute
+ * on-chain, ask the council for a verdict, and have the arbiter execute
+ * `resolveDispute`. Supplied by the orchestrator (which owns the V2 client +
+ * council env); kept as an injected capability so the runner stays decoupled
+ * and unit-testable.
+ */
+export interface DisputeResolution {
+  readonly verdict: CouncilVerdict;
+  readonly outcome: CouncilOutcome;
+  /** USDC base units sent to the executor (full amount for worker, partial for split, 0 for client). */
+  readonly executorShare: bigint;
+  readonly disputeTxHash?: string;
+  readonly resolveTxHash?: string;
+}
+
+export type DisputeFlow = (args: {
+  readonly taskId: TaskId;
+  readonly amount: bigint;
+  readonly spec: string;
+  readonly result: string;
+  readonly reason: string;
+}) => Promise<DisputeResolution>;
 
 /**
  * Status of a sub-task within a single plan-run. Mirrors `TaskStatus` from
@@ -60,6 +85,23 @@ export interface RunPlanOptions {
    * Default 5 min — matches the existing demo's 120s × N retry tolerance.
    */
   readonly subtaskTimeoutMs?: number;
+  /**
+   * Opt-in review gate (ADR-0019). When true, each Completed sub-task pauses
+   * before payment for an `approve | dispute` decision. When false/absent,
+   * sub-tasks auto-approve (legacy behavior).
+   */
+  readonly reviewMode?: boolean;
+  /**
+   * Pause window for the review gate. Default {@link REVIEW_TIMEOUT_MS}.
+   * On timeout the runner treats silence as approval (mirrors the protocol's
+   * own auto-release-after-grace semantics).
+   */
+  readonly reviewTimeoutMs?: number;
+  /**
+   * Dispute resolver. Required for `reviewMode` to honor a `dispute` decision;
+   * when absent, a dispute decision falls back to approval (degraded, logged).
+   */
+  readonly disputeFlow?: DisputeFlow;
 }
 
 /** Explicit polling interval. Do NOT lower below 10s — see GOTCHAS 2026-05-13. */
@@ -67,7 +109,22 @@ const POLL_INTERVAL_MS = 10_000;
 
 const DEFAULT_SUBTASK_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** Review-gate pause window (ADR-0019). Silence past this → treated as approval. */
+const REVIEW_TIMEOUT_MS = 3 * 60 * 1000;
+
 class PlanError extends Error {}
+
+/**
+ * Thrown when a disputed sub-task resolves to `client` (Refunded) — there is
+ * no usable result to chain forward, so the plan fails (v1 semantics per
+ * ADR-0019; auto-replan on refund is a later refinement). Distinct from
+ * `DisputedError` (reactive retry path) and generic lifecycle errors.
+ */
+class RefundedError extends Error {
+  constructor(public readonly subId: number, public readonly reasoning: string) {
+    super(`subtask #${subId} refunded after dispute`);
+  }
+}
 
 /**
  * Thrown by `pollUntilCompleted` when a sub-task transitions to `Disputed`.
@@ -134,10 +191,31 @@ export async function runPlan(
           timeoutMs,
           txHashes,
           content: buildContent(currentSub, plan.brief, results),
+          reviewMode: options.reviewMode ?? false,
+          reviewTimeoutMs: options.reviewTimeoutMs ?? REVIEW_TIMEOUT_MS,
+          ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
         });
         results.set(sub.id, result);
         break;
       } catch (err) {
+        if (err instanceof RefundedError) {
+          // Council refunded the client — no usable result to continue with.
+          const reason = `subtask #${sub.id} refunded after dispute: ${err.reasoning}`;
+          channel.emit('plan_failed', {
+            runId: options.runId,
+            failedSubId: sub.id,
+            error: reason,
+            reason: 'dispute_refunded',
+          });
+          channel.close({
+            runId: options.runId,
+            ok: false,
+            error: reason,
+            completedSubIds: Array.from(results.keys()),
+            txHashes,
+          });
+          return;
+        }
         if (err instanceof DisputedError) {
           const decision = await awaitUserDecision(options.runId, sub.id);
           if (decision.kind === 'retry') {
@@ -223,6 +301,10 @@ interface RunSubtaskArgs {
    * original brief). Absent → spec-only (legacy behavior).
    */
   readonly content?: EnvelopeContent;
+  /** Opt-in review gate before payment (ADR-0019). */
+  readonly reviewMode?: boolean;
+  readonly reviewTimeoutMs?: number;
+  readonly disputeFlow?: DisputeFlow;
 }
 
 /**
@@ -291,6 +373,26 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
   const resultUri = await pollUntilCompleted(bundle, tid, channel, sub.id, timeoutMs);
   const result = decodeResult(resultUri);
 
+  // Review gate (ADR-0019): pause for an approve/dispute decision before paying.
+  // Silence past the window = approval (mirrors on-chain auto-release-after-grace).
+  if (args.reviewMode) {
+    channel.emit('subtask_awaiting_review', {
+      subId: sub.id,
+      taskId: tid.toString(),
+      resultUri,
+      result,
+    });
+    const decision = await awaitUserDecision(
+      runId,
+      sub.id,
+      args.reviewTimeoutMs ?? REVIEW_TIMEOUT_MS,
+    );
+    if (decision.kind === 'dispute') {
+      return runDisputeFlow(args, tid, result, decision.reason);
+    }
+    // 'approve' | 'timeout' → fall through to approvePayment.
+  }
+
   const approveHash = await bundle.sage.tasks.approvePayment(tid);
   txHashes.push(approveHash);
   channel.emit('subtask_paid', {
@@ -305,6 +407,79 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
   // the next tx reuses the still-pending nonce.
   await bundle.publicClient.waitForTransactionReceipt({ hash: approveHash as `0x${string}` });
 
+  return result;
+}
+
+/**
+ * Drive a disputed sub-task to resolution (ADR-0019): the injected
+ * `disputeFlow` raises the dispute on-chain, asks the council, and has the
+ * arbiter execute `resolveDispute` (each with its own receipt wait). We then
+ * surface the verdict and either continue (worker/split → result usable) or
+ * throw `RefundedError` (client → plan fails).
+ *
+ * Degrades to approval when no `disputeFlow` is wired, so funds never strand.
+ */
+async function runDisputeFlow(
+  args: RunSubtaskArgs,
+  tid: TaskId,
+  result: string,
+  reason: string,
+): Promise<string> {
+  const { sub, bundle, channel, txHashes, disputeFlow } = args;
+
+  if (!disputeFlow) {
+    console.error(JSON.stringify({ ts: Date.now(), event: 'plan.dispute.no_resolver', subId: sub.id }));
+    const approveHash = await bundle.sage.tasks.approvePayment(tid);
+    txHashes.push(approveHash);
+    channel.emit('subtask_paid', { subId: sub.id, taskId: tid.toString(), txHash: approveHash });
+    channel.emit('subtask_status', { subId: sub.id, status: 'paid' satisfies SubTaskRunStatus });
+    await bundle.publicClient.waitForTransactionReceipt({ hash: approveHash as `0x${string}` });
+    return result;
+  }
+
+  channel.emit('subtask_dispute_raised', { subId: sub.id, taskId: tid.toString(), reason });
+  channel.emit('subtask_status', { subId: sub.id, status: 'disputed' satisfies SubTaskRunStatus });
+
+  const resolution = await disputeFlow({
+    taskId: tid,
+    amount: sub.estimated_cost_units,
+    spec: sub.spec,
+    result,
+    reason,
+  });
+  if (resolution.disputeTxHash) txHashes.push(resolution.disputeTxHash);
+  if (resolution.resolveTxHash) txHashes.push(resolution.resolveTxHash);
+
+  channel.emit('subtask_dispute_resolved', {
+    subId: sub.id,
+    taskId: tid.toString(),
+    outcome: resolution.outcome,
+    executorShare: resolution.executorShare.toString(),
+    ...(resolution.verdict.executorSharePct !== undefined
+      ? { executorSharePct: resolution.verdict.executorSharePct }
+      : {}),
+    reasoning: resolution.verdict.reasoning,
+    ...(resolution.resolveTxHash ? { txHash: resolution.resolveTxHash } : {}),
+  });
+
+  if (resolution.outcome === 'client') {
+    channel.emit('subtask_refunded', {
+      subId: sub.id,
+      taskId: tid.toString(),
+      ...(resolution.resolveTxHash ? { txHash: resolution.resolveTxHash } : {}),
+    });
+    channel.emit('subtask_status', { subId: sub.id, status: 'errored' satisfies SubTaskRunStatus });
+    throw new RefundedError(sub.id, resolution.verdict.reasoning);
+  }
+
+  // worker (Paid) or split (Split): executor received (some) funds, result usable.
+  channel.emit('subtask_paid', {
+    subId: sub.id,
+    taskId: tid.toString(),
+    executorShare: resolution.executorShare.toString(),
+    ...(resolution.resolveTxHash ? { txHash: resolution.resolveTxHash } : {}),
+  });
+  channel.emit('subtask_status', { subId: sub.id, status: 'paid' satisfies SubTaskRunStatus });
   return result;
 }
 

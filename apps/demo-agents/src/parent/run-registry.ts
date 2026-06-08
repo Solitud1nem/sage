@@ -20,9 +20,19 @@
  * CHANGELOG.
  */
 
+/**
+ * Decision delivered to a paused plan-runner. Covers two gates that share the
+ * same one-pending-per-run primitive (they never overlap — execution is
+ * sequential):
+ *   - reactive dispute-retry (M10.5): `retry` | `cancel`;
+ *   - opt-in review gate before payment (M11.4, ADR-0019): `approve` | `dispute`.
+ * `timeout` is delivered by the registry itself when the window elapses.
+ */
 export type RetryAction =
   | { kind: 'retry'; newExecutor?: `0x${string}` }
   | { kind: 'cancel' }
+  | { kind: 'approve' }
+  | { kind: 'dispute'; reason: string }
   | { kind: 'timeout' };
 
 interface PausedRun {

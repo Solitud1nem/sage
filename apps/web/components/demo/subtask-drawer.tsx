@@ -144,6 +144,21 @@ export function SubtaskDrawer({
             </Section>
           )}
 
+          {runtime?.verdict && (
+            <Section title="Council verdict">
+              <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-[#A78BFA] mb-1">
+                {runtime.verdict.outcome === 'worker'
+                  ? 'paid · favored executor'
+                  : runtime.verdict.outcome === 'client'
+                    ? 'refunded · favored client'
+                    : `split · ${runtime.verdict.executorSharePct ?? 50}% to executor`}
+              </div>
+              <p className="text-[13px] leading-[1.6] text-text-muted whitespace-pre-wrap break-words">
+                {runtime.verdict.reasoning}
+              </p>
+            </Section>
+          )}
+
           {runtime?.resultUri &&
             !runtime.result &&
             !runtime.resultUri.startsWith('data:text/plain,') && (

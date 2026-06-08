@@ -8,6 +8,36 @@
 
 ---
 
+## 2026-06-08 (later still) — M11.4: off-chain council v1 — dispute → verdict → on-chain resolution — `feat` (deployed Fly Base+Arc + Pages)
+
+Makes the ADR-0017 arbitration substrate operational end-to-end (MVP pillar 5, automated first level). Per **ADR-0019**: an opt-in review gate lets a client dispute a completed sub-task; a single LLM-judge (the "council") returns a verdict; the arbiter EOA executes it on-chain via `resolveDispute`. Human appeal (second level) remains M11.5.
+
+**Flow:** review-mode ON → each Completed sub-task pauses before payment → user picks Approve (→ `approvePayment`) or Dispute+reason (→ `disputeTask` → council verdict → `resolveDispute` to Paid/Refunded/Split). Review-mode OFF (default) = unchanged auto-approve. Silence past the review window = auto-approve (mirrors on-chain auto-release-after-grace).
+
+### Backend
+- `feat` **`parent/council.ts` (new)** — single LLM-judge (gpt-4o-mini, function-calling). `judgeDispute({spec, result, reason}) → {outcome: worker|client|split, executorSharePct?, reasoning}`. Retry-once on transient failure; degrades to **client** (refund) on repeated failure — conservative: don't pay an unverified result. Deterministic mock for tests.
+- `feat` **`parent/dispute-flow.ts` (new)** — `makeDisputeFlow`: builds a **V2** escrow client (`createTaskEscrowV2Client`) — closing the cutover-layer gap where `createSageClient` still wires V1 (V1 lacks `resolveDispute`) — and runs disputeTask → council → resolveDispute, each awaiting its receipt. `mapVerdict` → on-chain params (executorShare 0 for Paid/Refunded, clamped partial for Split).
+- `feat` **`plan-runner.ts`** — review gate after Completed (`awaitUserDecision`); on dispute drives the injected `DisputeFlow`; worker/split → result usable + continue, client → `RefundedError` → `plan_failed (dispute_refunded)`. New events: `subtask_awaiting_review`, `subtask_dispute_raised`, `subtask_dispute_resolved`, `subtask_refunded`.
+- `feat` **`run-registry.ts`** — decision union extended with `approve` / `dispute`.
+- `feat` **`server.ts`** — `/execute` parses `reviewMode` + builds `disputeFlow`; new `POST /api/demo/composite/review-decision` resolves the gate.
+- `test` +16 (council 12, review-gate flow 4). **182/182** demo-agents.
+
+### Frontend
+- `feat` **`use-composite-demo.ts`** — `reviewMode` through `approve`; `submitReview`; `awaitingReviewSubId` + per-sub-task `verdict`; handlers for the four new events.
+- `feat` **`review-prompt.tsx` (new)** — Approve & pay / Dispute+reason surface at the gate.
+- `feat` plan-card review-mode toggle; `subtask-drawer` council-verdict section; `plan-graph` `awaiting-review` / `refunded` node states.
+
+### Live ops
+- Fly Base (`sage-demo-agents.fly.dev`, rolling) + Arc (`sage-demo-agents-arc.fly.dev`, `--ha=false`); `/review-decision` registered on both. Pages deploy `4f8568c8`. `adr` ADR-0019 Accepted; index updated.
+
+### Not in this release
+- **Human appeal** (second-level review of a verdict) — M11.5.
+- **Multi-judge panel** / arbiter≠client separation (Safe + dedicated arbiter EOA) — future hardening; v1 is honest collapse posture (sponsor = client = arbiter), stated in UI/ADR.
+- **`Refunded` auto-replan** — v1 ends the plan on refund.
+- Live wallet e2e of a dispute → council → resolveDispute is a manual smoke (backend covered at unit level).
+
+---
+
 ## 2026-06-08 (later) — M11.7: faithful content delivery to workers (source payload + dependency chaining) — `feat` (deployed to Fly Base+Arc)
 
 Closes the prototype gap found earlier today: composite sub-tasks only saw the LLM-written `spec`, so on larger inputs the classifier truncated the source (brief 904 chars → spec 103 chars — only the first sentence survived translation) and chained steps never received the previous step's output. Per **ADR-0018**, the sub-task envelope now carries content alongside the instruction.

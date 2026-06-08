@@ -88,9 +88,18 @@ export type SubTaskRunStatus =
   | 'created'
   | 'accepted'
   | 'completed'
+  | 'awaiting-review'
   | 'paid'
   | 'errored'
-  | 'disputed';
+  | 'disputed'
+  | 'refunded';
+
+/** Council verdict surfaced for a disputed sub-task (ADR-0019). */
+export interface SubTaskVerdict {
+  outcome: 'worker' | 'client' | 'split';
+  reasoning: string;
+  executorSharePct?: number;
+}
 
 /**
  * Wire-format SubTask — cost fields as decimal strings (JSON has no bigint).
@@ -139,6 +148,8 @@ export interface SubTaskRuntime {
   startedAt?: number;
   completedAt?: number;
   error?: string;
+  /** Council verdict, set when a disputed sub-task is resolved (ADR-0019). */
+  verdict?: SubTaskVerdict;
 }
 
 export interface CompositeEvent {
@@ -170,6 +181,11 @@ export interface CompositeState {
    * picks an action.
    */
   disputedSubId: number | null;
+  /**
+   * Sub-task paused at the review gate (ADR-0019), awaiting an approve/dispute
+   * decision. Drives the review-prompt UI. Reset once the user decides.
+   */
+  awaitingReviewSubId: number | null;
 }
 
 const INITIAL_STATE: CompositeState = {
@@ -186,6 +202,7 @@ const INITIAL_STATE: CompositeState = {
   startedAt: null,
   completedAt: null,
   disputedSubId: null,
+  awaitingReviewSubId: null,
 };
 
 export function useCompositeDemo(chainId: number) {
@@ -248,13 +265,14 @@ export function useCompositeDemo(chainId: number) {
    * Opens an EventSource to the returned `streamUrl` and folds lifecycle
    * events into `runtimes[subId]`.
    */
-  const approve = useCallback(async (plan: WirePlan): Promise<void> => {
+  const approve = useCallback(async (plan: WirePlan, reviewMode = false): Promise<void> => {
     const runChainId = runChainRef.current;
     track('composite_plan_approved', {
       decomposability: plan.decomposability,
       stakes: plan.stakes,
       subtask_count: plan.subtasks.length,
       estimated_total_cost_units: plan.estimated_total_cost_units,
+      review_mode: reviewMode,
       chain_id: runChainId,
     });
     setState((prev) => ({ ...prev, status: 'executing', plan, runtimes: {} }));
@@ -262,7 +280,7 @@ export function useCompositeDemo(chainId: number) {
       const res = await fetch(urlFor('/api/demo/composite/execute', runChainId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(plan),
+        body: JSON.stringify({ ...plan, reviewMode }),
       });
       if (!res.ok) {
         const body = (await safeJson(res)) as { error?: string; message?: string };
@@ -373,6 +391,52 @@ export function useCompositeDemo(chainId: number) {
     [state.runId],
   );
 
+  /**
+   * Resolve a review gate (ADR-0019). `approve` → the orchestrator pays the
+   * executor; `dispute` (with an optional `reason`) → the orchestrator raises
+   * the dispute on-chain, the council judges, and the arbiter resolves it.
+   * The SSE channel stays attached — `subtask_dispute_resolved` / `subtask_paid`
+   * / `subtask_refunded` report the outcome.
+   */
+  const submitReview = useCallback(
+    async (opts: { subId: number; action: 'approve' | 'dispute'; reason?: string }): Promise<void> => {
+      const runId = state.runId;
+      if (!runId) {
+        setState((prev) => ({ ...prev, error: 'Cannot submit review: no active run.' }));
+        return;
+      }
+      const runChainId = runChainRef.current;
+      track('composite_review_decision', {
+        subId: opts.subId,
+        action: opts.action,
+        chain_id: runChainId,
+      });
+      // Optimistically clear the prompt so the user isn't double-prompted.
+      setState((prev) => ({ ...prev, awaitingReviewSubId: null }));
+      try {
+        const res = await fetch(urlFor('/api/demo/composite/review-decision', runChainId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            runId,
+            subId: opts.subId,
+            action: opts.action,
+            ...(opts.action === 'dispute' && opts.reason ? { reason: opts.reason } : {}),
+          }),
+        });
+        if (!res.ok) {
+          const body = (await safeJson(res)) as { error?: string; message?: string };
+          throw new Error(body?.message ?? body?.error ?? `Backend returned ${res.status}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        captureCompositeError(err, 'subtask', { subId: opts.subId, review_failed: true });
+        setState((prev) => ({ ...prev, error: `Review submit failed: ${message}` }));
+      }
+    },
+    [state.runId],
+  );
+
   /** Full reset (used after completed/error to start over). */
   const reset = useCallback(() => {
     closeStream(esRef);
@@ -386,7 +450,7 @@ export function useCompositeDemo(chainId: number) {
     [],
   );
 
-  return { ...state, classify, approve, cancel, reset, retry };
+  return { ...state, classify, approve, cancel, reset, retry, submitReview };
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -450,12 +514,17 @@ function attachStream(
       const txHash = stringField(data, 'txHash');
       if (subId === null) return;
       track('composite_subtask_completed', { subId, txHash: txHash ?? null });
-      setState((prev) => updateRuntime(prev, subId, (r) => ({
-        ...r,
-        status: 'paid',
-        completedAt: Date.now(),
-        txHashes: txHash ? [...r.txHashes, txHash] : r.txHashes,
-      })));
+      setState((prev) => ({
+        ...updateRuntime(prev, subId, (r) => ({
+          ...r,
+          status: 'paid',
+          completedAt: Date.now(),
+          txHashes: txHash ? [...r.txHashes, txHash] : r.txHashes,
+        })),
+        // Clear the gate if this sub-task was the one under review (e.g. a
+        // review-window timeout auto-approved without an explicit decision).
+        awaitingReviewSubId: prev.awaitingReviewSubId === subId ? null : prev.awaitingReviewSubId,
+      }));
     },
     subtask_errored: (data) => {
       const subId = numberField(data, 'subId');
@@ -472,6 +541,67 @@ function attachStream(
         error,
         completedAt: Date.now(),
       })));
+    },
+    subtask_awaiting_review: (data) => {
+      // M11.4 (ADR-0019): review gate opened — pause for approve/dispute.
+      const subId = numberField(data, 'subId');
+      const resultUri = stringField(data, 'resultUri');
+      const result = stringField(data, 'result');
+      if (subId === null) return;
+      track('composite_subtask_awaiting_review', { subId });
+      setState((prev) => ({
+        ...updateRuntime(prev, subId, (r) => ({
+          ...r,
+          status: 'awaiting-review',
+          ...(resultUri ? { resultUri } : {}),
+          ...(result ? { result } : {}),
+        })),
+        awaitingReviewSubId: subId,
+      }));
+    },
+    subtask_dispute_raised: (data) => {
+      // M11.4: client raised a dispute on-chain; council is now judging.
+      const subId = numberField(data, 'subId');
+      if (subId === null) return;
+      track('composite_subtask_dispute_raised', { subId });
+      setState((prev) =>
+        updateRuntime(prev, subId, (r) => ({ ...r, status: 'disputed' })),
+      );
+    },
+    subtask_dispute_resolved: (data) => {
+      // M11.4: council verdict landed. Store it; subtask_paid / subtask_refunded
+      // carries the final status transition.
+      const subId = numberField(data, 'subId');
+      const outcome = stringField(data, 'outcome') as SubTaskVerdict['outcome'] | null;
+      const reasoning = stringField(data, 'reasoning') ?? '';
+      const executorSharePct = numberField(data, 'executorSharePct');
+      if (subId === null || outcome === null) return;
+      track('composite_subtask_dispute_resolved', { subId, outcome });
+      setState((prev) =>
+        updateRuntime(prev, subId, (r) => ({
+          ...r,
+          verdict: {
+            outcome,
+            reasoning,
+            ...(executorSharePct !== null ? { executorSharePct } : {}),
+          },
+        })),
+      );
+    },
+    subtask_refunded: (data) => {
+      // M11.4: council refunded the client — sub-task produced no usable result.
+      const subId = numberField(data, 'subId');
+      const txHash = stringField(data, 'txHash');
+      if (subId === null) return;
+      track('composite_subtask_refunded', { subId });
+      setState((prev) =>
+        updateRuntime(prev, subId, (r) => ({
+          ...r,
+          status: 'refunded',
+          completedAt: Date.now(),
+          txHashes: txHash ? [...r.txHashes, txHash] : r.txHashes,
+        })),
+      );
     },
     subtask_disputed: (data) => {
       // M10.4.2: dedicated handler for dispute event. Mirrors subtask_status

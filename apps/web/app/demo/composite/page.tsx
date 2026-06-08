@@ -10,6 +10,7 @@ import { PlanEditor } from '@/components/demo/plan-editor';
 import { PlanGraph } from '@/components/demo/plan-graph';
 import { SubtaskDrawer } from '@/components/demo/subtask-drawer';
 import { ReplanPrompt } from '@/components/demo/replan-prompt';
+import { ReviewPrompt } from '@/components/demo/review-prompt';
 import { ErrorPanel } from '@/components/demo/error-panel';
 import { track } from '@/lib/posthog';
 import { formatUsdc } from '@/lib/format-usdc';
@@ -80,6 +81,9 @@ function CompositePageInner() {
   const [editing, setEditing] = useState(false);
   const [editedPlan, setEditedPlan] = useState<WirePlan | null>(null);
   const [selectedSubId, setSelectedSubId] = useState<number | null>(null);
+  // Opt-in review gate (ADR-0019): pause each completed sub-task for an
+  // approve/dispute decision before payment.
+  const [reviewMode, setReviewMode] = useState(false);
 
   const isInputPhase = demo.status === 'idle' || demo.status === 'classifying';
   const isPlanPhase = demo.status === 'plan-ready';
@@ -101,7 +105,7 @@ function CompositePageInner() {
 
   const handleApprove = () => {
     if (!planForDisplay) return;
-    void demo.approve(planForDisplay);
+    void demo.approve(planForDisplay, reviewMode);
   };
 
   const handleReset = () => {
@@ -181,7 +185,22 @@ function CompositePageInner() {
       )}
 
       {isPlanPhase && demo.classification && planForDisplay && !editing && (
-        <section className="mt-10">
+        <section className="mt-10 space-y-4">
+          <label className="flex items-start gap-3 rounded-[12px] border border-border bg-surface px-5 py-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={reviewMode}
+              onChange={(e) => setReviewMode(e.target.checked)}
+              className="mt-[3px] accent-[#A78BFA]"
+            />
+            <span>
+              <span className="font-mono text-[12px] text-text">Review each step before payment</span>
+              <span className="block text-[12px] text-text-muted mt-0.5">
+                Pause on every completed sub-task to approve it or dispute it. A dispute goes to the
+                council (an LLM arbiter) which resolves the escrow on-chain. Off = auto-pay each step.
+              </span>
+            </span>
+          </label>
           <PlanCard
             classification={{
               ...demo.classification,
@@ -235,6 +254,21 @@ function CompositePageInner() {
             onSubtaskClick={setSelectedSubId}
           />
           {(() => {
+            // M11.4 (ADR-0019): the review gate takes precedence — a completed
+            // sub-task is paused awaiting an approve/dispute decision.
+            const reviewSub =
+              demo.awaitingReviewSubId !== null
+                ? planForDisplay.subtasks.find((s) => s.id === demo.awaitingReviewSubId)
+                : undefined;
+            if (reviewSub) {
+              return (
+                <ReviewPrompt
+                  subtask={reviewSub}
+                  runtime={demo.runtimes[reviewSub.id]}
+                  onDecision={demo.submitReview}
+                />
+              );
+            }
             // M10.4.3: show the replan-prompt inline when a sub-task either
             // explicitly disputed (via SSE) or surfaced as errored. Disputed
             // takes precedence — it's the user-attention path.

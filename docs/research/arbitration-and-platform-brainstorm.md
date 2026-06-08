@@ -94,6 +94,20 @@
 
 **Next по плану MVP:** 11.4 — off-chain council v1 + dispute-raise trigger (столб 5).
 
+### 2026-06-08 (M11.4 close) — off-chain council v1 SHIPPED
+
+- **ADR-0019 (Accepted):** review gate (opt-in) → single LLM-judge council → arbiter EOA auto-executes `resolveDispute`. UX-решение: review-mode тоггл (не always-on, не timed window). Council auto-executes = первый уровень; human appeal = M11.5.
+- **Находка (cutover-слой):** `createSageClient` всё ещё на V1-клиенте; `resolveDispute` только в V2. Закрыто отдельным V2-клиентом в `dispute-flow.ts` (`createTaskEscrowV2Client` на тот же адрес). Записать в память как подтверждение [[feedback-cutover-sdk-layer]].
+- **Backend:** `council.ts` (judge, degraded→client), `dispute-flow.ts` (disputeTask→council→resolveDispute, V2-клиент, mapVerdict), plan-runner review-gate + `RefundedError`, run-registry approve/dispute, server `/review-decision` + reviewMode. 4 новых SSE-события. 182/182.
+- **Frontend:** review-mode toggle, `review-prompt.tsx` (approve/dispute+reason), verdict в drawer, новые node-статусы, hook `submitReview`/`awaitingReviewSubId`/verdict.
+- **Deployed:** Fly Base+Arc + Pages `4f8568c8`. Smokes green (`/review-decision` 400 не 404).
+- **v1-упрощения (в ADR):** Refunded → plan_failed (без авто-replan); arbiter=client=sponsor (collapse posture, честно в UI); single judge (не панель).
+- **Pending:** живой wallet e2e dispute→council→resolveDispute в review-mode.
+
+**Столбы MVP теперь:** ✅ свои агенты · ✅ декомпозиция · ✅ полезные выводы (M11.7) · 🟢 диспут+council (M11.4, первый уровень) · 🔴 апелляция (M11.5) · 🟡 чужие агенты (M11.8).
+
+**Next:** M11.5 — appeal layer (human-стаб) ИЛИ M11.8 — foreign-agent template.
+
 ---
 
 ## Open questions (по приоритету)

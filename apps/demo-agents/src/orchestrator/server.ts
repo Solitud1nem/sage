@@ -22,6 +22,7 @@ import { loadOrchestratorEnv } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
 import { startDemoRun, type DemoMode } from './demo-run.js';
 import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
+import { makeDisputeFlow } from '../parent/dispute-flow.js';
 import { resolveExecutorFromRegistry } from '../parent/registry-resolver.js';
 import { listActiveAgentsV2 } from '@sage/adapter-evm';
 import type { AgentRecordV2, Plan, SubTask } from '@sage/core';
@@ -422,10 +423,25 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         }
       }
 
-      const { runId, streamUrl } = executePlan(plan, sageBundle);
+      // Opt-in review gate (ADR-0019). When on, each Completed sub-task pauses
+      // for an approve/dispute decision; a dispute drives the council +
+      // arbiter resolution via `makeDisputeFlow`.
+      const reviewMode =
+        !!body && typeof body === 'object' && (body as { reviewMode?: unknown }).reviewMode === true;
+      const executeOpts = reviewMode
+        ? {
+            reviewMode: true,
+            disputeFlow: makeDisputeFlow(sageBundle, {
+              ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
+            }),
+          }
+        : {};
+
+      const { runId, streamUrl } = executePlan(plan, sageBundle, executeOpts);
       jsonWithBigints(res, 202, {
         runId,
         streamUrl,
+        reviewMode,
         chainId: chainInfo.chainId,
         chainName: chainInfo.displayName,
         explorerUrl: chainInfo.explorerUrl,
@@ -532,6 +548,58 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       json(res, 202, { ok: true, action });
     } catch (err) {
       console.error('[Orchestrator] /api/demo/composite/retry-subtask error:', err);
+      json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
+
+  // --- POST /api/demo/composite/review-decision -----------------------
+  // M11.4 (ADR-0019): resolves a plan-runner paused at the review gate.
+  // Body: { runId, subId, action: 'approve' | 'dispute', reason? }
+  //   - 'approve' → runner pays the executor (approvePayment).
+  //   - 'dispute' → runner raises disputeTask → council → resolveDispute.
+  if (url === '/api/demo/composite/review-decision' && method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const body = raw
+        ? (JSON.parse(raw) as { runId?: unknown; subId?: unknown; action?: unknown; reason?: unknown })
+        : {};
+
+      if (typeof body.runId !== 'string' || body.runId.length === 0) {
+        json(res, 400, { error: 'runId must be a non-empty string' });
+        return;
+      }
+      if (typeof body.subId !== 'number' || !Number.isInteger(body.subId) || body.subId < 1) {
+        json(res, 400, { error: 'subId must be a positive integer' });
+        return;
+      }
+      if (body.action !== 'approve' && body.action !== 'dispute') {
+        json(res, 400, { error: 'action must be "approve" or "dispute"' });
+        return;
+      }
+      const decision =
+        body.action === 'approve'
+          ? ({ kind: 'approve' } as const)
+          : ({ kind: 'dispute', reason: typeof body.reason === 'string' && body.reason.length > 0 ? body.reason : 'No reason provided.' } as const);
+
+      const status = resolveUserDecision(body.runId, body.subId, decision);
+      if (status === 'not-found') {
+        json(res, 404, {
+          error: 'no_paused_run',
+          message: `No review gate open for runId ${body.runId}. The run may have already resumed, timed out, or never paused.`,
+        });
+        return;
+      }
+      if (status === 'sub-mismatch') {
+        json(res, 409, {
+          error: 'sub_mismatch',
+          message: `The paused sub-task does not match subId ${body.subId}.`,
+        });
+        return;
+      }
+      json(res, 202, { ok: true, action: body.action });
+    } catch (err) {
+      console.error('[Orchestrator] /api/demo/composite/review-decision error:', err);
       json(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
     return;
