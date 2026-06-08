@@ -1,10 +1,10 @@
 # ADR-0008 — Sage angle / position: multi-chain settlement infrastructure for AI agents, distinguished by observable decomposition
 
-- **Status:** Accepted
-- **Date:** 2026-05-20
+- **Status:** Accepted; extended 2026-06-04 (platform / arbitration layer added — see Amendment section below)
+- **Date:** 2026-05-20 (original); 2026-06-04 (amendment)
 - **Deciders:** Alex, Claude
 - **Supersedes:** —
-- **Related:** ADR-0001 (deterministic addresses across EVM); ADR-0006 (web integration topology); ADR-0007 (observable decomposition); `docs/research/observable-decomposition.md`; `docs/research/classification-trigger-design.md`; `CLAUDE.md` "Project ethos / Позиционирование Sage" section; live: `https://sage-protocol.pages.dev/demo/composite`.
+- **Related:** ADR-0001 (deterministic addresses across EVM); ADR-0006 (web integration topology); ADR-0007 (observable decomposition); ADR-0017 (escrow arbitration, contract decisions — _planned_); `docs/research/observable-decomposition.md`; `docs/research/classification-trigger-design.md`; `docs/research/arbitration-and-platform-2026-06-04.md`; `docs/research/arbitration-and-platform-brainstorm.md`; `CLAUDE.md` "Project ethos / Позиционирование Sage" section; live: `https://sage-protocol.pages.dev/demo/composite`.
 
 ## Context
 
@@ -109,3 +109,54 @@ We accept that this position is niche by construction. It is not a description o
 - `CLAUDE.md` "Project ethos / Позиционирование Sage" section.
 - Live demo: `https://sage-protocol.pages.dev/demo/composite` (running on Base mainnet via `sage-demo-agents.fly.dev` as of 2026-05-20).
 - Blog: `docs/blog/observable-decomposition-shipped.md` (M10.4.9 — reflective account of the M10 build).
+
+---
+
+## Amendment 2026-06-04 — Platform extension with arbitration layer
+
+The original ADR positions Sage as **settlement infrastructure** distinguished by observable decomposition. Six weeks after acceptance, two things crystallized through real use:
+
+1. A structural gap in `TaskEscrow`: `disputeTask` writes `Disputed` but no transaction reads from that state. USDC is frozen permanently. The contract supports the happy path but stops short of arbitration. While agents are all our own (4 demo workers), this is harmless; opening the registry to foreign agents makes "permanently-frozen funds on dispute" a real defect.
+2. A second user mode that the original framing under-described: not just **assemblers of multi-agent pipelines from foreign components** (the "agent payment" case the original ADR addresses) but also **operators of their own agent fleet** who need an auditable receipt of what each agent did with each task. Both modes want the same primitive — every step landing as a recorded fact — for different reasons.
+
+This amendment captures the extension. Concept-snapshot in [`docs/research/arbitration-and-platform-2026-06-04.md`](../research/arbitration-and-platform-2026-06-04.md); living brainstorm log in [`docs/research/arbitration-and-platform-brainstorm.md`](../research/arbitration-and-platform-brainstorm.md). Contract-level decisions land separately in ADR-0017.
+
+### What's extended (not replaced)
+
+1. **Settlement reframed as "recorded fact".** The same on-chain primitive serves two modes:
+   - *settlement-as-guarantee* — when work crosses an ownership boundary (foreign-agent case);
+   - *settlement-as-receipt* — when work stays within owner (own-fleet case).
+
+   The user does not toggle a flag. The mode is a property of topology — who owns the executing agent — not configuration. Trust boundary = ownership boundary.
+
+2. **Sage hosts the court, not the agents.** Users host their own working agents (registered via `AgentRegistry`, discoverable, capability-described). Sage runs an arbiter EOA + off-chain council of judge-LLM agents. The trusted infrastructure lives exactly where without-a-trusted-party doesn't work, and nowhere else.
+
+3. **The arbiter is one on-chain address; the council is off-chain.** The contract knows one `arbiter` address (set via `setArbiter` under `Ownable`), not the council composition. Council size, voting rule, specialization, precedent-memory format — all live off-chain and change without contract redeploy. Trace decomposition (ADR-0007) is what makes the verdict legible.
+
+4. **Trust profile shifts and is named honestly.** Original ADR framed Sage as having "no privileged party". With the arbiter, Sage now holds the role of trusted referee for opt-in disputes. The category is eBay / PayPal / Upwork (transparent referee), not Compound / Uniswap (admin-less). Centralization is the design choice; legibility through decomposed verdicts is the compensation. This is called out in external materials, not silently rewritten.
+
+5. **The "without arbitration" path remains canonical for trustless cases.** Current `TaskEscrow` (v2 on Base mainnet) continues to serve owners who don't want a trusted arbiter — the happy path + `claimAutoRelease` + `refundExpired` cover most flows. The new arbiter-aware contract (v3, via ADR-0017) is the opt-in layer for foreign-agent assembly.
+
+### Updated "What we are"
+
+> Sage is settlement infrastructure for AI agents, **with an opt-in arbitration layer** for cases where work crosses ownership boundaries. The chain is the user's choice; the angle is observable decomposition. Sage hosts only the role that requires a trusted party (the arbiter) and only when invoked by a dispute.
+
+### What this extension explicitly is NOT
+
+- Sage is not becoming a marketplace (no listings page, no take rate on agent revenue).
+- Sage is not running competing working agents — the 4 demo workers remain reference implementations, not market participants.
+- Sage is not selling judging as a service — disputes are infrastructure cost, not revenue.
+- Sage is not decentralizing the council. Council is ours, deliberately. Sybil-protection is moot when there are no external judges to flood. See raздел 5 of the concept-snapshot for the trade-off discussion.
+
+### Operational consequences
+
+- ADR-0017 will encode the contract-level decisions (arbiter address, `resolveDispute`, `Refunded` reachability, split outcomes, first privileged role in a previously admin-less contract).
+- AgentRegistry needs schema extension (capability + endpoint + price) — _planned_ M11.2, separate ADR if it warrants.
+- The off-chain council infrastructure (judge-LLM processes, precedent memory, aggregation) is unbuilt as of 2026-06-04. Roadmap in brainstorm log §Roadmap snapshot.
+- This amendment does not change ADR-0007 (observable decomposition) — decomposition still rides on top, and now also describes how verdicts are produced.
+
+### What it would take to revisit
+
+- If foreign-agent volume on Sage develops and complaints about centralized arbitration arrive in numbers — revisit. Likely response: deepen legibility (more granular vote disclosure, richer precedent surface), not decentralize the council itself.
+- If the council mechanism produces disputes that themselves require external arbitration — reconsider as an escalation-pattern problem. Current model assumes the human-anchored appeal (concept-snapshot §6) is the terminal authority; if that breaks, this amendment fails.
+- If the two-modes framing (guarantee + receipt) turns out to fit awkwardly in real use — e.g. operators routinely lie about ownership boundaries to dodge dispute exposure — re-evaluate whether topology-as-trust holds.
