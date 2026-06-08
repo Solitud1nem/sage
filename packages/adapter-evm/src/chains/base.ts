@@ -12,7 +12,15 @@ export interface ChainConfig {
   readonly rpc: string;
   readonly explorer: string;
   readonly contracts: {
+    /** V1 AgentRegistry (sage:registry:v1). Legacy. */
     readonly agentRegistry: `0x${string}`;
+    /**
+     * V2 AgentRegistry (sage:registry:v2, M11.2). Platform-aware: capability +
+     * per-task price + rich-profile fields. Present where the v2 contract
+     * is deployed (Base mainnet + Sepolia as of 2026-06-08). Optional on
+     * chains that haven't received the v2 deploy yet (Arc).
+     */
+    readonly agentRegistryV2?: `0x${string}`;
     readonly taskEscrow: `0x${string}`;
     readonly usdc: `0x${string}`;
     /** EAS attestation contract — present on Base + OP-stack chains; absent on Arc. */
@@ -38,6 +46,8 @@ export const baseSepolia: ChainConfig = {
   explorer: 'https://sepolia.basescan.org',
   contracts: {
     agentRegistry: '0x5e95f92feeb4d46249dc3525c58596856029c661',
+    // V2 AgentRegistry (M11.2): capability + price + rich-profile fields.
+    agentRegistryV2: '0x8df78599868ec740c26f0eb0b660519b166cdd9e',
     // V3 (arbitration-aware, ADR-0017): 0x61c585630b32eee0b8c00306047c301b56419a81.
     // V2 (deprecated, in-flight only): 0x12aef3529b8404709125b727ba3db40cd5453e1e.
     taskEscrow: '0x61c585630b32eee0b8c00306047c301b56419a81',
@@ -56,6 +66,8 @@ export const base: ChainConfig = {
   explorer: 'https://basescan.org',
   contracts: {
     agentRegistry: '0x5e95F92FeEb4D46249DC3525C58596856029c661',
+    // V2 AgentRegistry (M11.2): capability + price + rich-profile fields.
+    agentRegistryV2: '0x8df78599868Ec740C26F0eb0b660519b166cDd9e',
     // V3 (arbitration-aware, ADR-0017): 0x61c585630B32eee0b8c00306047c301B56419a81.
     // V2 (deprecated, in-flight only): 0x12aeF3529b8404709125b727bA3Db40cD5453E1e.
     taskEscrow: '0x61c585630B32eee0b8c00306047c301B56419a81',

@@ -23,6 +23,8 @@ export interface SageChainConfig {
   rpcUrl: string;
   contracts: {
     agentRegistry: `0x${string}`;
+    /** V2 AgentRegistry (M11.2). Capability + price + rich-profile fields. */
+    agentRegistryV2?: `0x${string}`;
     taskEscrow: `0x${string}`;
     usdc: `0x${string}`;
     /** EAS attestation contract — present on OP-stack chains, absent on Arc. */
@@ -44,6 +46,8 @@ export const BASE_MAINNET: SageChainConfig = {
   rpcUrl: process.env.NEXT_PUBLIC_RPC_URL ?? 'https://mainnet.base.org',
   contracts: {
     agentRegistry: '0x5e95F92FeEb4D46249DC3525C58596856029c661',
+    // V2 AgentRegistry (M11.2): capability + price + rich-profile fields.
+    agentRegistryV2: '0x8df78599868Ec740C26F0eb0b660519b166cDd9e',
     // V3 (arbitration-aware, ADR-0017): 0x61c585630B32eee0b8c00306047c301B56419a81.
     // V2 (deprecated, in-flight only): 0x12aeF3529b8404709125b727bA3Db40cD5453E1e.
     taskEscrow: '0x61c585630B32eee0b8c00306047c301B56419a81',
@@ -63,6 +67,8 @@ export const BASE_SEPOLIA: SageChainConfig = {
   rpcUrl: 'https://sepolia.base.org',
   contracts: {
     agentRegistry: '0x5e95f92feeb4d46249dc3525c58596856029c661',
+    // V2 AgentRegistry (M11.2): capability + price + rich-profile fields.
+    agentRegistryV2: '0x8df78599868ec740c26f0eb0b660519b166cdd9e',
     // V3 (arbitration-aware, ADR-0017): 0x61c585630b32eee0b8c00306047c301b56419a81.
     // V2 (deprecated, in-flight only): 0x12aef3529b8404709125b727ba3db40cd5453e1e.
     taskEscrow: '0x61c585630b32eee0b8c00306047c301b56419a81',
