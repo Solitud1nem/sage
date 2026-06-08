@@ -1,0 +1,24 @@
+{
+  "name": "@sage/foreign-agent-template",
+  "version": "0.0.1",
+  "description": "Forkable template for a third-party (foreign) Sage worker agent: self-registers in AgentRegistryV2, watches for matching tasks, executes them via a pluggable handler.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "node --env-file-if-exists=.env --import tsx src/index.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sage/adapter-evm": "workspace:*",
+    "@sage/core": "workspace:*",
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}
