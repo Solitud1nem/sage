@@ -12,7 +12,12 @@ import { taskEscrowAbi } from './abi/index.js';
  */
 type BoundWalletClient = WalletClient<Transport, Chain, Account>;
 
-/** Maps on-chain TaskStatus enum (uint8) to SDK TaskStatus. */
+/** Maps on-chain TaskStatus enum (uint8) to SDK TaskStatus.
+ *  Includes Split (7) so this v1 client correctly classifies tasks read
+ *  from a v3 contract — `chains/base.ts` `taskEscrow` post-cutover points
+ *  at TaskEscrowV2, and v1 / v3 contracts share the first 8 status values
+ *  by design. executorShare is not surfaced via this client (use
+ *  createTaskEscrowV2Client for that). */
 const STATUS_MAP: Record<number, TaskStatus> = {
   0: TaskStatus.Created,
   1: TaskStatus.Accepted,
@@ -21,6 +26,7 @@ const STATUS_MAP: Record<number, TaskStatus> = {
   4: TaskStatus.Disputed,
   5: TaskStatus.Refunded,
   6: TaskStatus.Expired,
+  7: TaskStatus.Split,
 };
 
 export function createTaskEscrowClient(
