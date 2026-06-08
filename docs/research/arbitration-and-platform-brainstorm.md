@@ -36,6 +36,15 @@
 - v3.0 (arbitration-aware): `0x61c585630B32eee0b8c00306047c301B56419a81` on Base mainnet + Base Sepolia.
 - v2.0 (canonical for in-flight): `0x12aeF3529b8404709125b727bA3Db40cD5453E1e` on Base mainnet + Base Sepolia (will deprecate from SDK after drain).
 
+### 2026-06-08 (later) — M11.1 fully shipped (v3.0.0 tag)
+
+- **Cutover landed.** `chains/base.ts` (both adapter-evm + apps/web) → `0x61c5…9a81`. Fly orchestrator + workers redeployed (image v15, rolling). Cloudflare Pages deploy `8b7d0e60`. No drain window required — `activeDemoRuns=0` pre-cutover.
+- **CHANGELOG entry shipped** (2026-06-08 — TaskEscrowV2 LIVE). Explicit out-of-scope list documents what's NOT in M11.1 (AgentRegistry V2, council, appeal, indexer, Arc V3).
+- **Tag `v3.0.0` created + pushed.** Annotated tag on the CHANGELOG commit `0d92996` references the deploy txs + contract address.
+- **All 15 sub-tasks closed:** M11.1.1 contract → M11.1.7 SDK tests → M11.1.8 deploy script → M11.1.9 Sepolia → M11.1.10 smoke → M11.1.11 drain (no-op) → M11.1.12 mainnet → M11.1.13 cutover → M11.1.14 frontend → M11.1.15 release docs + tag.
+
+**Next milestone: M11.2 — AgentRegistry V2 (capability + endpoint + price).** Demo-agents (own 4) register first; foreign agents in M11.3.
+
 ---
 
 ## Open questions (по приоритету)
