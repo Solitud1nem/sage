@@ -359,6 +359,47 @@ describe('runPlan — failure paths', () => {
     expect((failed!.data as { error: string }).error).toMatch(/rpc down/);
   });
 
+  it('retries createTask once on a "TaskCreated event not found" revert, then succeeds', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeFakeBundle();
+    const original = bundle.sage.tasks.createTask;
+    let calls = 0;
+    bundle.sage.tasks.createTask = async (spec: TaskSpec): Promise<TaskId> => {
+      calls += 1;
+      // Mimic the adapter's mined-but-reverted symptom on the first attempt.
+      if (calls === 1) throw new Error('TaskCreated event not found in receipt');
+      return original(spec);
+    };
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId: 'retry-create' });
+    await vi.advanceTimersByTimeAsync(5_000); // retry backoff
+    await vi.advanceTimersByTimeAsync(30_000); // poll Created → Completed
+    await promise;
+
+    expect(calls).toBe(2); // failed once, retried once
+    const names = cap.events.map((e) => e.event);
+    expect(names).toContain('subtask_created');
+    expect(names).toContain('subtask_paid');
+    expect(names).toContain('plan_completed');
+  });
+
+  it('does NOT retry a non-revert createTask error', async () => {
+    const cap = new CaptureChannel();
+    let calls = 0;
+    const bundle = makeFakeBundle();
+    bundle.sage.tasks.createTask = async (): Promise<TaskId> => {
+      calls += 1;
+      throw new Error('rpc down');
+    };
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+
+    await runPlan(plan, cap.channel, bundle, { runId: 'no-retry' });
+
+    expect(calls).toBe(1); // not retried — error doesn't match the revert signature
+    expect(cap.events.some((e) => e.event === 'plan_failed')).toBe(true);
+  });
+
   it('aborts before downstream sub-tasks when an upstream one errors', async () => {
     const cap = new CaptureChannel();
     let calls = 0;

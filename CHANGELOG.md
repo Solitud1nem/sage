@@ -30,6 +30,9 @@ Makes the ADR-0017 arbitration substrate operational end-to-end (MVP pillar 5, a
 ### Live ops
 - Fly Base (`sage-demo-agents.fly.dev`, rolling) + Arc (`sage-demo-agents-arc.fly.dev`, `--ha=false`); `/review-decision` registered on both. Pages deploy `4f8568c8`. `adr` ADR-0019 Accepted; index updated.
 
+### Fix (same day) — createTask retry after dispute
+Found via live repro (sponsor-funded curl + SSE): after a dispute resolves, the next sub-task's `createTask` **intermittently mined-and-reverted** ("TaskCreated event not found in receipt") — its USDC permit was signed against a nonce read from a lagging RPC replica, racing the just-confirmed `disputeTask`/`resolveDispute` txs (the auto-approve path doesn't hit this because the approvePayment receipt-wait buffers it). `plan-runner` now retries `createTask` once (after a 4s backoff) **only** on that revert signature — the re-sign reads the nonce fresh. Non-revert errors are not retried. +2 tests (184/184). A/B confirmed: approve-path multi-step never failed; dispute-path failed ~1-in-2 pre-fix, 3/3 clean post-fix. Redeployed Fly Base+Arc.
+
 ### Not in this release
 - **Human appeal** (second-level review of a verdict) — M11.5.
 - **Multi-judge panel** / arbiter≠client separation (Safe + dedicated arbiter EOA) — future hardening; v1 is honest collapse posture (sponsor = client = arbiter), stated in UI/ADR.

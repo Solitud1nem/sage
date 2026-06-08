@@ -332,6 +332,41 @@ function buildContent(
   return Object.keys(inputs).length > 0 ? { inputs } : { source: brief };
 }
 
+/**
+ * Signature of a createTask tx that mined but reverted: the adapter waits for
+ * the receipt, finds no `TaskCreated` event, and throws this. The usual cause
+ * is a USDC permit signed against a stale nonce read (see createTask call site)
+ * — a transient, retryable condition, distinct from a network error or a
+ * persistent failure (bad params, RPC down), which should NOT be retried.
+ */
+function isRetryableCreateError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('TaskCreated event not found');
+}
+
+/**
+ * Run an async action, retrying once (after a delay) only when `retryable`
+ * matches the thrown error. The delay lets a lagging RPC replica catch up; the
+ * retry re-runs the action from scratch — for createTask that re-signs the
+ * permit against the now-current nonce.
+ */
+async function withRetry<T>(
+  action: () => Promise<T>,
+  opts: { label: string; subId: number; delayMs?: number; retryable: (err: unknown) => boolean },
+): Promise<T> {
+  try {
+    return await action();
+  } catch (err) {
+    if (!opts.retryable(err)) throw err;
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({ ts: Date.now(), event: 'plan.retry', label: opts.label, subId: opts.subId, reason: reason.slice(0, 160) }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, opts.delayMs ?? 4000));
+    return action();
+  }
+}
+
 async function runSubtask(args: RunSubtaskArgs): Promise<string> {
   const { sub, runId, bundle, channel, timeoutMs, txHashes } = args;
   if (!sub.executor_address) {
@@ -355,12 +390,25 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
 
   channel.emit('subtask_status', { subId: sub.id, status: 'created' satisfies SubTaskRunStatus });
 
-  const tid = await bundle.sage.tasks.createTask({
-    executor: agentId(sub.executor_address),
-    deadline,
-    amount: sub.estimated_cost_units,
-    specUri,
-  });
+  // createTask carries a freshly-signed USDC permit whose nonce is read from
+  // the RPC at sign-time. Immediately after a burst of sponsor txs (notably the
+  // dispute path's disputeTask + resolveDispute, which fire just before the
+  // next sub-task with no buffer), that read can land on a lagging replica and
+  // produce a permit signed against a stale nonce — the tx then mines and
+  // reverts in `USDC.permit`, surfacing as "TaskCreated event not found in
+  // receipt". The auto-approve path doesn't hit this because the approvePayment
+  // receipt-wait gives the replica time to catch up. Retry once: the re-sign
+  // reads the nonce fresh. (Observed intermittently in M11.4 review-mode runs.)
+  const tid = await withRetry(
+    () =>
+      bundle.sage.tasks.createTask({
+        executor: agentId(sub.executor_address as `0x${string}`),
+        deadline,
+        amount: sub.estimated_cost_units,
+        specUri,
+      }),
+    { label: `createTask#${sub.id}`, subId: sub.id, retryable: isRetryableCreateError },
+  );
 
   channel.emit('subtask_created', {
     subId: sub.id,
