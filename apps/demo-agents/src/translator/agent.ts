@@ -20,7 +20,7 @@
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
-import { decodeCompositeSpec } from '../shared/composite-codec.js';
+import { decodeCompositeEnvelope, materialFromEnvelope } from '../shared/composite-codec.js';
 import { pollNewTasks } from '../shared/task-poller.js';
 import { awaitTaskState } from '../shared/await-task-state.js';
 import { TaskStatus, taskId } from '@sage/core';
@@ -40,9 +40,10 @@ const RAW_SYSTEM_PROMPT =
   'Translate the following text. If it is in English, translate to Russian. If in Russian, translate to English.';
 
 const COMPOSITE_SYSTEM_PROMPT =
-  'You are a translation executor. The user message is a translation instruction — it specifies the target language and either includes the source text inline or references it. ' +
+  'You are a translation executor in a multi-step plan. The user message has an INSTRUCTION section (the target language + what to do) and a MATERIAL section (the content to translate). ' +
+  'The MATERIAL may include the original request framing (e.g. "Translate the following to French: …") or an upstream step\'s output — translate the substantive content, not the framing words. ' +
   'Produce ONLY the translated text — no preamble, no commentary, no "the task is to translate…". ' +
-  'If the source text is not present in the instruction (e.g. it refers to "the previous step"), output a single line stating "Translation requires source text in the spec" so the operator can fix the plan.';
+  'If no MATERIAL section is present, treat the INSTRUCTION as self-contained; if it genuinely carries no source text, output a single line "Translation requires source text in the spec" so the operator can fix the plan.';
 
 async function callOpenAI(systemPrompt: string, userText: string): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -65,18 +66,24 @@ async function callOpenAI(systemPrompt: string, userText: string): Promise<strin
 }
 
 async function translateOrExecute(specUri: string): Promise<string> {
-  const compositeSpec = decodeCompositeSpec(specUri);
+  const env = decodeCompositeEnvelope(specUri);
 
   if (config.openaiApiKey) {
-    if (compositeSpec !== null) {
-      return callOpenAI(COMPOSITE_SYSTEM_PROMPT, compositeSpec);
+    if (env !== null) {
+      // Composite path: spec is the instruction, material (source/inputs) is
+      // the content to translate (ADR-0018). Material may be absent on legacy
+      // envelopes — fall back to spec-only.
+      const material = materialFromEnvelope(env);
+      const userText =
+        material !== null ? `INSTRUCTION:\n${env.spec}\n\nMATERIAL:\n${material}` : env.spec;
+      return callOpenAI(COMPOSITE_SYSTEM_PROMPT, userText);
     }
     return callOpenAI(RAW_SYSTEM_PROMPT, specUri);
   }
 
   // Mock fallback — different shapes for each path.
-  if (compositeSpec !== null) {
-    return `[MOCK COMPOSITE TRANSLATION] for instruction: ${compositeSpec.slice(0, 100)}…`;
+  if (env !== null) {
+    return `[MOCK COMPOSITE TRANSLATION] for instruction: ${env.spec.slice(0, 100)}…`;
   }
   return `[MOCK TRANSLATION] ${specUri}`;
 }

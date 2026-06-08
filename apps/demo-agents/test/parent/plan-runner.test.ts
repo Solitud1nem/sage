@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TaskStatus, taskId as makeTaskId, agentId } from '@sage/core';
 import type { Plan, SubTask, TaskId, TaskRecord, TaskSpec } from '@sage/core';
 import { runPlan, topoSort, __testing } from '../../src/parent/plan-runner.js';
-import { decodeParentId, decodeSpec } from '../../src/parent/parent-id-codec.js';
+import { decodeParentId, decodeSpec, decodeEnvelope } from '../../src/parent/parent-id-codec.js';
 import { SseChannel } from '../../src/shared/sse.js';
 
 // ─── helpers ─────────────────────────────────────────────────────────────
@@ -261,6 +261,31 @@ describe('runPlan — happy path', () => {
       const spec = decodeSpec(state.record.specUri);
       expect(spec).toMatch(/step (one|two)/);
     }
+  });
+
+  it('attaches source (brief) to root sub-tasks and inputs (upstream result) to dependents (ADR-0018)', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeFakeBundle();
+    const plan = makePlan([
+      makeSubtask({ id: 1, spec: 'translate' }),
+      makeSubtask({ id: 2, depends_on: [1], spec: 'summarize' }),
+    ]);
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId: 'run-content' });
+    await vi.advanceTimersByTimeAsync(120_000);
+    await promise;
+
+    // taskId is the insertion order: id "1" = sub#1 (root), "2" = sub#2 (dependent).
+    const root = decodeEnvelope(bundle.__tasks.get('1')!.record.specUri);
+    const dependent = decodeEnvelope(bundle.__tasks.get('2')!.record.specUri);
+
+    // Root sub-task carries the original brief verbatim as source, no inputs.
+    expect(root?.source).toBe('demo brief');
+    expect(root?.inputs).toBeUndefined();
+
+    // Dependent sub-task carries the upstream result as inputs[1], no source.
+    expect(dependent?.inputs).toEqual({ 1: '<mock result for 1>' });
+    expect(dependent?.source).toBeUndefined();
   });
 
   it('executes sub-tasks in topological order (sequential)', async () => {

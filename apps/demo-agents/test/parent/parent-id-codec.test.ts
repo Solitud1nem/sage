@@ -3,6 +3,7 @@ import {
   encodeParentId,
   decodeParentId,
   decodeSpec,
+  decodeEnvelope,
 } from '../../src/parent/parent-id-codec.js';
 
 describe('encodeParentId', () => {
@@ -116,5 +117,59 @@ describe('format inspection', () => {
       parent: { run: 'run-x', sub: 4 },
       spec: 'do work',
     });
+  });
+
+  it('omits source/inputs keys entirely when no content is passed (back-compat wire format)', () => {
+    const uri = encodeParentId({ run: 'r', sub: 1 }, 'instruction');
+    const obj = JSON.parse(decodeURIComponent(uri.slice('data:application/json,'.length)));
+    expect(Object.keys(obj).sort()).toEqual(['parent', 'spec']);
+  });
+});
+
+describe('content envelope (ADR-0018)', () => {
+  it('round-trips source through encode → decodeEnvelope', () => {
+    const uri = encodeParentId({ run: 'r', sub: 1 }, 'Translate to French', {
+      source: 'The quick brown fox.',
+    });
+    expect(decodeEnvelope(uri)).toEqual({
+      parent: { run: 'r', sub: 1 },
+      spec: 'Translate to French',
+      source: 'The quick brown fox.',
+    });
+  });
+
+  it('round-trips inputs (numeric keys) through encode → decodeEnvelope', () => {
+    const uri = encodeParentId({ run: 'r', sub: 2 }, 'Summarize', {
+      inputs: { 1: 'Le renard brun rapide.' },
+    });
+    expect(decodeEnvelope(uri)).toEqual({
+      parent: { run: 'r', sub: 2 },
+      spec: 'Summarize',
+      inputs: { 1: 'Le renard brun rapide.' },
+    });
+  });
+
+  it('drops an empty inputs object on encode', () => {
+    const uri = encodeParentId({ run: 'r', sub: 1 }, 'x', { inputs: {} });
+    const obj = JSON.parse(decodeURIComponent(uri.slice('data:application/json,'.length)));
+    expect('inputs' in obj).toBe(false);
+  });
+
+  it('decodeEnvelope returns spec-only for a legacy envelope', () => {
+    const uri = encodeParentId({ run: 'r', sub: 1 }, 'legacy');
+    expect(decodeEnvelope(uri)).toEqual({ parent: { run: 'r', sub: 1 }, spec: 'legacy' });
+  });
+
+  it('decodeSpec / decodeParentId stay unchanged when content is present', () => {
+    const uri = encodeParentId({ run: 'r', sub: 3 }, 'Translate', {
+      source: 'hello',
+      inputs: { 1: 'world' },
+    });
+    expect(decodeSpec(uri)).toBe('Translate');
+    expect(decodeParentId(uri)).toEqual({ run: 'r', sub: 3 });
+  });
+
+  it('decodeEnvelope returns null for raw text', () => {
+    expect(decodeEnvelope('plain raw content')).toBeNull();
   });
 });

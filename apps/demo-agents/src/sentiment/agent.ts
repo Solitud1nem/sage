@@ -20,7 +20,7 @@
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
-import { decodeCompositeSpec } from '../shared/composite-codec.js';
+import { decodeCompositeEnvelope, materialFromEnvelope } from '../shared/composite-codec.js';
 import { pollNewTasks } from '../shared/task-poller.js';
 import { awaitTaskState } from '../shared/await-task-state.js';
 import { TaskStatus, taskId } from '@sage/core';
@@ -43,8 +43,8 @@ const RAW_SYSTEM_PROMPT =
 
 const COMPOSITE_SYSTEM_PROMPT =
   'You are a sentiment analyzer executing a sub-task in a multi-step plan. ' +
-  'The user message is an instruction that includes the text to classify (or references it). Extract the text being asked about and classify it as POSITIVE, NEGATIVE, or NEUTRAL. ' +
-  'If the instruction does not include any text to classify (it refers to "the previous step"), classify the instruction wording itself but say so on the rationale line.\n' +
+  'The user message has an INSTRUCTION section and a MATERIAL section (the text to classify — it may be the original request framing or an upstream step\'s output). Classify the substantive MATERIAL text as POSITIVE, NEGATIVE, or NEUTRAL. ' +
+  'If no MATERIAL section is present and the INSTRUCTION carries no text to classify, classify the instruction wording itself but say so on the rationale line.\n' +
   'Output exactly three lines, regardless of input:\n' +
   'Line 1: <LABEL> (<score between 0.00 and 1.00, two decimals>)\n' +
   'Line 2: <blank>\n' +
@@ -78,19 +78,25 @@ async function callOpenAI(systemPrompt: string, userText: string): Promise<strin
 }
 
 async function classifyOrExecute(specUri: string): Promise<string> {
-  const compositeSpec = decodeCompositeSpec(specUri);
+  const env = decodeCompositeEnvelope(specUri);
 
   if (config.openaiApiKey) {
-    if (compositeSpec !== null) {
-      return callOpenAI(COMPOSITE_SYSTEM_PROMPT, compositeSpec);
+    if (env !== null) {
+      // Composite path: spec is the instruction; material (source/inputs) is
+      // the text to classify (ADR-0018). Material absent on legacy envelopes —
+      // fall back to spec-only.
+      const material = materialFromEnvelope(env);
+      const userText =
+        material !== null ? `INSTRUCTION:\n${env.spec}\n\nMATERIAL:\n${material}` : env.spec;
+      return callOpenAI(COMPOSITE_SYSTEM_PROMPT, userText);
     }
     return callOpenAI(RAW_SYSTEM_PROMPT, specUri);
   }
 
   // Mock fallback — same 3-line shape both paths.
   const note =
-    compositeSpec !== null
-      ? `[MOCK COMPOSITE SENTIMENT] No OpenAI key; instruction was: ${compositeSpec.slice(0, 80)}…`
+    env !== null
+      ? `[MOCK COMPOSITE SENTIMENT] No OpenAI key; instruction was: ${env.spec.slice(0, 80)}…`
       : '[MOCK SENTIMENT] Mock classifier returns neutral by default; no OpenAI key configured.';
   return `NEUTRAL (0.50)\n\n${note}`;
 }

@@ -19,7 +19,7 @@
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
-import { decodeCompositeSpec } from '../shared/composite-codec.js';
+import { decodeCompositeEnvelope, materialFromEnvelope } from '../shared/composite-codec.js';
 import { pollNewTasks } from '../shared/task-poller.js';
 import { awaitTaskState } from '../shared/await-task-state.js';
 import { TaskStatus, taskId } from '@sage/core';
@@ -61,25 +61,30 @@ async function callOpenAI(systemPrompt: string, userText: string, maxTokens: num
 }
 
 const COMPOSITE_SYSTEM_PROMPT =
-  'You are a generalist task executor. The user message describes a single task to perform — research, comparison, drafting, analysis, or writing. ' +
-  'Execute the task using your training data and return the result directly. Do not echo the instruction back. Do not say "the task is to…". ' +
-  'Just produce the deliverable: the report, the list, the comparison, the summary — whatever the task asks for. Keep it concise but useful (target 100-250 words unless the task explicitly asks for longer).';
+  'You are a generalist task executor in a multi-step plan. The user message has an INSTRUCTION section (the task — summarize, research, compare, draft, analyze, or write) and may have a MATERIAL section (the content to apply it to). ' +
+  'When MATERIAL is present, apply the instruction to it (e.g. summarize THAT content), not to your training data; the MATERIAL may be the original request framing or an upstream step\'s output. When no MATERIAL is present, execute the instruction directly. ' +
+  'Return the deliverable only — no preamble, no "the task is to…". Keep it concise but useful (target 100-250 words unless the task explicitly asks for longer).';
 
 async function executeOrSummarize(specUri: string): Promise<string> {
-  const compositeSpec = decodeCompositeSpec(specUri);
+  const env = decodeCompositeEnvelope(specUri);
 
   if (config.openaiApiKey) {
-    if (compositeSpec !== null) {
-      // Composite path: spec is an instruction, execute it.
-      return callOpenAI(COMPOSITE_SYSTEM_PROMPT, compositeSpec, 600);
+    if (env !== null) {
+      // Composite path: spec is the instruction; material (source/inputs) is
+      // the content to apply it to (ADR-0018). Material absent on legacy
+      // envelopes — fall back to spec-only.
+      const material = materialFromEnvelope(env);
+      const userText =
+        material !== null ? `INSTRUCTION:\n${env.spec}\n\nMATERIAL:\n${material}` : env.spec;
+      return callOpenAI(COMPOSITE_SYSTEM_PROMPT, userText, 600);
     }
     // 3-mode path: specUri is content, summarize it (existing behavior).
     return callOpenAI('Summarize the following text concisely.', specUri, 200);
   }
 
   // Mock fallback — different shapes for each path.
-  if (compositeSpec !== null) {
-    return `[MOCK COMPOSITE RESULT] for task: ${compositeSpec.slice(0, 100)}…`;
+  if (env !== null) {
+    return `[MOCK COMPOSITE RESULT] for task: ${env.spec.slice(0, 100)}…`;
   }
   return `[MOCK SUMMARY] ${specUri.slice(0, 100)}...`;
 }

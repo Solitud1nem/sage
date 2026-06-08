@@ -81,7 +81,18 @@
   2. `isKnownWorker` also defended against the LLM echoing a brief's recipient address into `executor_address`. So pure deletion would reopen that hole. Fix: orchestrator `classifyBrief` now **always strips** the LLM-emitted `executor_address` before registry resolution — the model never designates the executor. Invariant holds even on chains with no resolver (Arc).
 - **Arc consequence accepted (Alex, 2026-06-08):** Arc has no V2 registry → Arc composite now needs manual executor assignment in the plan-editor. Documented in CHANGELOG + GOTCHAS + arc-bridge memory. Base = clean registry-only path. Parity returns with a V2 registry on Arc.
 - **Tests:** 5 new in `classify-llm.test.ts`. demo-agents 147/147; web typecheck clean.
-- **NOT deployed** this session — cutover (Fly + Pages) is a separate step.
+- **Shipped same session:** deployed Fly Base+Arc + Pages (`3ad05ed5`), committed + pushed (`c30a4f9`). Orchestrator-side smokes green (registry executors, LLM-echo strip, high-stakes strip, Arc unassigned).
+
+### 2026-06-08 (MVP framing + M11.7 close) — path to MVP defined; faithful content delivery shipped
+
+- **MVP target fixed (Alex):** показуемое демо — работа своих **и чужих** агентов, диспут + апелляция (human-ответ = стаб), декомпозиция, **полезные** решения подзадач. Карта 5 столбов → состояние составлена; критический путь и атомарные задачи занесены в `TASKS.md` секция **Milestone 11 — Path to MVP** (блоки 11.7 content / 11.4 council+dispute-raise / 11.5 appeal / 11.8 foreign-agent template).
+- **Honest re-prioritization:** content-delivery (был отложен в BACKLOG утром) выдернут обратно на №1 — он load-bearing для столба «полезные выводы».
+- **M11.7 SHIPPED.** ADR-0018 (Accepted): конверт `{parent, spec, source?, inputs?}` — `spec`=инструкция, `source`=бриф дословно (root), `inputs`=upstream-результаты (dependent). Codec (parent+worker) + plan-runner `buildContent` + 4 воркера (material-aware, под approval) + 20 тестов (166/166). Deployed Fly Base+Arc, health 200, фронт не трогали.
+- **Известная находка-первопричина:** classifier режет исходник в короткий `spec` (904→103 симв); теперь воркер получает полный payload через `source`/`inputs`, объём не ломает.
+- **Deferred (ADR-0018):** крупные payload'ы инлайнятся on-chain (storage-gas) — переход на content-addressed off-chain + хеш когда перерастёт.
+- **Pending verification:** живой браузерный e2e >1KB перевод + 2-шаговая цепочка (unit-уровень зелёный).
+
+**Next по плану MVP:** 11.4 — off-chain council v1 + dispute-raise trigger (столб 5).
 
 ---
 

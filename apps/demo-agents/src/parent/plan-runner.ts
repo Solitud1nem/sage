@@ -32,7 +32,7 @@ import type { Plan, SubTask } from '@sage/core';
 
 import type { SseChannel } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
-import { encodeParentId } from './parent-id-codec.js';
+import { encodeParentId, type EnvelopeContent } from './parent-id-codec.js';
 import { awaitUserDecision } from './run-registry.js';
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
@@ -133,6 +133,7 @@ export async function runPlan(
           channel,
           timeoutMs,
           txHashes,
+          content: buildContent(currentSub, plan.brief, results),
         });
         results.set(sub.id, result);
         break;
@@ -216,6 +217,37 @@ interface RunSubtaskArgs {
   readonly channel: SseChannel;
   readonly timeoutMs: number;
   readonly txHashes: string[];
+  /**
+   * Content material attached to the envelope (ADR-0018). Dependent sub-tasks
+   * carry `{inputs}` (upstream results); root sub-tasks carry `{source}` (the
+   * original brief). Absent → spec-only (legacy behavior).
+   */
+  readonly content?: EnvelopeContent;
+}
+
+/**
+ * Build the envelope content for a sub-task per the ADR-0018 convention:
+ *   - if any `depends_on` upstream has produced a result → attach those as
+ *     `inputs` (this is a dependent sub-task; its material is the upstream
+ *     output, not the original brief);
+ *   - otherwise → attach the original `brief` verbatim as `source` (root
+ *     sub-task; this is what guarantees the full payload reaches the worker
+ *     instead of the lossy LLM-written spec).
+ *
+ * Attaching one or the other (never both) keeps the brief from being stored
+ * on-chain redundantly across every sub-task of a chain.
+ */
+function buildContent(
+  sub: SubTask,
+  brief: string,
+  results: ReadonlyMap<number, string>,
+): EnvelopeContent {
+  const inputs: Record<number, string> = {};
+  for (const dep of sub.depends_on ?? []) {
+    const upstream = results.get(dep);
+    if (upstream !== undefined) inputs[dep] = upstream;
+  }
+  return Object.keys(inputs).length > 0 ? { inputs } : { source: brief };
 }
 
 async function runSubtask(args: RunSubtaskArgs): Promise<string> {
@@ -227,7 +259,7 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     throw new PlanError(`subtask #${sub.id} estimated_cost_units must be > 0`);
   }
 
-  const specUri = encodeParentId({ run: runId, sub: sub.id }, sub.spec);
+  const specUri = encodeParentId({ run: runId, sub: sub.id }, sub.spec, args.content);
   // Floor `deadline_offset_s` at MIN_DEADLINE_OFFSET_S so we don't trip
   // TaskEscrow's `deadline <= block.timestamp` check when the LLM
   // classifier emits a short value (60-90s observed). Arc testnet block

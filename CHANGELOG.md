@@ -8,7 +8,35 @@
 
 ---
 
-## 2026-06-08 — M11.3.X: env-var executor fallback removed; orchestrator is sole executor authority — `decision`/`scope` (code landed, NOT yet deployed)
+## 2026-06-08 (later) — M11.7: faithful content delivery to workers (source payload + dependency chaining) — `feat` (deployed to Fly Base+Arc)
+
+Closes the prototype gap found earlier today: composite sub-tasks only saw the LLM-written `spec`, so on larger inputs the classifier truncated the source (brief 904 chars → spec 103 chars — only the first sentence survived translation) and chained steps never received the previous step's output. Per **ADR-0018**, the sub-task envelope now carries content alongside the instruction.
+
+**Envelope (ADR-0018):** `{parent, spec, source?, inputs?}`. `spec` stays the instruction (*what to do*); `source` is the original brief payload attached verbatim by the plan-runner (material for a root sub-task); `inputs` carries upstream dependency results keyed by sub id (material for a dependent sub-task). Both optional → legacy `{parent, spec}` envelopes and the 3-mode `/demo` raw-text path are byte-for-byte unchanged.
+
+**Worker convention:** apply `spec` to material = `inputs` (dependent) → `source` (root) → else spec-only (legacy fallback). Material may include the original request framing or an upstream output; the worker prompt extracts the substantive content.
+
+### Changes
+
+- `feat` **`parent-id-codec.ts`** — `encodeParentId(parent, spec, content?)` attaches `source`/`inputs` (omitted entirely when absent → wire back-compat); new `decodeEnvelope` + `EnvelopeContent`/`DecodedEnvelope` types.
+- `feat` **`shared/composite-codec.ts`** — new `decodeCompositeEnvelope` + `materialFromEnvelope` (inputs-over-source convention, ascending sub-id concat); `decodeCompositeSpec` kept for back-compat.
+- `feat` **`plan-runner.ts`** — `buildContent` attaches the brief as `source` to root sub-tasks and upstream results as `inputs` to dependents (one or the other, never both — avoids storing the brief redundantly across a chain).
+- `feat` **4 worker agents** (`summarizer`/`translator`/`vision`/`sentiment`) — composite path now feeds the LLM `INSTRUCTION` + `MATERIAL`; vision sources the image URL from material then spec. Prompts updated. (Edited under the "do not modify workers" rule with explicit approval, M11.7.4.)
+- `test` +20 (codec round-trips incl. back-compat, `materialFromEnvelope` convention, plan-runner source/inputs attachment). **166/166** demo-agents; web untouched.
+- `adr` **ADR-0018** Accepted; ADR index updated.
+
+### Live ops
+
+- Fly orchestrator+workers redeployed on **Base** (`sage-demo-agents.fly.dev`, rolling) and **Arc** (`sage-demo-agents-arc.fly.dev`, `--ha=false`). Health 200 on both. **No Pages redeploy** — change is backend-only.
+
+### Not in this release
+
+- **On-chain storage of large payloads.** `source`/`inputs` inline into `specUri` (stored on-chain). Fine for demo-scale text; the scalable answer (content-addressed off-chain payload + on-chain hash) is deferred per ADR-0018.
+- Full on-chain e2e of a >1KB translation + 2-step chain — verified at unit level; live wallet run is a manual smoke.
+
+---
+
+## 2026-06-08 — M11.3.X: env-var executor fallback removed; orchestrator is sole executor authority — `decision`/`scope` (deployed Fly Base+Arc + Pages; commit `c30a4f9`)
 
 Follow-up cleanup to M11.3. The frontend's `resolveExecutorByType` env-var resolver (the `NEXT_PUBLIC_DEMO_*_ADDRESS` stem-matcher in `use-composite-demo.ts`) is **removed**. Executor selection is now exclusively the orchestrator's job via `AgentRegistryV2`.
 

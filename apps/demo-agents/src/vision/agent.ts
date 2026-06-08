@@ -20,7 +20,7 @@
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
-import { decodeCompositeSpec } from '../shared/composite-codec.js';
+import { decodeCompositeEnvelope, materialFromEnvelope } from '../shared/composite-codec.js';
 import { pollNewTasks } from '../shared/task-poller.js';
 import { awaitTaskState } from '../shared/await-task-state.js';
 import { TaskStatus, taskId } from '@sage/core';
@@ -86,24 +86,29 @@ async function describeUrl(imageUrl: string): Promise<string> {
 }
 
 async function describeOrExecute(specUri: string): Promise<string> {
-  const compositeSpec = decodeCompositeSpec(specUri);
+  const env = decodeCompositeEnvelope(specUri);
 
   if (config.openaiApiKey) {
-    if (compositeSpec !== null) {
-      const url = extractImageUrl(compositeSpec);
+    if (env !== null) {
+      // The image URL lives in the material (source = original brief, or an
+      // upstream result) per ADR-0018; fall back to the spec for legacy
+      // envelopes that embedded the URL in the instruction.
+      const material = materialFromEnvelope(env);
+      const url = (material !== null ? extractImageUrl(material) : null) ?? extractImageUrl(env.spec);
       if (url) return describeUrl(url);
-      return 'Vision sub-task requires an image URL in the spec; the supplied instruction did not include one. Update the plan to embed an http(s) image URL.';
+      return 'Vision sub-task requires an image URL; neither the material nor the instruction included an http(s) URL. Update the plan to embed one.';
     }
     // 3-mode raw path: specUri itself IS the URL (per /api/demo/start validation).
     return describeUrl(specUri);
   }
 
   // Mock fallback
-  if (compositeSpec !== null) {
-    const url = extractImageUrl(compositeSpec);
+  if (env !== null) {
+    const material = materialFromEnvelope(env);
+    const url = (material !== null ? extractImageUrl(material) : null) ?? extractImageUrl(env.spec);
     return url
       ? `[MOCK COMPOSITE VISION] Would describe ${url}; no OpenAI key configured.`.slice(0, MAX_DESCRIPTION_CHARS)
-      : `[MOCK COMPOSITE VISION] Spec contained no image URL; instruction was: ${compositeSpec.slice(0, 80)}…`;
+      : `[MOCK COMPOSITE VISION] No image URL in material or instruction; instruction was: ${env.spec.slice(0, 80)}…`;
   }
   return `[MOCK VISION] Image at ${specUri} — mock describes a placeholder scene with neutral tone.`.slice(
     0,

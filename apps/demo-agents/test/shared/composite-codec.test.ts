@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 
 import {
   decodeCompositeSpec,
+  decodeCompositeEnvelope,
+  materialFromEnvelope,
   COMPOSITE_PREFIX,
 } from '../../src/shared/composite-codec.js';
 
@@ -71,6 +73,79 @@ describe('decodeCompositeSpec — fall-through to null', () => {
 
   it('returns null for envelope prefix only (empty payload)', () => {
     expect(decodeCompositeSpec(COMPOSITE_PREFIX)).toBeNull();
+  });
+});
+
+describe('decodeCompositeEnvelope — content fields (ADR-0018)', () => {
+  it('returns spec only for a legacy {parent, spec} envelope (back-compat)', () => {
+    const uri = envelope({ parent: { run: 'r', sub: 1 }, spec: 'do it' });
+    expect(decodeCompositeEnvelope(uri)).toEqual({ spec: 'do it' });
+  });
+
+  it('returns source when attached', () => {
+    const uri = envelope({
+      parent: { run: 'r', sub: 1 },
+      spec: 'Translate to French',
+      source: 'The quick brown fox.',
+    });
+    expect(decodeCompositeEnvelope(uri)).toEqual({
+      spec: 'Translate to French',
+      source: 'The quick brown fox.',
+    });
+  });
+
+  it('returns inputs keyed by numeric sub id', () => {
+    const uri = envelope({
+      parent: { run: 'r', sub: 2 },
+      spec: 'Summarize',
+      inputs: { 1: 'Le renard brun rapide.' },
+    });
+    expect(decodeCompositeEnvelope(uri)).toEqual({
+      spec: 'Summarize',
+      inputs: { 1: 'Le renard brun rapide.' },
+    });
+  });
+
+  it('drops malformed inputs entries but keeps the decode', () => {
+    const uri = envelope({
+      parent: { run: 'r', sub: 2 },
+      spec: 'Summarize',
+      inputs: { 1: 'ok', 0: 'bad-key', 2: 99, abc: 'bad-key' },
+    });
+    expect(decodeCompositeEnvelope(uri)).toEqual({ spec: 'Summarize', inputs: { 1: 'ok' } });
+  });
+
+  it('omits inputs entirely when it has no valid entries', () => {
+    const uri = envelope({ parent: { run: 'r', sub: 1 }, spec: 'x', inputs: {} });
+    expect(decodeCompositeEnvelope(uri)).toEqual({ spec: 'x' });
+  });
+
+  it('returns null for raw text (3-mode path)', () => {
+    expect(decodeCompositeEnvelope('Some raw article content.')).toBeNull();
+  });
+});
+
+describe('materialFromEnvelope — ADR-0018 material convention', () => {
+  it('prefers inputs (dependent sub-task) over source', () => {
+    const env = { spec: 'Summarize', source: 'original', inputs: { 1: 'upstream result' } };
+    expect(materialFromEnvelope(env)).toBe('upstream result');
+  });
+
+  it('concatenates multiple inputs in ascending sub-id order', () => {
+    const env = { spec: 'Merge', inputs: { 2: 'second', 1: 'first', 10: 'third' } };
+    expect(materialFromEnvelope(env)).toBe('first\n\nsecond\n\nthird');
+  });
+
+  it('falls back to source for a root sub-task', () => {
+    expect(materialFromEnvelope({ spec: 'Translate', source: 'hello' })).toBe('hello');
+  });
+
+  it('returns null when neither inputs nor source present (spec-only)', () => {
+    expect(materialFromEnvelope({ spec: 'self-contained instruction' })).toBeNull();
+  });
+
+  it('returns null when source is an empty string', () => {
+    expect(materialFromEnvelope({ spec: 'x', source: '' })).toBeNull();
   });
 });
 

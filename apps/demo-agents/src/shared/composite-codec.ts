@@ -38,6 +38,33 @@ export const COMPOSITE_PREFIX = 'data:application/json,';
  * handling. Callers should not treat `null` as an error.
  */
 export function decodeCompositeSpec(specUri: string): string | null {
+  const env = decodeCompositeEnvelope(specUri);
+  return env ? env.spec : null;
+}
+
+/**
+ * Decoded composite envelope from a worker's point of view (ADR-0018):
+ *   - `spec`    — the instruction (what to do);
+ *   - `source`  — the original payload, material for a root sub-task;
+ *   - `inputs`  — upstream dependency results keyed by sub id, material for a
+ *                 dependent sub-task.
+ * `source`/`inputs` are present only when the parent attached them.
+ */
+export interface CompositeEnvelope {
+  spec: string;
+  source?: string;
+  inputs?: Record<number, string>;
+}
+
+/**
+ * Decode the full composite envelope. Returns the `{spec, source?, inputs?}`
+ * object for a well-formed envelope, or `null` for any non-envelope /
+ * malformed URI (the dual-mode signal to fall back to 3-mode raw handling).
+ *
+ * Permissive on optional fields: a malformed `source`/`inputs` is dropped,
+ * never failing the decode — the worker can still act on `spec` alone.
+ */
+export function decodeCompositeEnvelope(specUri: string): CompositeEnvelope | null {
   if (!specUri.startsWith(COMPOSITE_PREFIX)) return null;
   let decoded: string;
   try {
@@ -52,7 +79,49 @@ export function decodeCompositeSpec(specUri: string): string | null {
     return null;
   }
   if (!parsed || typeof parsed !== 'object') return null;
-  const p = parsed as { spec?: unknown; parent?: unknown };
+  const p = parsed as { spec?: unknown; parent?: unknown; source?: unknown; inputs?: unknown };
   if (typeof p.spec !== 'string' || !p.parent) return null;
-  return p.spec;
+  const env: CompositeEnvelope = { spec: p.spec };
+  if (typeof p.source === 'string') env.source = p.source;
+  const inputs = parseInputs(p.inputs);
+  if (inputs !== undefined) env.inputs = inputs;
+  return env;
+}
+
+/**
+ * Materialize the worker's working text from an envelope per the ADR-0018
+ * convention: prefer `inputs` (this is a dependent sub-task — operate on the
+ * upstream result), else `source` (root sub-task), else `null` (let the caller
+ * fall back to treating `spec` as self-contained). Multiple `inputs` are
+ * concatenated in ascending sub-id order, separated by a blank line.
+ */
+export function materialFromEnvelope(env: CompositeEnvelope): string | null {
+  if (env.inputs) {
+    const ids = Object.keys(env.inputs)
+      .map(Number)
+      .filter((n) => Number.isInteger(n))
+      .sort((a, b) => a - b);
+    if (ids.length > 0) {
+      return ids.map((id) => env.inputs![id]).join('\n\n');
+    }
+  }
+  if (typeof env.source === 'string' && env.source.length > 0) {
+    return env.source;
+  }
+  return null;
+}
+
+/** Worker-side counterpart of the parent codec's input validator. */
+function parseInputs(raw: unknown): Record<number, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<number, string> = {};
+  let count = 0;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(k);
+    if (!Number.isInteger(n) || n < 1) continue;
+    if (typeof v !== 'string') continue;
+    out[n] = v;
+    count += 1;
+  }
+  return count > 0 ? out : undefined;
 }

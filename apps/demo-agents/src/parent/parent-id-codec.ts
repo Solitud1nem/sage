@@ -10,12 +10,19 @@
  * Wire format:
  *   `data:application/json,<percent-encoded-JSON>`
  *
- * The decoded JSON object has shape:
- *   `{ "parent": { "run": "<runId>", "sub": <subTaskId> }, "spec": "<text>" }`
+ * The decoded JSON object has shape (per ADR-0018):
+ *   `{ "parent": { "run": "<runId>", "sub": <subTaskId> },
+ *      "spec": "<instruction>",
+ *      "source"?: "<original payload text>",
+ *      "inputs"?: { "<depSubId>": "<upstream result>", ... } }`
  *
- * The `spec` field carries the executor-facing instructions (what existing
- * workers like `summarizer/agent.ts` pass to OpenAI). The `parent` field is
- * what the off-chain indexer reads to rebuild the plan graph.
+ * The `spec` field carries the executor-facing INSTRUCTION (what to do). The
+ * optional `source` carries the original brief payload verbatim (the MATERIAL
+ * for a root sub-task), and `inputs` carries upstream dependency results keyed
+ * by sub id (the MATERIAL for a dependent sub-task) — see ADR-0018. Both are
+ * optional so the legacy `{parent, spec}` envelope and the 3-mode raw-text
+ * path keep working unchanged. The `parent` field is what the off-chain
+ * indexer reads to rebuild the plan graph.
  */
 
 export interface ParentId {
@@ -25,21 +32,46 @@ export interface ParentId {
   readonly sub: number;
 }
 
+/** Optional content fields attached to a sub-task envelope (ADR-0018). */
+export interface EnvelopeContent {
+  /** Original brief payload, verbatim — material for a root sub-task. */
+  readonly source?: string;
+  /** Upstream dependency results keyed by sub id — material for a dependent sub-task. */
+  readonly inputs?: Readonly<Record<number, string>>;
+}
+
+/** Full decoded envelope: linkage + instruction + optional material. */
+export interface DecodedEnvelope extends EnvelopeContent {
+  readonly parent: ParentId;
+  readonly spec: string;
+}
+
 const DATA_URI_PREFIX = 'data:application/json,';
 
 interface EncodedPayload {
   parent: ParentId;
   spec: string;
+  source?: string;
+  inputs?: Record<number, string>;
 }
 
 /**
- * Encode a parent_id and sub-task spec into a single `data:application/json`
- * specUri ready to be passed to `TaskEscrow.createTask`.
+ * Encode a parent_id, sub-task spec, and optional content into a single
+ * `data:application/json` specUri ready for `TaskEscrow.createTask`.
  *
- * @param parent  Parent run + sub-task identifier pair.
- * @param spec    Executor-facing instructions for this sub-task.
+ * `source`/`inputs` keys are omitted entirely when not supplied, so the wire
+ * format is byte-identical to the legacy `{parent, spec}` envelope for
+ * callers that don't pass content (back-compat).
+ *
+ * @param parent   Parent run + sub-task identifier pair.
+ * @param spec     Executor-facing instruction for this sub-task.
+ * @param content  Optional `{source, inputs}` material (ADR-0018).
  */
-export function encodeParentId(parent: ParentId, spec: string): string {
+export function encodeParentId(
+  parent: ParentId,
+  spec: string,
+  content?: EnvelopeContent,
+): string {
   if (!Number.isInteger(parent.sub) || parent.sub < 1) {
     throw new Error(`encodeParentId: sub must be a positive integer, got ${parent.sub}`);
   }
@@ -47,6 +79,14 @@ export function encodeParentId(parent: ParentId, spec: string): string {
     throw new Error('encodeParentId: run must be a non-empty string');
   }
   const payload: EncodedPayload = { parent: { run: parent.run, sub: parent.sub }, spec };
+  if (content?.source !== undefined) {
+    payload.source = content.source;
+  }
+  // Only attach `inputs` when it carries at least one entry — an empty object
+  // is indistinguishable from "no upstream material" and just bloats the URI.
+  if (content?.inputs && Object.keys(content.inputs).length > 0) {
+    payload.inputs = { ...content.inputs };
+  }
   return `${DATA_URI_PREFIX}${encodeURIComponent(JSON.stringify(payload))}`;
 }
 
@@ -78,6 +118,43 @@ export function decodeSpec(specUri: string): string | null {
   return payload.spec;
 }
 
+/**
+ * Decode the full envelope — linkage + instruction + optional `source`/`inputs`
+ * material (ADR-0018). Returns `null` for non-envelope or malformed URIs.
+ * Optional content fields are included only when present and well-typed;
+ * malformed optional fields are dropped (permissive), never failing the decode.
+ */
+export function decodeEnvelope(specUri: string): DecodedEnvelope | null {
+  const payload = decodePayload(specUri);
+  if (!payload) return null;
+  const env: DecodedEnvelope = { parent: payload.parent, spec: payload.spec };
+  return {
+    ...env,
+    ...(payload.source !== undefined ? { source: payload.source } : {}),
+    ...(payload.inputs !== undefined ? { inputs: payload.inputs } : {}),
+  };
+}
+
+/**
+ * Validate the optional `inputs` field. JSON object keys are strings, so we
+ * rebuild a `Record<number, string>` from numeric-string keys, dropping any
+ * entry whose key isn't a positive integer or whose value isn't a string.
+ * Returns undefined when the field is absent or yields no valid entries.
+ */
+function parseInputs(raw: unknown): Record<number, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<number, string> = {};
+  let count = 0;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(k);
+    if (!Number.isInteger(n) || n < 1) continue;
+    if (typeof v !== 'string') continue;
+    out[n] = v;
+    count += 1;
+  }
+  return count > 0 ? out : undefined;
+}
+
 function decodePayload(specUri: string): EncodedPayload | null {
   if (typeof specUri !== 'string' || !specUri.startsWith(DATA_URI_PREFIX)) return null;
   const encoded = specUri.slice(DATA_URI_PREFIX.length);
@@ -100,5 +177,9 @@ function decodePayload(specUri: string): EncodedPayload | null {
   if (typeof run !== 'string' || run.length === 0) return null;
   if (typeof sub !== 'number' || !Number.isInteger(sub) || sub < 1) return null;
   if (typeof p.spec !== 'string') return null;
-  return { parent: { run, sub }, spec: p.spec };
+  const result: EncodedPayload = { parent: { run, sub }, spec: p.spec };
+  if (typeof p.source === 'string') result.source = p.source;
+  const inputs = parseInputs(p.inputs);
+  if (inputs !== undefined) result.inputs = inputs;
+  return result;
 }
