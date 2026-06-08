@@ -45,6 +45,19 @@
 
 **Next milestone: M11.2 — AgentRegistry V2 (capability + endpoint + price).** Demo-agents (own 4) register first; foreign agents in M11.3.
 
+### 2026-06-08 (M11.2 close) — AgentRegistryV2 LIVE (v3.1.0 tag)
+
+- **Contract:** `0x8df78599868Ec740C26F0eb0b660519b166cDd9e` on Base mainnet + Sepolia (same address — ADR-0001 invariant under registry-owner-only constructor). Owner = sponsor. Verified on both.
+- **Demo workers registered on mainnet:** 4/4 via `RegisterDemoAgents.s.sol` — capability + 0.001 USDC flat price each. agentCount = 4.
+- **SDK + types:** `RegistryCapability`, `AgentRecordV2`, `AgentClientV2`, `createAgentRegistryV2Client`. v1 `AgentClient` preserved for legacy.
+- **Chain config:** new optional `agentRegistryV2` field added to `chains/base.ts` (both adapter-evm + apps/web). v1 `agentRegistry` unchanged — registries are parallel by design (v1/v2 signatures differ on `registerAgent`).
+- **Cloudflare Pages:** deploy `8757ee0c`. **Fly orchestrator NOT redeployed** — no current consumer reads the registry; first consumer ships with M11.3 plan-editor.
+- **Tests:** 149/149 Foundry (37 new V2 registry, 256-run fuzz). 30/30 adapter-evm SDK. Slither zero findings on V2 registry.
+- **Tag:** `v3.1.0` on CHANGELOG commit.
+- **Verification fallback noted:** Basescan auto-verify failed on mainnet (CREATE3 quirk); manual `forge verify-contract` with explicit `--constructor-args` worked second try. Same fallback that helped TaskEscrowV2.
+
+**Next milestone: M11.3 — onboard first foreign agent via registry-driven discovery.** Plan-editor / classifier reads V2 registry by capability → picks executor → spawns task to a non-Sage-hosted worker. This is where the platform angle becomes operationally visible.
+
 ---
 
 ## Open questions (по приоритету)
