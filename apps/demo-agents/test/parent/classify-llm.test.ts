@@ -196,6 +196,90 @@ describe('classifyBrief — real LLM path', () => {
   });
 });
 
+describe('classifyBrief — registry executor resolution (M11.3.X)', () => {
+  const REGISTRY_ADDR = '0xa61b00000000000000000000000000000000001c' as const;
+  const ECHO_ADDR = '0xdeadbeef00000000000000000000000000001234' as const;
+
+  /** Raw single-subtask classification whose sub-task carries an LLM-emitted executor. */
+  function rawWithExecutor(executor?: string): string {
+    return JSON.stringify({
+      decomposability: 'one-shot',
+      stakes: 'low',
+      confidence_decomposability: 0.9,
+      confidence_stakes: 0.95,
+      estimated_total_cost_units: '100000',
+      estimated_duration_ms: 8000,
+      proposed_plan: [
+        {
+          id: 1,
+          type: 'translate-text',
+          estimated_cost_units: '100000',
+          deadline_offset_s: 600,
+          spec: 'translate me',
+          ...(executor ? { executor_address: executor } : {}),
+        },
+      ],
+      reasoning: 'single translation',
+      signal_trace: { lexical: ['translate'], semantic: [], stakes: [] },
+    });
+  }
+
+  it('fills executor_address + price from the registry on the mock path', async () => {
+    const resolveExecutor = vi.fn(() => ({
+      address: REGISTRY_ADDR,
+      price: 1000n,
+      capability: 'translate',
+    }));
+    const r = await classifyBrief('translate this paragraph', {
+      useMock: true,
+      resolveExecutor,
+    });
+    expect(r.proposed_plan[0]?.executor_address).toBe(REGISTRY_ADDR);
+    // Registry price overrides the classifier's cost estimate.
+    expect(r.proposed_plan[0]?.estimated_cost_units).toBe(1000n);
+    expect(resolveExecutor).toHaveBeenCalledWith('translate-text');
+  });
+
+  it('leaves the sub-task unassigned when the registry has no match', async () => {
+    const r = await classifyBrief('translate this paragraph', {
+      useMock: true,
+      resolveExecutor: () => null,
+    });
+    expect(r.proposed_plan[0]?.executor_address).toBeUndefined();
+  });
+
+  it('strips an LLM-echoed executor and overrides it with the registry pick', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(okResponse(rawWithExecutor(ECHO_ADDR)));
+    const r = await classifyBrief('translate this for wallet 0xDEAD…', {
+      openaiApiKey: 'sk-test',
+      fetchImpl: fetchMock,
+      resolveExecutor: () => ({ address: REGISTRY_ADDR, price: 500n, capability: 'translate' }),
+    });
+    // The echoed recipient address must NOT survive — registry wins.
+    expect(r.proposed_plan[0]?.executor_address).toBe(REGISTRY_ADDR);
+    expect(r.proposed_plan[0]?.estimated_cost_units).toBe(500n);
+  });
+
+  it('strips an LLM-echoed executor even when the registry returns null', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(okResponse(rawWithExecutor(ECHO_ADDR)));
+    const r = await classifyBrief('translate this for wallet 0xDEAD…', {
+      openaiApiKey: 'sk-test',
+      fetchImpl: fetchMock,
+      resolveExecutor: () => null,
+    });
+    expect(r.proposed_plan[0]?.executor_address).toBeUndefined();
+  });
+
+  it('strips an LLM-echoed executor when no resolver is wired (e.g. Arc, no V2 registry)', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(okResponse(rawWithExecutor(ECHO_ADDR)));
+    const r = await classifyBrief('translate this for wallet 0xDEAD…', {
+      openaiApiKey: 'sk-test',
+      fetchImpl: fetchMock,
+    });
+    expect(r.proposed_plan[0]?.executor_address).toBeUndefined();
+  });
+});
+
 describe('validateAndConvert — schema enforcement', () => {
   const { validateAndConvert } = __testing;
 

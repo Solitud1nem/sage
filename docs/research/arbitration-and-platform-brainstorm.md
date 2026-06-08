@@ -73,6 +73,16 @@
 - **M11.6 — indexer (axis A7).** Aggregates TaskPaid / TaskDisputed / TaskResolved / Refunded into a reputation surface. Unblocks plan-editor showing executor reputation alongside price.
 - **Real foreign-agent onboarding template** — a self-registering worker stub that operators can fork. Light-touch but needs design.
 
+### 2026-06-08 (M11.3.X close) — env-var executor fallback removed; orchestrator sole authority
+
+- **Decision:** clean removal (not a thin-fallback variant). Frontend `resolveExecutorByType` / `isKnownWorker` / `KNOWN_WORKER_ADDRESSES` deleted from `use-composite-demo.ts`. Executor selection is exclusively orchestrator-side via `AgentRegistryV2`.
+- **Found two non-cosmetic things during scoping** (this was NOT a one-liner delete):
+  1. The old `isKnownWorker` gate only trusted the 4 demo-worker env addresses → a registry-resolved **foreign** agent failed the gate and got silently re-routed to a demo worker, *defeating M11.3's whole point*. Removal closes that.
+  2. `isKnownWorker` also defended against the LLM echoing a brief's recipient address into `executor_address`. So pure deletion would reopen that hole. Fix: orchestrator `classifyBrief` now **always strips** the LLM-emitted `executor_address` before registry resolution — the model never designates the executor. Invariant holds even on chains with no resolver (Arc).
+- **Arc consequence accepted (Alex, 2026-06-08):** Arc has no V2 registry → Arc composite now needs manual executor assignment in the plan-editor. Documented in CHANGELOG + GOTCHAS + arc-bridge memory. Base = clean registry-only path. Parity returns with a V2 registry on Arc.
+- **Tests:** 5 new in `classify-llm.test.ts`. demo-agents 147/147; web typecheck clean.
+- **NOT deployed** this session — cutover (Fly + Pages) is a separate step.
+
 ---
 
 ## Open questions (по приоритету)

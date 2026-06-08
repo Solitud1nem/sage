@@ -708,14 +708,23 @@ export async function classifyBrief(
     stakes_cues: addedStakes,
   });
 
-  // M11.3: registry-driven executor selection. For each sub-task without
-  // an LLM-emitted executor_address, ask the resolver. If found, populate
-  // address + estimated_cost_units from registry price. Sub-tasks for which
-  // the resolver returns null keep their fields empty — frontend's
-  // env-var resolver picks up as fallback.
+  // M11.3.X: the orchestrator is the sole authority on executor selection.
+  // First strip any LLM-emitted `executor_address` unconditionally — the
+  // model classifies capability, it never designates *who* executes; left
+  // unchecked it occasionally echoes a recipient address from the brief
+  // (e.g. "summarize wallet 0xABC…") into this field (GOTCHAS 2026-05-22).
+  // Then, when a registry resolver is wired (chains with AgentRegistryV2),
+  // fill `executor_address` + `estimated_cost_units` from the registry.
+  // Sub-tasks the registry can't resolve — and every sub-task on chains
+  // without a V2 registry (e.g. Arc) — arrive with no executor; the
+  // frontend surfaces them as unassigned for manual pick in the plan-editor.
+  const stripped = {
+    ...adjusted,
+    proposed_plan: adjusted.proposed_plan.map(stripExecutor),
+  };
   const withRegistry = env.resolveExecutor
-    ? { ...adjusted, proposed_plan: augmentPlanFromRegistry(adjusted.proposed_plan, env.resolveExecutor) }
-    : adjusted;
+    ? { ...stripped, proposed_plan: augmentPlanFromRegistry(stripped.proposed_plan, env.resolveExecutor) }
+    : stripped;
 
   trace('parent.classify.completed', {
     mode,
@@ -733,17 +742,29 @@ export async function classifyBrief(
 }
 
 /**
+ * Drop any `executor_address` from a sub-task. Used to neutralize
+ * LLM-emitted addresses before registry resolution — the model never gets
+ * to pick the executor (see `classifyBrief`). Returns the sub-task
+ * unchanged when no address is present.
+ */
+function stripExecutor(sub: SubTask): SubTask {
+  if (!sub.executor_address) return sub;
+  const { executor_address: _stripped, ...rest } = sub;
+  return rest;
+}
+
+/**
  * Apply registry-resolver to each sub-task. Pure data transformation; no
- * I/O. Sub-tasks that already have `executor_address` set by the LLM are
- * passed through unchanged (frontend's guards strip hallucinated addresses
- * downstream).
+ * I/O. Callers pass a plan whose `executor_address` fields are already
+ * stripped (see `stripExecutor`), so the registry is the only source of an
+ * executor here. Sub-tasks the resolver can't match keep no executor — the
+ * frontend surfaces them as unassigned for a manual pick.
  */
 function augmentPlanFromRegistry(
   proposedPlan: readonly SubTask[],
   resolveExecutor: RegistryResolver,
 ): SubTask[] {
   return proposedPlan.map((sub) => {
-    if (sub.executor_address) return sub;
     const match = resolveExecutor(sub.type);
     if (match === null) return sub;
     return {

@@ -8,6 +8,23 @@
 
 ---
 
+## 2026-06-08 — M11.3.X: env-var executor fallback removed; orchestrator is sole executor authority — `decision`/`scope` (code landed, NOT yet deployed)
+
+Follow-up cleanup to M11.3. The frontend's `resolveExecutorByType` env-var resolver (the `NEXT_PUBLIC_DEMO_*_ADDRESS` stem-matcher in `use-composite-demo.ts`) is **removed**. Executor selection is now exclusively the orchestrator's job via `AgentRegistryV2`.
+
+**Why it mattered (not cosmetic):** the old frontend `isKnownWorker` trust gate only trusted the 4 demo-worker env addresses. A registry-resolved **foreign** agent address failed that gate → the frontend silently re-routed it to a demo worker, defeating the M11.3 platform substrate. Removing the gate closes that hole.
+
+**Changes:**
+- `apps/demo-agents/src/parent/classify.ts` — `classifyBrief` now **always strips** any LLM-emitted `executor_address` (the model classifies capability, it never designates the executor — closes the LLM-echoes-recipient-address hole from GOTCHAS 2026-05-22 at the source), then `augmentPlanFromRegistry` fills address + `estimated_cost_units` from the registry. Registry-miss → no executor.
+- `apps/web/hooks/use-composite-demo.ts` — deleted `resolveExecutorByType`, `isKnownWorker`, `KNOWN_WORKER_ADDRESSES`, and this file's `NEXT_PUBLIC_DEMO_*_ADDRESS` reads. `autoAssignExecutor` reduces to: high-stakes → strip executor (ADR-0007 §5 guard preserved); otherwise trust the orchestrator-supplied (registry-derived) address as-is; absent → unassigned for manual pick in the plan-editor. (`plan-editor.tsx` / `replan-prompt.tsx` / `use-wallet-demo.ts` keep their env-var reads — those are a manual-pick dropdown and the separate wallet demo, unaffected.)
+- Tests: 5 new in `classify-llm.test.ts` (registry fills addr+price on mock path; registry-miss leaves unassigned; LLM-echo stripped + overridden by registry; LLM-echo stripped on registry-miss; LLM-echo stripped with no resolver wired). **147/147** in demo-agents. Web typecheck clean.
+
+**Arc consequence (accepted):** Arc testnet has no `AgentRegistryV2` (ADR-0015 bridge contracts only), so on Arc the orchestrator returns plans with no executor addresses. With the env-var fallback gone, **Arc composite now requires manual executor assignment in the plan-editor** (previously auto-assigned via the env-var resolver). Base is the clean registry-only path; Arc parity returns when a V2 registry is deployed there. See GOTCHAS + [[project-arc-bridge-live]] memory.
+
+**Not deployed this session.** Cutover (Fly orchestrator redeploy + Pages redeploy) is a separate step.
+
+---
+
 ## 2026-06-08 (later still) — Registry-driven executor discovery on prod — `v3.2.0`
 
 M11.3: the composite classifier now reads `AgentRegistryV2` on every classify call and picks executor per sub-task by capability + price, instead of the hardcoded `NEXT_PUBLIC_DEMO_*_ADDRESS` env-var mapping baked into the web frontend. Live verification on Base mainnet: a brief `"Translate ... and then summarize ..."` returns a 2-sub-task plan with `executor_address` set to the registered Translator + Summarizer EOAs and `estimated_cost_units` taken from registry price — values that came from on-chain reads, not config.

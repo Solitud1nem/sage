@@ -635,12 +635,18 @@ async function safeJson(res: Response): Promise<unknown> {
  * The plan-card uses this for the "Approve as-is" path; the editor can splice
  * in changes before passing the result to `approve()`.
  *
- * Auto-resolves `executor_address` per sub-task by mapping `type` against the
- * known worker registry (NEXT_PUBLIC_DEMO_*_ADDRESS). Neither the mock nor the
- * LLM classifier sets `executor_address`, but the plan-runner requires one
- * before spawning a TaskEscrow — so we resolve at the seam between
- * classification (capability tag) and execution (concrete address). User can
- * still override via plan-editor.
+ * Executor assignment is the orchestrator's job now (M11.3.X): the
+ * `/classify` endpoint strips any LLM-emitted `executor_address` and fills
+ * it from AgentRegistryV2 (capability → cheapest active agent) before this
+ * code ever sees the plan. So we trust `sub.executor_address` as-is for
+ * low-stakes plans. Two cases still need handling here:
+ *
+ *   - High-stakes plans → strip the executor so the user must deliberately
+ *     pick one in the plan-editor (the defensive read of the stakes axis,
+ *     ADR-0007 §5; GOTCHAS 2026-05-22).
+ *   - Sub-tasks with no executor (registry miss, or chains without a V2
+ *     registry such as Arc) → left unassigned; the user picks in the
+ *     plan-editor before approving.
  */
 export function planFromClassification(
   brief: string,
@@ -657,30 +663,11 @@ export function planFromClassification(
 }
 
 /**
- * Lowercased allowlist of the four production worker addresses, derived
- * from the same env vars the plan-editor reads. Computed once per module
- * load — sponsor's worker set doesn't change at runtime.
- */
-const KNOWN_WORKER_ADDRESSES: readonly string[] = [
-  process.env.NEXT_PUBLIC_DEMO_SUMMARIZER_ADDRESS,
-  process.env.NEXT_PUBLIC_DEMO_TRANSLATOR_ADDRESS,
-  process.env.NEXT_PUBLIC_DEMO_SENTIMENT_ADDRESS,
-  process.env.NEXT_PUBLIC_DEMO_VISION_ADDRESS,
-]
-  .filter((a): a is string => !!a && /^0x[a-fA-F0-9]{40}$/.test(a))
-  .map((a) => a.toLowerCase());
-
-function isKnownWorker(addr: string | undefined): boolean {
-  if (!addr) return false;
-  return KNOWN_WORKER_ADDRESSES.includes(addr.toLowerCase());
-}
-
-/**
  * Type-stems that imply an irreversible / high-value side effect. For these,
- * we deliberately *do not* auto-route to the summarizer fallback — the
- * intent is to surface them as "unassigned" in plan-card so the user must
- * either pick a deliberate executor in the editor or cancel. This is the
- * defensive interpretation of the stakes axis (ADR-0007 §5).
+ * we deliberately strip any executor so the sub-task surfaces as
+ * "unassigned" in plan-card and the user must pick a deliberate executor in
+ * the editor or cancel. This is the defensive interpretation of the stakes
+ * axis (ADR-0007 §5).
  */
 const HIGH_STAKES_TYPE_STEMS: readonly string[] = [
   'transfer',
@@ -700,120 +687,25 @@ function autoAssignExecutor(
   sub: WireSubTask,
   planStakes: 'low' | 'high',
 ): WireSubTask {
-  // Block auto-routing for ANY high-stakes plan, regardless of whether
-  // the per-subtask `type` stem matches our `HIGH_STAKES_TYPE_STEMS` list.
-  // The classifier emits `stakes: high` at the plan level when the brief
-  // is irreversible / financial, but the per-subtask `type` it produces
-  // is unpredictable (`crypto-transaction`, `usdc-transaction`,
-  // `wallet-action` — none of which stem-match `send`/`transfer`/etc.).
-  // Trusting only type-stem matching let high-stakes plans slip through
-  // auto-routing — observed 2026-05-22 with the "Send 0.1 USDC to 0x…"
-  // smoke. plan-level `stakes` is the authoritative axis; type-stem is
-  // a secondary belt for low-stakes plans that nevertheless carry one
-  // pay-shaped sub-task.
-  //
-  // This MUST run before the `isKnownWorker` trust check below — the
-  // LLM sometimes echoes a recipient address from the brief into
-  // `executor_address`, and if that recipient address coincidentally
-  // matches one of our 4 known worker EOAs, the trust check would
-  // silently pass and the guard wouldn't fire. See GOTCHAS 2026-05-22.
+  // Strip the executor for ANY high-stakes plan, regardless of whether the
+  // per-subtask `type` stem matches `HIGH_STAKES_TYPE_STEMS`. The classifier
+  // emits `stakes: high` at the plan level when the brief is irreversible /
+  // financial, but the per-subtask `type` it produces is unpredictable
+  // (`crypto-transaction`, `usdc-transaction`, `wallet-action` — none of
+  // which stem-match `send`/`transfer`/etc.). plan-level `stakes` is the
+  // authoritative axis; type-stem is a secondary belt for low-stakes plans
+  // that nevertheless carry one pay-shaped sub-task. Observed 2026-05-22
+  // with the "Send 0.1 USDC to 0x…" smoke.
   if (planStakes === 'high' || isHighStakesType(sub.type)) {
     const { executor_address: _stripped, ...rest } = sub;
     return rest;
   }
 
-  // Trust the classifier's `executor_address` ONLY if it's one of our
-  // 4 production workers. The LLM occasionally echoes addresses from the
-  // brief text into this field — e.g. a "send $500 to 0xABCDeF…" brief
-  // makes the recipient address show up as the executor. Allowing that
-  // through would mint a TaskEscrow with an unrelated party as the
-  // designated executor; harmless in practice (no one watches that
-  // address, the task times out and refunds) but a real trust-boundary
-  // violation. Strip and re-resolve via stem matcher.
-  const llmAddr = sub.executor_address;
-  if (llmAddr && isKnownWorker(llmAddr)) return sub;
-
-  const resolved = resolveExecutorByType(sub.type);
-  // Strip any LLM-emitted address first so we don't keep a hallucinated
-  // value if stem-resolution returns undefined.
-  const { executor_address: _stripped, ...rest } = sub;
-  return resolved ? { ...rest, executor_address: resolved } : rest;
-}
-
-/**
- * Lookup table mapping a sub-task `type` (the capability tag emitted by the
- * classifier — `summarize-text`, `translate-text`, etc.) to a concrete
- * executor address. Falls back across normalized variants (`summarize` →
- * `summarize-text`) so LLM-emitted shorthand still resolves.
- *
- * Sources: `NEXT_PUBLIC_DEMO_*_ADDRESS` baked at build time from `.env.local`
- * (or future GH Actions repo vars). When the var is absent the slot returns
- * undefined → the sub-task surfaces as "unassigned" in plan-card and the
- * user has to pick via plan-editor before approving.
- */
-function resolveExecutorByType(type: string): `0x${string}` | undefined {
-  const summarizer = process.env.NEXT_PUBLIC_DEMO_SUMMARIZER_ADDRESS;
-  const translator = process.env.NEXT_PUBLIC_DEMO_TRANSLATOR_ADDRESS;
-  const sentiment = process.env.NEXT_PUBLIC_DEMO_SENTIMENT_ADDRESS;
-  const vision = process.env.NEXT_PUBLIC_DEMO_VISION_ADDRESS;
-
-  // Stem-based substring matching. The LLM-driven classifier emits types
-  // in unpredictable shapes: noun forms (`translation`, `summarization`,
-  // `sentiment-classification`), verb forms (`translate`, `summarize`),
-  // canonical mock-template tags (`translate-text`, `summarize-text`),
-  // and ad-hoc compounds (`image-description`, `comparative-analysis`).
-  // Hard-coding every variant fails on the next novel string. Instead we
-  // map a CAPABILITY to a list of STEMS that indicate it, and pick the
-  // first bucket whose stem occurs in the lowercased type.
-  //
-  // Order matters when stems overlap (translator before summarizer so
-  // "translate-and-summarize" → translator wins). Add new stems freely
-  // — over-matching is cheaper than under-matching (UX-wise: defaulting
-  // to summarizer is benign; "unassigned" blocks execution).
-  const lower = type.toLowerCase();
-  const buckets: Array<{ stems: readonly string[]; address: string | undefined }> = [
-    { stems: ['translat'], address: translator },
-    { stems: ['sentiment', 'classif', 'emotion', 'tone', 'mood'], address: sentiment },
-    { stems: ['vision', 'image', 'visual', 'describ', 'caption', 'ocr'], address: vision },
-    {
-      stems: [
-        'summari', 'summary',
-        'compar', 'compose', 'composit',
-        'research', 'analy', 'synthes',
-        'write', 'writing', 'report',
-        'extract', 'review',
-      ],
-      address: summarizer,
-    },
-  ];
-
-  for (const { stems, address } of buckets) {
-    if (stems.some((stem) => lower.includes(stem))) {
-      if (address && /^0x[a-fA-F0-9]{40}$/.test(address)) {
-        return address as `0x${string}`;
-      }
-    }
-  }
-
-  // Default fallback: the summarizer (in dual-mode it executes any text task).
-  // The alternative — `undefined` → "unassigned" → plan-runner refuses to
-  // spawn → plan dies — is too punishing for the realistic case where the
-  // LLM emits a novel type (`flights`, `itinerary`, `budget`, `phrasebook`,
-  // …) we haven't enumerated. Better to attempt execution with best-effort
-  // output than to block the whole plan on one unknown capability. Users
-  // can still override per-subtask in the plan-editor.
-  // Trade-off: composite plans with unusual types route everything to one
-  // worker. Acceptable for v1; M10.5 + Phase B introduce a worker manifest
-  // and proper capability resolution.
-  if (typeof window !== 'undefined') {
-    // Browser-only log so the operator can see this in DevTools when
-    // troubleshooting; no need to ship the warning in SSR/prerender.
-    console.warn(
-      `[composite] type "${type}" had no stem match — defaulting to summarizer`,
-    );
-  }
-  if (summarizer && /^0x[a-fA-F0-9]{40}$/.test(summarizer)) {
-    return summarizer as `0x${string}`;
-  }
-  return undefined;
+  // Low-stakes: trust `sub.executor_address` as supplied by the orchestrator.
+  // It is registry-derived — the `/classify` endpoint stripped any
+  // LLM-emitted address and resolved the executor from AgentRegistryV2, so
+  // there is no hallucinated-recipient risk to guard against here anymore.
+  // Absent → the registry had no match (or the chain has no V2 registry, e.g.
+  // Arc) → surface as unassigned for a manual pick in the plan-editor.
+  return sub;
 }
