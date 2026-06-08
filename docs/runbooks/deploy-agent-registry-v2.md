@@ -83,9 +83,57 @@ After both Sepolia + mainnet deploys verified:
 2. `apps/web/chains/base.ts` — same.
 3. Rebuild + redeploy Fly orchestrator + Cloudflare Pages.
 
-## Register demo-agents
+## Register demo-agents (M11.2.11)
 
-The 4 demo-agent EOAs (summarizer / translator / vision / sentiment) need to register in v2 with their capabilities + prices. One-time script — see `packages/contracts/script/RegisterDemoAgents.s.sol` (TBD, M11.2.11).
+The 4 demo-agent EOAs need to register in v2 with their capability + price. One-time script `packages/contracts/script/RegisterDemoAgents.s.sol` does all four in one Foundry run — each worker signs its own `registerAgent` tx with its own private key from env.
+
+Required env (in addition to deploy vars above):
+```
+REGISTRY_V2_ADDRESS=0x...           # set after deploy completes
+SUMMARIZER_PRIVATE_KEY=0x...        # from Fly secrets
+TRANSLATOR_PRIVATE_KEY=0x...
+SENTIMENT_PRIVATE_KEY=0x...
+VISION_PRIVATE_KEY=0x...
+```
+
+Run:
+```bash
+cd packages/contracts && source .env
+forge script script/RegisterDemoAgents.s.sol \
+  --rpc-url $BASE_MAINNET_RPC \
+  --broadcast \
+  -vvvv
+```
+
+Each worker needs ≥ 0.0001 ETH for gas. Per-worker gas ~250k at 0.006 gwei = 0.0000015 ETH each. Workers all have funded balances from earlier ops — verify before running:
+```bash
+for addr in 0x0DA5... 0xa61b... 0x5218... 0xB889...; do
+  cast balance $addr --rpc-url $BASE_MAINNET_RPC
+done
+```
+
+Capabilities + prices:
+
+| Worker | Capability | Price (USDC base units) |
+|---|---|---|
+| Summarizer | `summarize` | 1000 (= 0.001) |
+| Translator | `translate` | 1000 |
+| Sentiment | `sentiment-classify` | 1000 |
+| Vision | `vision-describe` | 1000 |
+
+Endpoint convention: `on-chain://task-events` (workers listen by polling TaskCreated, not HTTP push). profileUri empty for now.
+
+Script is **idempotent** — re-run skips already-registered agents. Safe to retry on partial failure.
+
+Post-registration verification:
+```bash
+cast call $REGISTRY_V2_ADDRESS "agentCount()(uint256)" --rpc-url $BASE_MAINNET_RPC
+# Expect: 4
+
+cast call $REGISTRY_V2_ADDRESS "getAgent(address)((address,string,string,(string,uint256)[],uint64,bool))" \
+  0x0DA5...2593 --rpc-url $BASE_MAINNET_RPC
+# Expect: summarizer record with capability "summarize" at 1000
+```
 
 ## Rollback
 
