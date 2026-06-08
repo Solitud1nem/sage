@@ -53,4 +53,4 @@ export { agentRegistryAbi, agentRegistryV2Abi, taskEscrowAbi, taskEscrowV2Abi } 
 export { createTaskEscrowV2Client } from './task-escrow-v2.js';
 
 // V2 agent-registry client (M11.2 platform layer)
-export { createAgentRegistryV2Client } from './agent-registry-v2.js';
+export { createAgentRegistryV2Client, listActiveAgentsV2 } from './agent-registry-v2.js';

@@ -46,6 +46,19 @@ function briefPreview(brief: string, n = 80): string {
 }
 
 /**
+ * Resolves an LLM-emitted task type to a registered executor in
+ * AgentRegistryV2 (M11.3). Returns `null` when no registry agent supports
+ * the capability — caller (frontend) falls back to env-var resolver.
+ *
+ * The orchestrator builds this callback by pre-fetching active agents from
+ * the registry and combining with `registry-resolver.ts` matching logic.
+ * Classifier code stays chain-agnostic by accepting the resolver as a callback.
+ */
+export type RegistryResolver = (
+  taskType: string,
+) => { address: `0x${string}`; price: bigint; capability: string } | null;
+
+/**
  * Runtime environment threaded through every parent-agent call.
  */
 export interface ParentEnv {
@@ -55,6 +68,14 @@ export interface ParentEnv {
   readonly useMock?: boolean;
   /** Override the `fetch` implementation used to call OpenAI. Test seam. */
   readonly fetchImpl?: typeof fetch;
+  /**
+   * Optional registry-driven executor resolver (M11.3). When provided,
+   * `classifyBrief` post-processes the proposed plan, filling
+   * `executor_address` + adjusting `estimated_cost_units` from the
+   * registry price. Absent or null result → field stays unset and frontend
+   * falls back to its env-var resolver.
+   */
+  readonly resolveExecutor?: RegistryResolver;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -687,16 +708,52 @@ export async function classifyBrief(
     stakes_cues: addedStakes,
   });
 
+  // M11.3: registry-driven executor selection. For each sub-task without
+  // an LLM-emitted executor_address, ask the resolver. If found, populate
+  // address + estimated_cost_units from registry price. Sub-tasks for which
+  // the resolver returns null keep their fields empty — frontend's
+  // env-var resolver picks up as fallback.
+  const withRegistry = env.resolveExecutor
+    ? { ...adjusted, proposed_plan: augmentPlanFromRegistry(adjusted.proposed_plan, env.resolveExecutor) }
+    : adjusted;
+
   trace('parent.classify.completed', {
     mode,
-    decomposability: adjusted.decomposability,
-    stakes: adjusted.stakes,
-    confidence_decomposability: adjusted.confidence_decomposability,
-    confidence_stakes: adjusted.confidence_stakes,
-    plan_len: adjusted.proposed_plan.length,
+    decomposability: withRegistry.decomposability,
+    stakes: withRegistry.stakes,
+    confidence_decomposability: withRegistry.confidence_decomposability,
+    confidence_stakes: withRegistry.confidence_stakes,
+    plan_len: withRegistry.proposed_plan.length,
+    registry_resolved: env.resolveExecutor
+      ? withRegistry.proposed_plan.filter((s) => !!s.executor_address).length
+      : 0,
   });
 
-  return adjusted;
+  return withRegistry;
+}
+
+/**
+ * Apply registry-resolver to each sub-task. Pure data transformation; no
+ * I/O. Sub-tasks that already have `executor_address` set by the LLM are
+ * passed through unchanged (frontend's guards strip hallucinated addresses
+ * downstream).
+ */
+function augmentPlanFromRegistry(
+  proposedPlan: readonly SubTask[],
+  resolveExecutor: RegistryResolver,
+): SubTask[] {
+  return proposedPlan.map((sub) => {
+    if (sub.executor_address) return sub;
+    const match = resolveExecutor(sub.type);
+    if (match === null) return sub;
+    return {
+      ...sub,
+      executor_address: match.address,
+      // Trust the registry price over the classifier estimate — agents
+      // priced themselves, that's the canonical figure.
+      estimated_cost_units: match.price,
+    };
+  });
 }
 
 /**

@@ -24,6 +24,55 @@ import { agentRegistryV2Abi } from './abi/index.js';
 
 type BoundWalletClient = WalletClient<Transport, Chain, Account>;
 
+/**
+ * Fetch all active agents from a V2 registry. Walks paginated `listAgents`
+ * with a default page size (50) until exhausted. Filters out inactive
+ * agents — discovery skips them.
+ *
+ * Read-only — does not require a wallet client. Pass `publicClient` only.
+ * Returns an empty array on a registry with no agents.
+ */
+export async function listActiveAgentsV2(
+  publicClient: PublicClient,
+  registryAddress: `0x${string}`,
+  options: { pageSize?: number; maxAgents?: number } = {},
+): Promise<AgentRecordV2[]> {
+  const pageSize = options.pageSize ?? 50;
+  const maxAgents = options.maxAgents ?? 1000;
+
+  const collected: AgentRecordV2[] = [];
+  let cursor = 0n;
+
+  while (collected.length < maxAgents) {
+    const result = await publicClient.readContract({
+      address: registryAddress,
+      abi: agentRegistryV2Abi,
+      functionName: 'listAgents',
+      args: [cursor, BigInt(pageSize)],
+    });
+
+    const [rawAgents, nextCursor] = result;
+    if (rawAgents.length === 0) break;
+
+    for (const a of rawAgents) {
+      if (!a.active) continue;
+      collected.push({
+        id: agentId(a.owner),
+        endpoint: a.endpoint,
+        profileUri: a.profileUri,
+        capabilities: a.capabilities.map(decodeCapability),
+        registeredAt: Number(a.registeredAt),
+        active: a.active,
+      });
+    }
+
+    if (nextCursor === 0n) break;
+    cursor = nextCursor;
+  }
+
+  return collected;
+}
+
 /** Convert a viem-decoded capability tuple into the SDK shape. */
 function decodeCapability(raw: { name: string; price: bigint }): RegistryCapability {
   return {

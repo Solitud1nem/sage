@@ -22,7 +22,9 @@ import { loadOrchestratorEnv } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
 import { startDemoRun, type DemoMode } from './demo-run.js';
 import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
-import type { Plan, SubTask } from '@sage/core';
+import { resolveExecutorFromRegistry } from '../parent/registry-resolver.js';
+import { listActiveAgentsV2 } from '@sage/adapter-evm';
+import type { AgentRecordV2, Plan, SubTask } from '@sage/core';
 
 const env = loadOrchestratorEnv();
 const config = loadConfig(env.port);
@@ -352,8 +354,26 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         json(res, 400, { error: 'brief must be a non-empty string' });
         return;
       }
+
+      // M11.3: fetch active agents from V2 registry once per classify call.
+      // foreign-agent registrations become visible to the next classify
+      // without redeploy. Failure is non-fatal — falls back to frontend
+      // env-var resolver if registry lookup errors out.
+      let registryAgents: AgentRecordV2[] = [];
+      const registryV2Addr = sageBundle.chainConfig.contracts.agentRegistryV2;
+      if (registryV2Addr) {
+        try {
+          registryAgents = await listActiveAgentsV2(sageBundle.publicClient, registryV2Addr);
+        } catch (regErr) {
+          console.error('[Orchestrator] registry V2 lookup failed, falling back:', regErr);
+        }
+      }
+
       const classification = await classifyBrief(body.brief, {
         ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
+        ...(registryAgents.length > 0
+          ? { resolveExecutor: (taskType: string) => resolveExecutorFromRegistry(taskType, registryAgents) }
+          : {}),
       });
       jsonWithBigints(res, 200, { classification });
     } catch (err) {
