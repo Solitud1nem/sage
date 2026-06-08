@@ -5,9 +5,12 @@ import {
   base,
   arcTestnet,
   createSageClient,
+  createTaskEscrowV2Client,
   agentRegistryAbi,
   taskEscrowAbi,
+  taskEscrowV2Abi,
 } from '../src/index.js';
+import { TaskStatus } from '@sage/core';
 
 describe('@sage/adapter-evm exports', () => {
   it('re-exports core protocol version', () => {
@@ -112,5 +115,98 @@ describe('ABI validation', () => {
       (item: any) => item.type === 'function' && item.name === 'GRACE_PERIOD',
     );
     expect(fn).toBeDefined();
+  });
+});
+
+describe('V2 arbitration surface (ADR-0017)', () => {
+  it('exports taskEscrowV2Abi', () => {
+    expect(taskEscrowV2Abi).toBeDefined();
+    expect(Array.isArray(taskEscrowV2Abi)).toBe(true);
+    expect(taskEscrowV2Abi.length).toBeGreaterThan(taskEscrowAbi.length);
+  });
+
+  it('exports createTaskEscrowV2Client factory', () => {
+    expect(typeof createTaskEscrowV2Client).toBe('function');
+  });
+
+  it('TaskStatus enum exposes Split (v3 terminal)', () => {
+    expect(TaskStatus.Split).toBe('Split');
+  });
+
+  it('taskEscrowV2Abi contains resolveDispute with correct signature', () => {
+    const fn = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'resolveDispute',
+    ) as { inputs: { type: string }[] } | undefined;
+    expect(fn).toBeDefined();
+    expect(fn!.inputs).toHaveLength(3);
+    expect(fn!.inputs[0]?.type).toBe('uint256'); // taskId
+    expect(fn!.inputs[1]?.type).toBe('uint8'); // outcome (TaskStatus enum)
+    expect(fn!.inputs[2]?.type).toBe('uint256'); // executorShare
+  });
+
+  it('taskEscrowV2Abi contains setArbiter under onlyOwner', () => {
+    const fn = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'setArbiter',
+    ) as { inputs: { type: string }[]; stateMutability: string } | undefined;
+    expect(fn).toBeDefined();
+    expect(fn!.inputs).toHaveLength(1);
+    expect(fn!.inputs[0]?.type).toBe('address');
+    expect(fn!.stateMutability).toBe('nonpayable');
+  });
+
+  it('taskEscrowV2Abi exposes arbiter as view function', () => {
+    const fn = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'arbiter',
+    ) as { outputs: { type: string }[]; stateMutability: string } | undefined;
+    expect(fn).toBeDefined();
+    expect(fn!.stateMutability).toBe('view');
+    expect(fn!.outputs[0]?.type).toBe('address');
+  });
+
+  it('taskEscrowV2Abi inherits Ownable2Step surface', () => {
+    const ownerFn = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'owner',
+    );
+    const pendingFn = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'pendingOwner',
+    );
+    const transferFn = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'transferOwnership',
+    );
+    const acceptFn = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'function' && item.name === 'acceptOwnership',
+    );
+    expect(ownerFn).toBeDefined();
+    expect(pendingFn).toBeDefined();
+    expect(transferFn).toBeDefined();
+    expect(acceptFn).toBeDefined();
+  });
+
+  it('taskEscrowV2Abi declares TaskResolved event', () => {
+    const ev = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'event' && item.name === 'TaskResolved',
+    );
+    expect(ev).toBeDefined();
+  });
+
+  it('taskEscrowV2Abi declares ArbiterChanged event', () => {
+    const ev = taskEscrowV2Abi.find(
+      (item: any) => item.type === 'event' && item.name === 'ArbiterChanged',
+    );
+    expect(ev).toBeDefined();
+  });
+
+  it('taskEscrowV2Abi preserves the v1 surface', () => {
+    // V2 is a strict superset: every v1 function MUST still exist.
+    const v1Functions = taskEscrowAbi
+      .filter((item: any) => item.type === 'function')
+      .map((item: any) => item.name);
+    const v2Functions = taskEscrowV2Abi
+      .filter((item: any) => item.type === 'function')
+      .map((item: any) => item.name);
+
+    for (const name of v1Functions) {
+      expect(v2Functions).toContain(name);
+    }
   });
 });

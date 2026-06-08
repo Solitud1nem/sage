@@ -1,19 +1,30 @@
-import type { Account, Chain, PublicClient, Transport, WalletClient } from 'viem';
-import type { TaskId, TaskRecord, TaskSpec } from '@sage/core';
-import type { TaskClient } from '@sage/core';
-import { agentId, taskId, TaskStatus } from '@sage/core';
-import { taskEscrowAbi } from './abi/index.js';
-
 /**
- * WalletClient with chain + account bound. Required for `writeContract` to
- * type-check without an explicit `chain` parameter at every call site
- * (see GOTCHAS 2026-05-19). Callers must pass a walletClient created with
- * `createWalletClient({ chain, account, … })`.
+ * EVM adapter for the V2 TaskEscrow contract (per ADR-0017).
+ *
+ * Same surface as `task-escrow.ts` plus three new methods:
+ *   - `resolveDispute(taskId, outcome, executorShare)` — arbiter-only exit
+ *     from `Disputed`. Outcome ∈ {Paid, Refunded, Split}.
+ *   - `setArbiter(newArbiter)` — owner-only rotation.
+ *   - `getArbiter()`           — view current arbiter address.
+ *
+ * `getTask` returns a `TaskRecord` with the V2-specific `executorShare`
+ * populated (0n unless status === Split). All v1 read/write paths behave
+ * identically to the v1 adapter — only the ABI and one returned field differ.
+ *
+ * Use this client when the configured `escrowAddress` points at a v3.0
+ * deployment (salt: `keccak256("sage:escrow:v2")`). For legacy v1 contracts,
+ * `createTaskEscrowClient` from `./task-escrow.js` remains the choice.
  */
+
+import type { Account, Chain, PublicClient, Transport, WalletClient } from 'viem';
+import type { DisputeOutcome, TaskClientV2, TaskId, TaskRecord, TaskSpec } from '@sage/core';
+import { agentId, taskId, TaskStatus } from '@sage/core';
+import { taskEscrowV2Abi } from './abi/index.js';
+
 type BoundWalletClient = WalletClient<Transport, Chain, Account>;
 
-/** Maps on-chain TaskStatus enum (uint8) to SDK TaskStatus. */
-const STATUS_MAP: Record<number, TaskStatus> = {
+/** Maps on-chain V2 TaskStatus enum (uint8) to SDK TaskStatus. Includes `Split` at 7. */
+const STATUS_MAP_V2: Record<number, TaskStatus> = {
   0: TaskStatus.Created,
   1: TaskStatus.Accepted,
   2: TaskStatus.Completed,
@@ -21,14 +32,22 @@ const STATUS_MAP: Record<number, TaskStatus> = {
   4: TaskStatus.Disputed,
   5: TaskStatus.Refunded,
   6: TaskStatus.Expired,
+  7: TaskStatus.Split,
 };
 
-export function createTaskEscrowClient(
+/** Maps SDK `DisputeOutcome` to the on-chain uint8 expected by `resolveDispute`. */
+const OUTCOME_TO_UINT8: Record<DisputeOutcome, number> = {
+  [TaskStatus.Paid]: 3,
+  [TaskStatus.Refunded]: 5,
+  [TaskStatus.Split]: 7,
+};
+
+export function createTaskEscrowV2Client(
   publicClient: PublicClient,
   walletClient: BoundWalletClient,
   escrowAddress: `0x${string}`,
   usdcAddress: `0x${string}`,
-): TaskClient {
+): TaskClientV2 {
   async function signPermit(amount: bigint): Promise<{
     value: bigint;
     deadline: bigint;
@@ -111,7 +130,7 @@ export function createTaskEscrowClient(
 
       const hash = await walletClient.writeContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'createTask',
         args: [
           spec.executor as `0x${string}`,
@@ -130,7 +149,7 @@ export function createTaskEscrowClient(
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
-      // Extract taskId from TaskCreated event
+      // TaskCreated event signature topic — same as v1 (event shape unchanged).
       const taskCreatedTopic = '0x7407b0ef416b5ba5fe0caf5447bb4b7bbbd2adc61093638361dd31a28b14fc5c';
       const log = receipt.logs.find((l) => l.topics[0] === taskCreatedTopic);
       if (!log?.topics[1]) {
@@ -141,69 +160,91 @@ export function createTaskEscrowClient(
     },
 
     async acceptTask(id: TaskId) {
-      const hash = await walletClient.writeContract({
+      return walletClient.writeContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'acceptTask',
         args: [BigInt(id)],
       });
-      return hash;
     },
 
     async completeTask(id: TaskId, resultUri: string) {
-      const hash = await walletClient.writeContract({
+      return walletClient.writeContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'completeTask',
         args: [BigInt(id), resultUri],
       });
-      return hash;
     },
 
     async approvePayment(id: TaskId) {
-      const hash = await walletClient.writeContract({
+      return walletClient.writeContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'approvePayment',
         args: [BigInt(id)],
       });
-      return hash;
     },
 
     async disputeTask(id: TaskId, reason: string) {
-      const hash = await walletClient.writeContract({
+      return walletClient.writeContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'disputeTask',
         args: [BigInt(id), reason],
       });
-      return hash;
     },
 
     async refundExpired(id: TaskId) {
-      const hash = await walletClient.writeContract({
+      return walletClient.writeContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'refundExpired',
         args: [BigInt(id)],
       });
-      return hash;
     },
 
     async claimAutoRelease(id: TaskId) {
-      const hash = await walletClient.writeContract({
+      return walletClient.writeContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'claimAutoRelease',
         args: [BigInt(id)],
       });
-      return hash;
+    },
+
+    // ─── V2 arbitration surface ───
+
+    async resolveDispute(id: TaskId, outcome: DisputeOutcome, executorShare: bigint) {
+      return walletClient.writeContract({
+        address: escrowAddress,
+        abi: taskEscrowV2Abi,
+        functionName: 'resolveDispute',
+        args: [BigInt(id), OUTCOME_TO_UINT8[outcome], executorShare],
+      });
+    },
+
+    async setArbiter(newArbiter: `0x${string}`) {
+      return walletClient.writeContract({
+        address: escrowAddress,
+        abi: taskEscrowV2Abi,
+        functionName: 'setArbiter',
+        args: [newArbiter],
+      });
+    },
+
+    async getArbiter() {
+      return publicClient.readContract({
+        address: escrowAddress,
+        abi: taskEscrowV2Abi,
+        functionName: 'arbiter',
+      });
     },
 
     async getTask(id: TaskId): Promise<TaskRecord | null> {
       const result = await publicClient.readContract({
         address: escrowAddress,
-        abi: taskEscrowAbi,
+        abi: taskEscrowV2Abi,
         functionName: 'getTask',
         args: [BigInt(id)],
       });
@@ -218,13 +259,11 @@ export function createTaskEscrowClient(
         executor: agentId(result.executor),
         amount: result.amount,
         deadline: Number(result.deadline),
-        status: STATUS_MAP[result.status] ?? TaskStatus.Created,
+        status: STATUS_MAP_V2[result.status] ?? TaskStatus.Created,
         specUri: result.specUri,
         resultUri: result.resultUri,
         completedAt: Number(result.completedAt),
-        // v1 contract has no executorShare. Field exists in TaskRecord for v3
-        // compatibility but is always 0n when read through this v1 adapter.
-        executorShare: 0n,
+        executorShare: result.executorShare,
       };
     },
   };
