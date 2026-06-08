@@ -8,6 +8,65 @@
 
 ---
 
+## 2026-06-08 — TaskEscrowV2 (arbitration layer) LIVE on Base mainnet + Sepolia — `v3.0.0`
+
+`TaskEscrowV2` is operational at the same address on Base mainnet and Base Sepolia (`0x61c585630B32eee0b8c00306047c301B56419a81`). v2.0 contracts (`0x12aeF3…3E1e`) remain deployed but new tasks created via the SDK now route to v3.0. The arbitration layer from ADR-0017 (resolveDispute, configurable arbiter, reachable Refunded, Split outcomes) is the opt-in substrate that future foreign-agent assembly (M11.2+) will need. Same-address invariant from ADR-0001 held under the `:v2` salt despite chain-specific USDC immutables.
+
+This release lands the contract substrate only — AgentRegistry V2 (capability + endpoint + price), off-chain council, appeal mechanism, indexer come in later milestones (see `docs/research/arbitration-and-platform-brainstorm.md` §Roadmap).
+
+**Live ops:**
+- **TaskEscrowV2** at `0x61c585630B32eee0b8c00306047c301B56419a81` on Base mainnet ([Basescan](https://basescan.org/address/0x61c585630b32eee0b8c00306047c301b56419a81)) + Base Sepolia ([Sepolia Basescan](https://sepolia.basescan.org/address/0x61c585630b32eee0b8c00306047c301b56419a81)). Verified source on both.
+- Owner = arbiter = sponsor `0x6D8aCa48c1E064e71078656f7fB946e52cd8376d` on launch (collapse posture, documented in `docs/runbooks/deploy-task-escrow-v2.md`). Future migration: `transferOwnership` to Safe + dedicated arbiter EOA.
+- Mainnet deploy tx: [`0x9d5131…ed6d`](https://basescan.org/tx/0x9d5131f501b0240bb03e93c2b2d8cd08af10a1122eead6586db1d2023d52ed6d). Sepolia deploy tx: [`0xdfa206…624b`](https://sepolia.basescan.org/tx/0xdfa206952852ad7a6602f0adc3489ff653cd5131af5573a06ee4edbd6cae624b).
+- Fly orchestrator + workers (`sage-demo-agents.fly.dev`) redeployed pointing at v3.0 address (rolling, image version 15).
+- Cloudflare Pages frontend (`sage-protocol.pages.dev`) redeployed — `apps/web/chains/base.ts` carries v3.0 address.
+- Arc testnet stack untouched. Arc still uses its bridge-deploy contracts per ADR-0015. V3.0 to Arc is a separate future task.
+
+### Contracts + Foundry
+
+- `feat` **`packages/contracts/src/TaskEscrowV2.sol` (new, 330 lines).** Inherits `ReentrancyGuard`, `Ownable2Step`. Adds `arbiter` storage + `setArbiter(onlyOwner)` + `resolveDispute(taskId, outcome, executorShare)` with three outcomes (Paid / Refunded / Split). New `TaskStatus.Split` enum value (uint8 7). `Task.executorShare` field stored only on Split. All v1 lifecycle paths byte-equivalent to v2.0.
+- `feat` **`packages/contracts/src/interfaces/ITaskEscrowV2.sol` (new).** Extended Task struct with `executorShare`. `TaskResolved` + `ArbiterChanged` events. New errors: `ZeroArbiter`, `InvalidOutcome`, `InvalidExecutorShare`.
+- `feat` **`packages/contracts/test/TaskEscrowV2.t.sol` (new, 499 lines).** 35 tests: constructor edges (zero arbiter / owner revert), `setArbiter` access control + zero check + arbiter rotation, `Ownable2Step` two-step transfer, all 3 resolveDispute outcomes including amount-conservation, access control, state preconditions, share validations, invalid outcome rejection, reachability matrix. Fuzz test on amount conservation with 256 runs. Slim v1 regression coverage. **112/112** across full Foundry suite (77 v1 + 35 V2). Slither baseline equivalent to v1 (no new detector categories).
+- `feat` **`packages/contracts/script/DeployV2.s.sol` (new).** CreateX + CREATE3 deploy with `:v2` salt. Constructor: `(USDC, initialOwner, initialArbiter)`. Post-deploy sanity reads (`USDC()`, `owner()`, `arbiter()`) catch wiring errors before script return. Mirrors `Deploy.s.sol` patterns; v1 deploy script untouched.
+
+### SDK + types
+
+- `feat` **`@sage/core`** — `TaskStatus.Split` added to enum. `DisputeOutcome` type alias = `TaskStatus.Paid | TaskStatus.Refunded | TaskStatus.Split`. `TaskRecord.executorShare: bigint` field added (always 0n when reading via v1 adapter — adapter defaults explicitly). `TaskClientV2` interface extends `TaskClient` with `resolveDispute` / `setArbiter` / `getArbiter`.
+- `feat` **`@sage/adapter-evm`** — `taskEscrowV2Abi` (716 lines, generated from forge artifact, exported). `createTaskEscrowV2Client(publicClient, walletClient, escrowAddress, usdcAddress): TaskClientV2`. Mirrors v1 client surface; adds the three arbitration methods. `STATUS_MAP_V2` includes uint8 7 → Split. `OUTCOME_TO_UINT8` maps SDK enum to on-chain selector (3/5/7). Existing v1 `createTaskEscrowClient` unchanged.
+- `feat` **`@sage/adapter-evm`** `chains/base.ts` — `taskEscrow` swapped to v3.0 address on both `base` (mainnet) and `baseSepolia`. Inline comment records both v3 and v2 addresses for archaeology.
+- `test` 23/23 in adapter-evm (10 new V2 surface tests: ABI shape, function signatures, Ownable2Step inheritance, event presence, v1 surface preservation).
+
+### Web frontend
+
+- `feat` **`apps/web/chains/base.ts`** — `taskEscrow` swapped to v3.0 on both `BASE_MAINNET` and `BASE_SEPOLIA`. Cloudflare Pages deploy `8b7d0e60` carries the new config.
+
+### Deploy + ops
+
+- `release` Sepolia deploy ([tx `0xdfa206…624b`](https://sepolia.basescan.org/tx/0xdfa206952852ad7a6602f0adc3489ff653cd5131af5573a06ee4edbd6cae624b), block 42567609, 1.72M gas @ 0.006 gwei = 0.000010 ETH). Live `cast call` smoke clean (owner, arbiter, USDC, GRACE_PERIOD, nextTaskId, pendingOwner).
+- `release` Mainnet deploy ([tx `0x9d5131…ed6d`](https://basescan.org/tx/0x9d5131f501b0240bb03e93c2b2d8cd08af10a1122eead6586db1d2023d52ed6d), block 47057463, same 1.72M gas @ 0.006 gwei). Live `cast call` smoke clean. Address matched Sepolia byte-for-byte (ADR-0001 invariant under chain-specific immutables).
+- `release` `fly deploy . --config apps/demo-agents/fly.toml` — rolling strategy, image v15. Pre-cutover `/health.activeDemoRuns = 0` (no drain window needed).
+- `release` Cloudflare Pages `wrangler pages deploy out --project-name sage-protocol --branch main`. Deployment id `8b7d0e60`. Production URL `sage-protocol.pages.dev` aliased.
+- `docs` **`docs/runbooks/deploy-task-escrow-v2.md` (new).** Pre-flight, dry-run, broadcast, post-deploy verify, troubleshooting. Documents launch posture (three roles → one EOA, migration path) explicitly.
+- `docs` **`docs/research/arbitration-and-platform-brainstorm.md`** — accumulated decisions log updated with each milestone.
+
+### ADR + position framing
+
+- `adr` **ADR-0008 amendment** — "Platform extension with arbitration layer" (2026-06-04). Settlement reframed as "recorded fact" with two modes (guarantee/receipt). Sage hosts the court, not the agents. Trust profile named honestly (eBay/PayPal/Upwork category, not Compound/Uniswap). The "without arbitration" path remains canonical for trustless cases. Status: Accepted; extended.
+- `adr` **ADR-0017 — Task escrow arbitration** (2026-06-04). Contract-level decisions: storage-based arbiter under `Ownable2Step.onlyOwner`, `resolveDispute(onlyArbiter)` with Paid/Refunded/Split, `Refunded` reachable only via arbiter ruling (refundExpired still writes Expired), versioned salt `:v2`, v2.0 contract stays on legacy salt. Status: Accepted.
+- `research` **`docs/research/arbitration-and-platform-2026-06-04.md`** — concept snapshot of the 2026-06-04 working session that produced both the ADR amendment and ADR-0017.
+
+### What's NOT in this release
+
+- AgentRegistry V2 (capability + endpoint + price for foreign-agent discoverability) — M11.2.
+- Off-chain council of judges + aggregation mechanism — M11.4.
+- Appeal path + precedent memory — M11.5.
+- Indexer for reputation surface — M11.6 (per axis A7).
+- V3 deploy to Arc testnet — separate task; Arc continues to use its own contracts via the ADR-0015 bridge.
+
+`v3.0.0` tagged on commit (this entry).
+
+---
+
 ## 2026-05-22 — Arc composite demo END-TO-END LIVE (5 root causes fixed + 3-layer high-stakes guard)
 
 `/demo/composite?chain=arc` is operational. Composite plans classify, approve, execute, and settle on Arc testnet through the full Pages → Worker → Fly → Arc TaskEscrow stack — the same shape Base mainnet runs on, with a chain selector at the top of the demo UI. ADR-0008's multi-chain framing is operationally true on **two parallel chains** now (Base mainnet for production; Arc testnet for the ADR-0015 bridge), not one + one scaffold.
