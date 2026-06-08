@@ -8,6 +8,45 @@
 
 ---
 
+## 2026-06-08 (later still) — Registry-driven executor discovery on prod — `v3.2.0`
+
+M11.3: the composite classifier now reads `AgentRegistryV2` on every classify call and picks executor per sub-task by capability + price, instead of the hardcoded `NEXT_PUBLIC_DEMO_*_ADDRESS` env-var mapping baked into the web frontend. Live verification on Base mainnet: a brief `"Translate ... and then summarize ..."` returns a 2-sub-task plan with `executor_address` set to the registered Translator + Summarizer EOAs and `estimated_cost_units` taken from registry price — values that came from on-chain reads, not config.
+
+This is the first place where the platform substrate from M11.2 starts paying off: any new agent that registers in V2 with a matching capability becomes pickable on the **next classify call**, without redeploy.
+
+**Live ops:**
+- Fly orchestrator (`sage-demo-agents.fly.dev`) redeployed with the resolver wired into `/api/demo/composite/classify`. Failure of the registry read is non-fatal — the frontend's `resolveExecutorByType` still ships as fallback.
+- Classifier sample (Base mainnet, post-deploy):
+  ```
+  POST /api/demo/composite/classify
+  body: {"brief":"Translate ... summarize ..."}
+  → proposed_plan[0].executor_address = 0xa61b…1c8c (Translator, registry)
+  → proposed_plan[1].executor_address = 0x0DA5…2593 (Summarizer, registry)
+  → estimated_cost_units = 1000 each (registry price, not LLM estimate)
+  ```
+
+### SDK
+
+- `feat` **`@sage/adapter-evm`** `listActiveAgentsV2(publicClient, registryAddr)` (new export). Paginated walk over the registry (default page 50, cap 1000) filtered to `active === true`. Read-only — no wallet client needed.
+
+### Orchestrator
+
+- `feat` **`apps/demo-agents/src/parent/registry-resolver.ts` (new).** Three pure helpers: `capabilityNameForType(taskType) → string | null` (stem buckets ordered translator → vision → sentiment → summarizer-catchall, matching the frontend's existing `resolveExecutorByType`); `pickAgentForCapability(name, agents) → { address, price } | null` (cheapest active, deterministic tie-break by address); `resolveExecutorFromRegistry(taskType, agents)` (combines both).
+- `feat` **`classify.ts`** extends `ParentEnv` with optional `resolveExecutor` callback. `classifyBrief` post-processes `proposed_plan`: for each sub-task without an LLM-emitted `executor_address`, calls the resolver, populates address + sets `estimated_cost_units` to registry price. Sub-tasks unmatched by registry pass through unchanged (frontend fallback handles).
+- `feat` **`server.ts`** `/api/demo/composite/classify` handler fetches active agents from `chainConfig.contracts.agentRegistryV2` once per request, builds the resolver closure, passes to `classifyBrief`. Registry read failure logged + non-fatal.
+- `test` 16 new tests in `apps/demo-agents/test/parent/registry-resolver.test.ts` covering stem-bucket matching (translate-first ordering, vision/image, sentiment/classify, summarizer catch-all, null on unmatched), cheapest-price picking with deterministic tie-breaks, inactive-agent filtering, foreign-agent-undercuts-demo scenario. **142/142** in demo-agents (126 + 16), **200/200** workspace-wide (core 11 + adapter-arc 17 + adapter-evm 30 + demo-agents 142).
+
+### What's NOT in this release (deferred to M11.4+)
+
+- **Frontend retired its env-var resolver.** Still ships as fallback. Removal once enough confidence in registry-only path accumulates.
+- **Foreign-agent self-registration on boot.** Workers were registered by an out-of-band script (M11.2.11); a production foreign-agent template that self-registers on first boot is M11.3.X follow-up.
+- **Council mechanism.** Resolving disputes requires the arbiter EOA to call `resolveDispute` manually for now. M11.4.
+- **V2 registry + V3 escrow on Arc testnet.** Arc continues on its own contracts per ADR-0015.
+
+`v3.2.0` tagged on commit (this entry).
+
+---
+
 ## 2026-06-08 (later) — AgentRegistryV2 (platform substrate) LIVE on Base mainnet + Sepolia — `v3.1.0`
 
 M11.2 substrate per the ADR-0008 amendment §M11.2: the registry gains capability + per-task price + rich-profile fields. The v1 `AgentRegistry` at `0x5e95F92F…29c661` stays canonical for legacy agents; v2 is parallel at **the same deterministic address on Base mainnet + Sepolia** — `0x8df78599868Ec740C26F0eb0b660519b166cDd9e`. All 4 demo workers registered themselves on mainnet with their capability + flat 0.001-USDC-per-task price.

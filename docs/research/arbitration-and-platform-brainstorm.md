@@ -58,6 +58,21 @@
 
 **Next milestone: M11.3 — onboard first foreign agent via registry-driven discovery.** Plan-editor / classifier reads V2 registry by capability → picks executor → spawns task to a non-Sage-hosted worker. This is where the platform angle becomes operationally visible.
 
+### 2026-06-08 (M11.3 close) — Registry-driven executor discovery live (v3.2.0 tag)
+
+- **Classifier reads V2 registry** on every `/api/demo/composite/classify` call. For each sub-task: stem-match `type` → canonical capability → cheapest active agent → set `executor_address` + `estimated_cost_units` from registry price. Sub-tasks unmatched fall through to frontend env-var resolver as before.
+- **Live smoke verified.** Brief `"Translate … then summarize …"` against `sage-demo-agents.fly.dev` returned both sub-tasks with registry-derived executor addresses (Translator `0xa61b…`, Summarizer `0x0DA5…`) and 1000-unit registry prices. **No hardcoded mapping in the path.**
+- **Architecture:** lookup happens orchestrator-side. SDK helper `listActiveAgentsV2` (adapter-evm) + pure resolver helpers (`apps/demo-agents/src/parent/registry-resolver.ts`). Classifier accepts a `resolveExecutor` callback in `ParentEnv` — keeps `classify.ts` chain-agnostic. Frontend `resolveExecutorByType` remains as a fallback for now.
+- **Tests:** 200/200 workspace-wide; 16 new resolver-helper tests including a foreign-agent-undercuts-demo case.
+- **Tag:** `v3.2.0` on CHANGELOG commit.
+- **Stub foreign-agent decision:** none registered. The substrate stands on the 4 demos discovered via registry; a real foreign agent gets onboarded when we go public-outreach.
+
+**Next milestone candidates** (one of these next session, depending on direction):
+- **M11.4 — off-chain council v1.** Single LLM-judge resolves disputes via the arbiter EOA. Connects ADR-0017 substrate to actual on-chain `resolveDispute` calls.
+- **M11.3.X — frontend stops needing its env-var resolver.** Remove the fallback after we trust the orchestrator path. Mostly cleanup.
+- **M11.6 — indexer (axis A7).** Aggregates TaskPaid / TaskDisputed / TaskResolved / Refunded into a reputation surface. Unblocks plan-editor showing executor reputation alongside price.
+- **Real foreign-agent onboarding template** — a self-registering worker stub that operators can fork. Light-touch but needs design.
+
 ---
 
 ## Open questions (по приоритету)
