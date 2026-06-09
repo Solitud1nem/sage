@@ -69,6 +69,36 @@ export function mapVerdict(
 }
 
 /**
+ * Arbiter capability to settle a stranded `Disputed` escrow as a full client
+ * refund (code review 2026-06-09, CR.3 / finding M1). Used by the
+ * plan-runner's dispute-retry path — the user disputing then retrying or
+ * cancelling both mean the result was rejected, so the executor is not paid —
+ * and by the post-failure reclaim sweep for Disputed orphans. The V2 client
+ * is built lazily on first call, so wiring the capability costs nothing for
+ * runs that never hit a dispute.
+ */
+export function makeStrandedResolver(
+  bundle: SageClientBundle,
+): (taskId: TaskId) => Promise<string> {
+  return async (taskId: TaskId): Promise<string> => {
+    const escrow = createTaskEscrowV2Client(
+      bundle.publicClient,
+      bundle.walletClient,
+      bundle.chainConfig.contracts.taskEscrow,
+      bundle.chainConfig.contracts.usdc,
+    );
+    const txHash = await escrow.resolveDispute(taskId, TaskStatus.Refunded, 0n);
+    const receipt = await bundle.publicClient.waitForTransactionReceipt({
+      hash: txHash as `0x${string}`,
+    });
+    if (receipt.status === 'reverted') {
+      throw new Error(`resolveDispute(${taskId}) reverted on-chain (tx ${txHash})`);
+    }
+    return txHash;
+  };
+}
+
+/**
  * Build the `DisputeFlow` capability for the plan-runner. Constructs a V2
  * escrow client bound to the bundle's wallet/public client + configured
  * escrow address, and closes over the council env.

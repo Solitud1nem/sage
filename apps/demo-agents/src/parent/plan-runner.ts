@@ -33,6 +33,7 @@ import type { Plan, SubTask } from '@sage/core';
 import type { SseChannel } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { encodeParentId, type EnvelopeContent } from './parent-id-codec.js';
+import { scheduleReclaim } from './escrow-reclaim.js';
 import { awaitUserDecision } from './run-registry.js';
 import type { CouncilOutcome, CouncilVerdict } from './council.js';
 import type { Capture } from '../shared/analytics.js';
@@ -109,6 +110,14 @@ export interface RunPlanOptions {
    * to PostHog. No-op stub when analytics is off or the run has no consent.
    */
   readonly capture?: Capture;
+  /**
+   * Arbiter capability to settle a stranded `Disputed` escrow as a client
+   * refund (code review 2026-06-09, CR.3 / M1). Wired unconditionally by
+   * `executePlan`; when absent (tests, custom embeddings) the dispute-retry
+   * path degrades to the legacy behavior of leaving the disputed escrow
+   * unresolved (logged loudly).
+   */
+  readonly resolveStranded?: (taskId: TaskId) => Promise<string>;
 }
 
 /** Explicit polling interval. Do NOT lower below 10s — see GOTCHAS 2026-05-13. */
@@ -141,9 +150,32 @@ class RefundedError extends Error {
  * lifecycle failures.
  */
 class DisputedError extends Error {
-  constructor(public readonly subId: number) {
+  constructor(
+    public readonly subId: number,
+    public readonly taskId: TaskId,
+  ) {
     super(`subtask #${subId} disputed`);
   }
+}
+
+/**
+ * On-chain task spawned by this run. Tracked so failure paths know which
+ * escrows are still unsettled (CR.3 / M2): `settled` flips to true once the
+ * USDC provably moved (approvePayment / resolveDispute receipt verified).
+ * Whatever remains unsettled when the plan fails is surfaced in the
+ * `plan_failed` payload and handed to the best-effort reclaim sweep.
+ */
+interface SpawnedRecord {
+  readonly subId: number;
+  readonly taskId: TaskId;
+  /** Unix seconds — on-chain deadline used at createTask. */
+  readonly deadline: number;
+  settled: boolean;
+}
+
+function markSettled(spawned: SpawnedRecord[], taskId: TaskId): void {
+  const rec = spawned.find((r) => r.taskId === taskId);
+  if (rec) rec.settled = true;
 }
 
 /**
@@ -184,6 +216,42 @@ export async function runPlan(
 
   const results = new Map<number, string>();
   const txHashes: string[] = [];
+  const spawned: SpawnedRecord[] = [];
+
+  /**
+   * Emit `plan_failed`, close the channel, and hand unsettled escrows to the
+   * best-effort reclaim sweep. Every failure exit goes through here so the
+   * orphaned-task list (CR.3 / M2) is never forgotten on a new failure path.
+   */
+  const failPlan = (args: { failedSubId: number; error: string; reason?: string }): void => {
+    const orphans = spawned.filter((r) => !r.settled);
+    const orphanedTasks = orphans.map((r) => ({
+      subId: r.subId,
+      taskId: r.taskId.toString(),
+      deadline: r.deadline,
+    }));
+    channel.emit('plan_failed', {
+      runId: options.runId,
+      failedSubId: args.failedSubId,
+      error: args.error,
+      ...(args.reason ? { reason: args.reason } : {}),
+      ...(orphanedTasks.length > 0 ? { orphanedTasks } : {}),
+    });
+    channel.close({
+      runId: options.runId,
+      ok: false,
+      error: args.error,
+      completedSubIds: Array.from(results.keys()),
+      txHashes,
+      ...(orphanedTasks.length > 0 ? { orphanedTasks } : {}),
+    });
+    if (orphans.length > 0) {
+      scheduleReclaim(bundle, orphans, {
+        runId: options.runId,
+        ...(options.resolveStranded ? { resolveStranded: options.resolveStranded } : {}),
+      });
+    }
+  };
 
   for (const sub of order) {
     // Per-sub-task retry loop. The default path executes once and breaks.
@@ -203,6 +271,7 @@ export async function runPlan(
           channel,
           timeoutMs,
           txHashes,
+          spawned,
           content: buildContent(currentSub, plan.brief, results),
           reviewMode: options.reviewMode ?? false,
           reviewTimeoutMs: options.reviewTimeoutMs ?? REVIEW_TIMEOUT_MS,
@@ -215,23 +284,43 @@ export async function runPlan(
         if (err instanceof RefundedError) {
           // Council refunded the client — no usable result to continue with.
           const reason = `subtask #${sub.id} refunded after dispute: ${err.reasoning}`;
-          channel.emit('plan_failed', {
-            runId: options.runId,
-            failedSubId: sub.id,
-            error: reason,
-            reason: 'dispute_refunded',
-          });
           options.capture?.('srv_plan_failed', { reason: 'dispute_refunded', failed_sub_id: sub.id });
-          channel.close({
-            runId: options.runId,
-            ok: false,
-            error: reason,
-            completedSubIds: Array.from(results.keys()),
-            txHashes,
-          });
+          failPlan({ failedSubId: sub.id, error: reason, reason: 'dispute_refunded' });
           return;
         }
         if (err instanceof DisputedError) {
+          // The disputed escrow holds USDC only the arbiter can release.
+          // Settle it as a client refund BEFORE asking the user for a
+          // decision (CR.3 / M1): a retry would otherwise stack a second
+          // escrow on top of the unresolved one, and a cancel/timeout would
+          // strand it. The user disputing means the result was rejected, so
+          // refunding the client is the only outcome this gate supports.
+          if (options.resolveStranded) {
+            try {
+              const reclaimHash = await options.resolveStranded(err.taskId);
+              markSettled(spawned, err.taskId);
+              channel.emit('subtask_escrow_reclaimed', {
+                subId: sub.id,
+                taskId: err.taskId.toString(),
+                txHash: reclaimHash,
+              });
+            } catch (settleErr) {
+              const detail = settleErr instanceof Error ? settleErr.message : String(settleErr);
+              const reason = `subtask #${sub.id} disputed escrow could not be settled: ${detail}`;
+              options.capture?.('srv_plan_failed', { reason: 'stranded_dispute', failed_sub_id: sub.id });
+              failPlan({ failedSubId: sub.id, error: reason, reason: 'stranded_dispute' });
+              return;
+            }
+          } else {
+            console.error(
+              JSON.stringify({
+                ts: Date.now(),
+                event: 'plan.dispute.no_stranded_resolver',
+                subId: sub.id,
+                taskId: err.taskId.toString(),
+              }),
+            );
+          }
           const decision = await awaitUserDecision(options.runId, sub.id, 'dispute-retry');
           if (decision.kind === 'retry') {
             attempt += 1;
@@ -250,43 +339,16 @@ export async function runPlan(
             decision.kind === 'timeout'
               ? `subtask #${sub.id} paused without decision (timeout)`
               : `subtask #${sub.id} cancelled by user after dispute`;
-          channel.emit('plan_failed', {
-            runId: options.runId,
-            failedSubId: sub.id,
-            error: reason,
-            reason:
-              decision.kind === 'timeout'
-                ? 'pause_timeout'
-                : 'user_cancelled_after_dispute',
-          });
-          options.capture?.('srv_plan_failed', {
-            reason: decision.kind === 'timeout' ? 'pause_timeout' : 'user_cancelled_after_dispute',
-            failed_sub_id: sub.id,
-          });
-          channel.close({
-            runId: options.runId,
-            ok: false,
-            error: reason,
-            completedSubIds: Array.from(results.keys()),
-            txHashes,
-          });
+          const reasonTag =
+            decision.kind === 'timeout' ? 'pause_timeout' : 'user_cancelled_after_dispute';
+          options.capture?.('srv_plan_failed', { reason: reasonTag, failed_sub_id: sub.id });
+          failPlan({ failedSubId: sub.id, error: reason, reason: reasonTag });
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
         channel.emit('subtask_errored', { subId: sub.id, error: message });
-        channel.emit('plan_failed', {
-          runId: options.runId,
-          failedSubId: sub.id,
-          error: message,
-        });
         options.capture?.('srv_plan_failed', { reason: 'subtask_error', failed_sub_id: sub.id });
-        channel.close({
-          runId: options.runId,
-          ok: false,
-          error: message,
-          completedSubIds: Array.from(results.keys()),
-          txHashes,
-        });
+        failPlan({ failedSubId: sub.id, error: message });
         return;
       }
     }
@@ -319,6 +381,8 @@ interface RunSubtaskArgs {
   readonly channel: SseChannel;
   readonly timeoutMs: number;
   readonly txHashes: string[];
+  /** Per-run ledger of spawned escrows; see {@link SpawnedRecord}. */
+  readonly spawned: SpawnedRecord[];
   /**
    * Content material attached to the envelope (ADR-0018). Dependent sub-tasks
    * carry `{inputs}` (upstream results); root sub-tasks carry `{source}` (the
@@ -456,6 +520,8 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     { label: `createTask#${sub.id}`, subId: sub.id, retryable: isRetryableCreateError },
   );
 
+  args.spawned.push({ subId: sub.id, taskId: tid, deadline, settled: false });
+
   channel.emit('subtask_created', {
     subId: sub.id,
     taskId: tid.toString(),
@@ -501,6 +567,7 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
   // Verify the receipt BEFORE emitting subtask_paid — a mined-but-reverted
   // approvePayment must surface as plan_failed, not as a success event.
   await waitReceiptOrThrow(bundle, approveHash, `approvePayment for subtask #${sub.id}`);
+  markSettled(args.spawned, tid);
   channel.emit('subtask_paid', {
     subId: sub.id,
     taskId: tid.toString(),
@@ -540,6 +607,7 @@ async function runDisputeFlow(
     const approveHash = await bundle.sage.tasks.approvePayment(tid);
     txHashes.push(approveHash);
     await waitReceiptOrThrow(bundle, approveHash, `approvePayment for subtask #${sub.id}`);
+    markSettled(args.spawned, tid);
     channel.emit('subtask_paid', { subId: sub.id, taskId: tid.toString(), txHash: approveHash });
     channel.emit('subtask_status', { subId: sub.id, status: 'paid' satisfies SubTaskRunStatus });
     return result;
@@ -558,6 +626,9 @@ async function runDisputeFlow(
   });
   if (resolution.disputeTxHash) txHashes.push(resolution.disputeTxHash);
   if (resolution.resolveTxHash) txHashes.push(resolution.resolveTxHash);
+  // Whatever the verdict (worker/split/client), resolveDispute moved the
+  // escrowed USDC — the task is settled on-chain.
+  markSettled(args.spawned, tid);
 
   channel.emit('subtask_dispute_resolved', {
     subId: sub.id,
@@ -661,7 +732,7 @@ async function pollUntilCompleted(
           resultUri: task.resultUri,
         });
         channel.emit('subtask_status', { subId, status: 'disputed' satisfies SubTaskRunStatus });
-        throw new DisputedError(subId);
+        throw new DisputedError(subId, taskId);
       }
     }
 

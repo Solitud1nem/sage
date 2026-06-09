@@ -8,6 +8,14 @@
 
 ---
 
+## 2026-06-09 (later ×7) — Code review: CR.3 — stranded-эскроу: reclaim + разруливание Disputed перед retry — `fix`
+
+Закрыт CR.3 (находки M1+M2 реестра `docs/reviews/2026-06-09-code-review.md`). Два класса застревания USDC в composite-флоу:
+
+- `fix` **M1 (двойной эскроу):** dispute-retry в `plan-runner.ts` создавал новый `createTask`, не разрулив старый `Disputed` — его USDC были залочены навсегда. Теперь runner селлит застрявший эскроу через новый `makeStrandedResolver` (арбитр = sponsor зовёт `resolveDispute(Refunded, 0)` + receipt-check) **до** паузы на user-решение: retry/cancel оба означают «результат отвергнут» → refund клиенту. Settle-фейл = честный `plan_failed: stranded_dispute` без второго эскроу. Wiring безусловный в `executePlan` (lazy, бесплатен без диспута). Новое SSE-событие `subtask_escrow_reclaimed`.
+- `fix` **M2 (orphaned-эскроу):** при таймауте/фейле плана USDC лежали в Created/Accepted задачах — `refundExpired` в кодовой базе не вызывался вообще, taskIds нигде не фиксировались. Теперь per-run ledger spawned-задач (`settled` только после verified receipt), все `plan_failed`/close payload'ы несут `orphanedTasks`, и новый `src/parent/escrow-reclaim.ts` делает best-effort one-shot reclaim по `deadline+60s`: re-read статуса → `refundExpired` (Created/Accepted) / `resolveDispute` (Disputed, вторая попытка) / skip (Completed — эскроу принадлежит executor'у через `claimAutoRelease`). Ограничение принято: таймеры in-memory, рестарт оркестратора их теряет — orphan'ы остаются в логах (`plan.reclaim.*`) и payload'е для ручного reclaim.
+- Тесты: 206/206 (+16 — reclaim-матрица по статусам + stranded-сценарии: settle-до-retry, settle-фейл без второго эскроу, cancel без orphan'ов, orphanedTasks при таймауте). Build + typecheck чистые. **Задеплоено Fly Base+Arc 2026-06-09.**
+
 ## 2026-06-09 (later ×6) — Code review: CR.2 — summarizer/translator переживают OpenAI error-ответы — `fix`
 
 Закрыт CR.2 из реестра ревизии (`docs/reviews/2026-06-09-code-review.md`, находка M4). В `src/summarizer/agent.ts` + `src/translator/agent.ts` ответ OpenAI кастился к `{ choices: [...] }` без проверок: на 429/5xx (тело `{ error }` без `choices`) `data.choices[0]` бросал TypeError, внешний catch только логировал — задача навсегда оставалась в `Accepted`, эскроу застревал, plan-runner таймаутился. Портирован паттерн vision/sentiment (`choices?` + `error?` + проверка `data.error`), плюс `res.ok` и `res.json().catch(() => null)` на не-JSON тело: воркер завершает задачу честной failure-строкой (`Summary/Translation failed: <detail>`) через `completeTask` — эскроу settles вместо стрэндинга. Protected-файлы — явное основание = таск CR.2. Build + typecheck + 190/190 тестов. **Задеплоено Fly Base+Arc 2026-06-09**, `/health` обоих апов healthy (8453 + 5042002).

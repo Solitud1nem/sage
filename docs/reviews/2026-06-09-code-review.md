@@ -54,7 +54,7 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 
 ## Волна 2 — частично закрыта (robustness / funds-stranding / template)
 
-> ✅ CR.1 (B1–B5), CR.2 (M4), CR.4 (M3), CR.6 (A2) исправлены и (где есть live-surface) задеплоены 2026-06-09 — см. CHANGELOG «волна 2». Остаются CR.3, CR.5, A2-остаток ниже.
+> ✅ CR.1 (B1–B5), CR.2 (M4), CR.3 (M1+M2), CR.4 (M3), CR.6 (A2) исправлены и (где есть live-surface) задеплоены 2026-06-09 — см. CHANGELOG «волна 2». Остаются CR.5, A2-остаток ниже.
 
 ### ✅ B1–B5. Foreign-agent template guards (CR.1, High) — исправлено
 
@@ -72,10 +72,10 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 
 `src/summarizer/agent.ts`, `src/translator/agent.ts` — на 429/5xx `data.choices[0]` бросал TypeError, catch только логировал — task навсегда в `Accepted`, plan-runner таймаутился, эскроу застревал. Исправлено 2026-06-09: портирован паттерн vision/sentiment (`choices?` + `error?` + проверка `data.error`), плюс `res.ok` и `res.json().catch(() => null)` на не-JSON тело. Воркер завершает задачу честной failure-строкой (`Summary/Translation failed: <detail>`) через `completeTask` — эскроу settles. Build + typecheck + 190/190 тестов.
 
-### 🔲 M2+M1. Застрявшие эскроу не возвращаются; dispute-retry плодит двойной эскроу (Medium)
+### ✅ M2+M1. Застрявшие эскроу (CR.3, Medium) — исправлено
 
-- M2: при таймауте `pollUntilCompleted` или упавшем approve план фейлится, а USDC лежат в Created/Accepted задаче — никто не зовёт refund/expiry (`refundExpired` в кодовой базе не вызывается вообще). Минимум: логировать orphaned taskIds в `plan_failed` payload; лучше — best-effort refund по deadline.
-- M1: `plan-runner.ts` retry-путь после `DisputedError` создаёт новый `createTask`, не разрулив старый `Disputed` (его USDC залочены навсегда). Сегодня low-reachability (диспутить может только client EOA = сам orchestrator), но путь прошит до публичного endpoint'а.
+- M2: план фейлился, USDC оставались в Created/Accepted задаче, `refundExpired` не вызывался нигде. Исправлено 2026-06-09: per-run ledger spawned-эскроу в `plan-runner.ts` (`settled` после verified receipt approve/resolve), все `plan_failed`/close payload'ы несут `orphanedTasks: [{subId, taskId, deadline}]`, новый `src/parent/escrow-reclaim.ts` — best-effort one-shot reclaim по `deadline+60s`: re-read статуса → `refundExpired` (Created/Accepted) / `resolveDispute` (Disputed) / skip (Completed — у executor'а `claimAutoRelease`). Таймеры in-memory (рестарт теряет — принято, orphan'ы в логах+payload для ручного reclaim).
+- M1: dispute-retry создавал новый эскроу, не разрулив старый Disputed. Исправлено: `makeStrandedResolver(bundle)` (арбитр → `resolveDispute(Refunded, 0)` + receipt-check) wired безусловно в `executePlan`; runner селлит застрявший Disputed ДО паузы на user-решение — settle-фейл = `plan_failed: stranded_dispute` без второго эскроу; cancel/timeout тоже больше не стрэндят. Новое SSE-событие `subtask_escrow_reclaimed`. 206/206 тестов (+16: reclaim-матрица + stranded-сценарии).
 
 ### ✅ M3. Council prompt-injection (CR.4, Medium) — исправлено, задеплоено
 

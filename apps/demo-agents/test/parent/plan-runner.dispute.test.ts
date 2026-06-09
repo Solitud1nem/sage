@@ -461,3 +461,123 @@ describe('runPlan — review gate (ADR-0019)', () => {
     expect(disputeFlow).not.toHaveBeenCalled();
   });
 });
+
+// ─── stranded escrow settlement (CR.3) ──────────────────────────────────
+
+describe('runPlan — stranded escrow (CR.3)', () => {
+  beforeEach(() => {
+    registryTesting.clear();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    registryTesting.clear();
+  });
+
+  it('settles the disputed escrow before re-spawning on dispute-retry (CR.3 / M1)', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([
+      [TaskStatus.Created, TaskStatus.Disputed],
+      [TaskStatus.Created, TaskStatus.Accepted, TaskStatus.Completed],
+    ]);
+    const runId = 'run-stranded-retry';
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+    const resolveStranded = vi.fn(async (tid: TaskId) => `0xreclaim_${tid}`);
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId, resolveStranded });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(hasPendingDecision(runId)).toBe(true);
+    // The stranded escrow must already be settled by the time the pause opens.
+    expect(resolveStranded).toHaveBeenCalledOnce();
+    expect(String(resolveStranded.mock.calls[0]![0])).toBe('1');
+
+    resolveUserDecision(runId, 1, { kind: 'retry' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await promise;
+
+    const names = cap.events.map((e) => e.event);
+    expect(names).toContain('subtask_escrow_reclaimed');
+    expect(names).toContain('plan_completed');
+    // Reclaim happened strictly before the replacement escrow was created.
+    const reclaimedIdx = names.indexOf('subtask_escrow_reclaimed');
+    const secondCreatedIdx = names.lastIndexOf('subtask_created');
+    expect(reclaimedIdx).toBeGreaterThan(-1);
+    expect(reclaimedIdx).toBeLessThan(secondCreatedIdx);
+    expect(bundle.__spawnedExecutors.length).toBe(2);
+  });
+
+  it('fails the plan without a second escrow when the stranded settle fails', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([[TaskStatus.Created, TaskStatus.Disputed]]);
+    const runId = 'run-stranded-fail';
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+    const resolveStranded = vi.fn(async () => {
+      throw new Error('resolveDispute reverted on-chain');
+    });
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId, resolveStranded });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await promise;
+
+    // No pause was opened — the plan failed before asking for a decision.
+    expect(hasPendingDecision(runId)).toBe(false);
+    const failed = cap.events.find((e) => e.event === 'plan_failed');
+    expect(failed).toBeDefined();
+    expect((failed!.data as { reason?: string }).reason).toBe('stranded_dispute');
+    // The unresolved escrow is surfaced as an orphan for manual/scheduled reclaim.
+    expect((failed!.data as { orphanedTasks?: unknown[] }).orphanedTasks).toHaveLength(1);
+    // Exactly one createTask — no second escrow stacked on the unresolved one.
+    expect(bundle.__spawnedExecutors.length).toBe(1);
+    expect(cap.events.some((e) => e.event === 'subtask_retrying')).toBe(false);
+  });
+
+  it('cancel after a settled dispute leaves no orphaned tasks in plan_failed', async () => {
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([[TaskStatus.Created, TaskStatus.Disputed]]);
+    const runId = 'run-stranded-cancel';
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+    const resolveStranded = vi.fn(async (tid: TaskId) => `0xreclaim_${tid}`);
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId, resolveStranded });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(hasPendingDecision(runId)).toBe(true);
+    resolveUserDecision(runId, 1, { kind: 'cancel' });
+    await promise;
+
+    expect(resolveStranded).toHaveBeenCalledOnce();
+    const failed = cap.events.find((e) => e.event === 'plan_failed');
+    expect(failed).toBeDefined();
+    expect((failed!.data as { reason?: string }).reason).toBe('user_cancelled_after_dispute');
+    // The escrow was settled before the pause, so nothing is orphaned.
+    expect((failed!.data as { orphanedTasks?: unknown[] }).orphanedTasks).toBeUndefined();
+  });
+
+  it('surfaces orphaned taskIds in plan_failed when a sub-task times out (CR.3 / M2)', async () => {
+    const cap = new CaptureChannel();
+    // Task never leaves Created — the worker is gone.
+    const bundle = makeDisputeBundle([[TaskStatus.Created]]);
+    const runId = 'run-orphan-timeout';
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+
+    const promise = runPlan(plan, cap.channel, bundle, {
+      runId,
+      subtaskTimeoutMs: 25_000,
+    });
+
+    await vi.advanceTimersByTimeAsync(40_000);
+    await promise;
+
+    const failed = cap.events.find((e) => e.event === 'plan_failed');
+    expect(failed).toBeDefined();
+    expect((failed!.data as { error: string }).error).toMatch(/timed out/);
+    const orphans = (failed!.data as {
+      orphanedTasks?: Array<{ subId: number; taskId: string; deadline: number }>;
+    }).orphanedTasks;
+    expect(orphans).toHaveLength(1);
+    expect(orphans![0]).toMatchObject({ subId: 1, taskId: '1' });
+    expect(orphans![0]!.deadline).toBeGreaterThan(0);
+  });
+});

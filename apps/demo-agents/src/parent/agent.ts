@@ -26,6 +26,7 @@ import type { ClassificationResult, Plan } from '@sage/core';
 import { demoRegistry } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { classifyBrief, type ParentEnv } from './classify.js';
+import { makeStrandedResolver } from './dispute-flow.js';
 import { runPlan, type DisputeFlow } from './plan-runner.js';
 import { createCapture } from '../shared/analytics.js';
 
@@ -80,6 +81,10 @@ export function executePlan(
   void runPlan(plan, channel, bundle, {
     runId,
     capture,
+    // Always wired (not just in review mode): the reactive dispute path and
+    // the post-failure reclaim sweep both need the arbiter to settle stranded
+    // Disputed escrows (CR.3 / M1). Lazy — costs nothing without a dispute.
+    resolveStranded: makeStrandedResolver(bundle),
     ...(options.reviewMode ? { reviewMode: true } : {}),
     ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
   }).catch((err) => {
