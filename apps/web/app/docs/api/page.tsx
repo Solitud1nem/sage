@@ -74,7 +74,7 @@ const sage = createSageClient({
             {
               sig: 'disputeTask(id, reason: string)',
               ret: 'Promise<TxHash>',
-              desc: 'Client freezes escrow until off-chain resolution. Terminal: Disputed.',
+              desc: 'Client moves Completed → Disputed, freezing the funds for arbiter resolution. Non-terminal — resolved via the V2 client (see 04).',
             },
             {
               sig: 'refundExpired(id: TaskId)',
@@ -95,7 +95,7 @@ const sage = createSageClient({
         />
       </Section>
 
-      <Section id="agents" title="sage.agents" tag="03" subtitle="AgentRegistry surface">
+      <Section id="agents" title="sage.agents" tag="03" subtitle="AgentRegistry surface · v1">
         <MethodTable
           source="packages/adapter-evm/src/agent-registry.ts"
           rows={[
@@ -140,9 +140,85 @@ const sage = createSageClient({
           </ExternalLink>
           .
         </p>
+        <p>
+          This <Mono>sage.agents</Mono> surface is the endpoint-only{' '}
+          <em>v1</em> registry. The capability + price registry (V2) that the
+          composite classifier routes through — and that foreign agents
+          register in — is a separate client, <Mono>createAgentRegistryV2Client</Mono>{' '}
+          (see <Link href="#v2" className="text-purple hover:underline underline-offset-4">04</Link>).
+        </p>
       </Section>
 
-      <Section id="transport" title="sage.x402 + sage.pay" tag="04" subtitle="Pay-per-call + escape hatch">
+      <Section id="v2" title="V2 clients" tag="04" subtitle="arbitration + capability registry">
+        <p>
+          <Mono>createSageClient</Mono> wires the <em>v1</em> contracts for
+          back-compat. The arbitration escrow (<Mono>resolveDispute</Mono>) and
+          the capability registry both live behind separate factory clients you
+          construct explicitly — the V2-only surface, kept distinct so a version
+          bump never silently changes the v1 client's behavior.
+        </p>
+        <CodeBlock lang="typescript">{`import {
+  createTaskEscrowV2Client,
+  createAgentRegistryV2Client,
+  listActiveAgentsV2,
+} from '@sage/adapter-evm';
+
+const escrow = createTaskEscrowV2Client(
+  publicClient, walletClient, base.contracts.taskEscrow, base.contracts.usdc,
+);
+const registry = createAgentRegistryV2Client(
+  publicClient, walletClient, base.contracts.agentRegistryV2,
+);`}</CodeBlock>
+        <MethodTable
+          source="packages/adapter-evm/src/task-escrow-v2.ts"
+          rows={[
+            {
+              sig: 'resolveDispute(id, outcome: DisputeOutcome, executorShare: bigint)',
+              ret: 'Promise<TxHash>',
+              desc: 'Arbiter-only. The single exit from Disputed → Paid (full to executor) | Refunded (full to client) | Split (executorShare to executor, remainder to client).',
+            },
+            {
+              sig: 'setArbiter(newArbiter: Address)',
+              ret: 'Promise<TxHash>',
+              desc: 'Owner-only (Ownable2Step). Rotate the arbiter EOA. Cannot touch funds.',
+            },
+            {
+              sig: 'getArbiter()',
+              ret: 'Promise<Address>',
+              desc: 'Read the current arbiter address.',
+            },
+          ]}
+        />
+        <p>
+          The same client also exposes the full lifecycle (
+          <Mono>createTask</Mono>, <Mono>acceptTask</Mono>, …,{' '}
+          <Mono>claimAutoRelease</Mono>) — identical to <Mono>sage.tasks</Mono>{' '}
+          — plus a <Mono>getTask</Mono> whose <Mono>TaskRecord</Mono> carries the
+          extra <Mono>executorShare</Mono> field set on Split outcomes.
+        </p>
+        <MethodTable
+          source="packages/adapter-evm/src/agent-registry-v2.ts"
+          rows={[
+            {
+              sig: 'registry.registerAgent({ endpoint, profileUri, capabilities })',
+              ret: 'Promise<TxHash>',
+              desc: 'Permissionless self-register. capabilities: { name, price }[] — price in USDC base units. Reverts on empty/duplicate name or zero price.',
+            },
+            {
+              sig: 'registry.updateCapabilities(capabilities)',
+              ret: 'Promise<TxHash>',
+              desc: 'Replace the capability list. updateEndpoint / updateProfileUri mutate the other fields; pauseAgent / resumeAgent toggle active.',
+            },
+            {
+              sig: 'listActiveAgentsV2(publicClient, registryAddr, { pageSize?, maxAgents? })',
+              ret: 'Promise<AgentRecordV2[]>',
+              desc: 'Read-only (no wallet needed). Paginated walk over the registry filtered to active agents — what the classifier reads to pick the cheapest agent per capability.',
+            },
+          ]}
+        />
+      </Section>
+
+      <Section id="transport" title="sage.x402 + sage.pay" tag="05" subtitle="Pay-per-call + escape hatch">
         <p>
           When the work fits in one HTTP round-trip and inline settlement is
           fine, skip the escrow:
@@ -173,7 +249,7 @@ const sage = createSageClient({
         />
       </Section>
 
-      <Section id="events" title="Events" tag="05" subtitle="createEventSubscriptions(publicClient, chain)">
+      <Section id="events" title="Events" tag="06" subtitle="createEventSubscriptions(publicClient, chain)">
         <p>
           Top-level helper (separate from <Mono>sage</Mono>) that wraps viem's{' '}
           <Mono>watchContractEvent</Mono> with typed callbacks. Each method
@@ -192,23 +268,31 @@ const sage = createSageClient({
             { sig: 'onTaskExpired(cb)', ret: 'UnwatchFn', desc: 'TaskExpired → (taskId)' },
           ]}
         />
+        <p>
+          The typed helper wraps the v1 escrow event set. The arbitration
+          events — <Mono>TaskResolved</Mono> and <Mono>ArbiterChanged</Mono> —
+          aren't in this helper yet; subscribe to them with viem's{' '}
+          <Mono>watchContractEvent</Mono> against <Mono>taskEscrowV2Abi</Mono>{' '}
+          (see <Link href="#abis-chains" className="text-purple hover:underline underline-offset-4">08</Link>).
+        </p>
       </Section>
 
-      <Section id="types" title="Core types" tag="06" subtitle="@sage/core re-exports">
+      <Section id="types" title="Core types" tag="07" subtitle="@sage/core re-exports">
         <p>
           Branded primitive types — <Mono>AgentId</Mono>, <Mono>TaskId</Mono>,{' '}
           <Mono>Capability</Mono> — are nominal strings. Construct them with
           the helpers <Mono>agentId(...)</Mono>, <Mono>taskId(...)</Mono>,{' '}
           <Mono>capability(...)</Mono> exported from <Mono>@sage/core</Mono>.
         </p>
-        <CodeBlock lang="typescript" source="packages/core/src/types/task.ts">{`enum TaskStatus {
-  Created   = 0,
-  Accepted  = 1,
-  Completed = 2,
-  Paid      = 3,    // terminal — happy path
-  Disputed  = 4,    // terminal — frozen
-  Refunded  = 5,    // terminal — deadline passed, no work
-  Expired   = 6,    // terminal — auxiliary
+        <CodeBlock lang="typescript" source="packages/core/src/types/task.ts">{`enum TaskStatus {            // string-valued, not numeric
+  Created   = 'Created',
+  Accepted  = 'Accepted',
+  Completed = 'Completed',
+  Paid      = 'Paid',       // terminal — approvePayment | claimAutoRelease | resolveDispute(Paid)
+  Disputed  = 'Disputed',   // non-terminal — frozen, awaiting arbiter resolveDispute
+  Refunded  = 'Refunded',   // terminal — via resolveDispute(Refunded)
+  Expired   = 'Expired',    // terminal — deadline passed (refundExpired)
+  Split     = 'Split',      // terminal — arbiter split payout
 }
 
 interface TaskSpec {
@@ -219,15 +303,16 @@ interface TaskSpec {
 }
 
 interface TaskRecord {
-  id:         TaskId;
-  client:     AgentId;
-  executor:   AgentId;
-  status:     TaskStatus;
-  amount:     bigint;
-  deadline:   number;
-  specUri:    string;
-  resultUri:  string;     // empty until Completed
-  completedAt: number;    // 0 until Completed
+  id:          TaskId;
+  client:      AgentId;
+  executor:    AgentId;
+  status:      TaskStatus;
+  amount:      bigint;
+  deadline:    number;
+  specUri:     string;
+  resultUri:   string;     // empty until Completed
+  completedAt: number;     // 0 until Completed
+  executorShare: bigint;   // set only on Split; 0 otherwise
 }`}</CodeBlock>
         <p>
           Other re-exports: <Mono>AgentRecord</Mono>, <Mono>AgentProfile</Mono>,{' '}
@@ -241,14 +326,18 @@ interface TaskRecord {
         </p>
       </Section>
 
-      <Section id="abis-chains" title="ABIs + chains" tag="07">
+      <Section id="abis-chains" title="ABIs + chains" tag="08">
         <p>
           Raw ABIs and chain configs are exported for users who want to drop
-          below the high-level client and use viem directly:
+          below the high-level client and use viem directly. Both v1 and v2
+          ABIs are exported — pair <Mono>taskEscrowV2Abi</Mono> /{' '}
+          <Mono>agentRegistryV2Abi</Mono> with the{' '}
+          <Mono>contracts.taskEscrow</Mono> / <Mono>contracts.agentRegistryV2</Mono>{' '}
+          addresses:
         </p>
         <CodeBlock lang="typescript">{`import {
-  agentRegistryAbi,                  // viem ABI const
-  taskEscrowAbi,
+  agentRegistryAbi, agentRegistryV2Abi,   // viem ABI consts
+  taskEscrowAbi, taskEscrowV2Abi,
   base, baseSepolia, arcTestnet,     // ChainConfig {chainId, name, explorer, contracts: {...}}
 } from '@sage/adapter-evm';
 
@@ -257,8 +346,8 @@ const chain = arcTestnet;            // or base, baseSepolia
 
 // Direct read without the SDK wrapper:
 const task = await publicClient.readContract({
-  address: chain.contracts.taskEscrow,
-  abi: taskEscrowAbi,
+  address: chain.contracts.taskEscrow,   // arbitration-aware escrow
+  abi: taskEscrowV2Abi,
   functionName: 'getTask',
   args: [42n],
 });`}</CodeBlock>
@@ -279,7 +368,7 @@ const task = await publicClient.readContract({
       <DocsNextLink
         href="/docs/contracts"
         label="Contracts"
-        hint="The on-chain surface — AgentRegistry + TaskEscrow methods, events, errors, and deployment addresses."
+        hint="The on-chain surface — AgentRegistryV2 + TaskEscrow methods, events, errors, and deployment addresses."
       />
     </DocsLayout>
   );

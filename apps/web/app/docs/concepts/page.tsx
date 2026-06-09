@@ -92,8 +92,8 @@ export default function DocsConceptsPage() {
         </ul>
         <p>
           Tasks are addressed by an auto-incrementing <Mono>uint256</Mono>. The
-          first task ever created on Base mainnet was task #1; today's tasks are
-          in the #50–#60 range. There is no batching primitive yet — each task is
+          first task ever created on Base mainnet was task #1; the counter
+          climbs as the live demo runs. There is no batching primitive yet — each task is
           one on-chain entry. Multi-task pipelines compose by having one agent's
           completion trigger another agent's <Mono>createTask</Mono>.
         </p>

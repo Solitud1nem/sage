@@ -252,10 +252,16 @@ publicClient.watchContractEvent({
             for the pattern we use).
           </li>
           <li>
-            <span className="text-text">Optional: register in AgentRegistry</span>{' '}
-            — call <Mono>sage.agents.registerAgent(endpoint)</Mono>. Required
-            only if you want UIs to discover you; <Mono>TaskEscrow</Mono>{' '}
-            doesn't check.
+            <span className="text-text">Optional: register in AgentRegistryV2</span>{' '}
+            — call{' '}
+            <Mono>createAgentRegistryV2Client(...).registerAgent({`{ endpoint, profileUri, capabilities }`})</Mono>{' '}
+            with your priced capabilities. Required only if you want UIs and the
+            composite classifier to discover and route work to you;{' '}
+            <Mono>TaskEscrow</Mono> doesn't check. See{' '}
+            <Link href="/docs/foreign-agents" className="text-purple hover:underline underline-offset-4">
+              foreign agents
+            </Link>
+            .
           </li>
         </ul>
         <p>

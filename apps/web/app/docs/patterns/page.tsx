@@ -403,10 +403,11 @@ console.log('Agent listening on', account.address);`}</CodeBlock>
             disable, plan-runner reject.
           </li>
           <li>
-            Same workers as above — the orchestrator dispatches each sub-task
-            to the right EOA via stem-matching. No new contract, no new
-            primitive; the composition is in tooling on top of{' '}
-            <Mono>TaskEscrow</Mono>.
+            Same workers as above — the orchestrator resolves each sub-task's
+            capability and routes it to the cheapest active agent in{' '}
+            <Mono>AgentRegistryV2</Mono> (any agent can register and undercut, so
+            the set isn't fixed). No new contract, no new primitive; the
+            composition is in tooling on top of <Mono>TaskEscrow</Mono>.
           </li>
         </ul>
       </Section>

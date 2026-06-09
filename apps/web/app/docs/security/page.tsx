@@ -93,10 +93,10 @@ export default function DocsSecurityPage() {
 
       <Section id="testing" title="Test coverage" tag="03">
         <div className="my-4 grid sm:grid-cols-2 gap-3">
-          <Stat label="Solidity tests" value="77" detail="unit + integration + fuzz" />
+          <Stat label="Solidity tests" value="145" detail="unit + integration + fuzz" />
           <Stat label="Contract coverage" value="100%" detail="branches + lines" />
           <Stat label="Invariant runs" value="600k" detail="4 invariants × 10k × depth 15" />
-          <Stat label="TypeScript tests" value="167" detail="core 11 · adapter-evm 13 · adapter-arc 17 · demo-agents 126" />
+          <Stat label="TypeScript tests" value="242" detail="core 11 · adapter-evm 30 · adapter-arc 17 · demo-agents 184" />
         </div>
         <p>
           The invariant suite checks the four properties that we never want
