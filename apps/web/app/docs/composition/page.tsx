@@ -109,11 +109,20 @@ export default function DocsCompositionPage() {
             the entire pipeline.
           </li>
           <li>
-            <strong className="text-text">Indexable lineage.</strong>{' '}
-            Sub-tasks carry a <Mono>parent_id</Mono> envelope in their{' '}
-            <Mono>specUri</Mono> — an off-chain indexer can reconstruct the
-            parent-child graph from <Mono>TaskCreated</Mono> events alone.
-            No proprietary platform state required.
+            <strong className="text-text">Indexable lineage + faithful
+            content.</strong> Sub-tasks carry a structured envelope in their{' '}
+            <Mono>specUri</Mono> — <Mono>{`{ parent, spec, source?, inputs? }`}</Mono>{' '}
+            per{' '}
+            <ExternalLink href={githubBlobUrl('docs/adr/0018-composite-content-envelope.md')}>
+              ADR-0018
+            </ExternalLink>
+            . <Mono>parent</Mono> lets an off-chain indexer rebuild the
+            parent-child graph from <Mono>TaskCreated</Mono> events alone;{' '}
+            <Mono>source</Mono> attaches the original brief payload to a root
+            sub-task and <Mono>inputs</Mono> carries an upstream step's output
+            to a dependent one — so a worker sees the real material, not a
+            truncated instruction, and a chain (translate → summarize) passes
+            results forward. No proprietary platform state required.
           </li>
           <li>
             <strong className="text-text">Pre-execute review.</strong> The
@@ -153,7 +162,7 @@ export default function DocsCompositionPage() {
           />
           <TriggerRow
             label="composite / low"
-            description="Plan card surfaces the graph; user can approve as-is or edit. Auto-routing fills executors per stem matching (summarize → Summarizer, translate → Translator, etc.)."
+            description="Plan card surfaces the graph; user can approve as-is or edit. Auto-routing resolves each sub-task's capability, then picks the cheapest active agent advertising it in AgentRegistryV2 — so a newly-registered agent that undercuts the incumbent is pickable on the next classify, no redeploy."
           />
           <TriggerRow
             label="composite / high"
@@ -305,6 +314,21 @@ export default function DocsCompositionPage() {
             caution.
           </li>
           <li>
+            <strong className="text-text">Executor resolution.</strong> The
+            LLM classifies <em>capability</em>, never the executor address —
+            any model-emitted address is stripped. After classify, each
+            sub-task's capability is resolved against{' '}
+            <Mono>AgentRegistryV2</Mono>: the cheapest active agent
+            advertising it wins, and its registry price (not an LLM estimate)
+            fills <Mono>estimated_cost_units</Mono>. A registry miss leaves
+            the sub-task unassigned for a manual pick. This is the platform
+            substrate — see{' '}
+            <Link href="/docs/foreign-agents" className="text-purple hover:underline underline-offset-4">
+              foreign agents
+            </Link>
+            .
+          </li>
+          <li>
             <strong className="text-text">Failure handling.</strong> Retry
             once on malformed / 5xx; if the second attempt fails, return a
             degraded result with <Mono>confidence_*=0</Mono> — forces the
@@ -327,36 +351,68 @@ export default function DocsCompositionPage() {
         </p>
       </Section>
 
-      <Section id="dispute" title="Dispute path" tag="07">
+      <Section id="dispute" title="Dispute path — review gate, council, appeal" tag="07">
         <p>
-          When a sub-task lands in <Mono>Disputed</Mono> status, the plan
-          run pauses rather than fails. The user gets a prompt with three
-          options:
+          A completed sub-task isn't paid blindly. With <em>review mode</em>{' '}
+          on (an opt-in toggle on the plan card; off by default keeps the
+          unchanged auto-approve behavior), each <Mono>Completed</Mono>{' '}
+          sub-task pauses <em>before</em> payment and the client picks:
         </p>
         <ul className="list-disc list-outside pl-5 space-y-2 text-text-muted">
           <li>
-            <strong className="text-text">Retry.</strong> Re-spawn the
-            sub-task against the same executor. New <Mono>TaskCreated</Mono>{' '}
-            record, fresh deadline.
+            <strong className="text-text">Approve &amp; pay.</strong>{' '}
+            <Mono>approvePayment</Mono> releases the escrowed USDC; the plan
+            continues. Silence past the review window auto-approves — it
+            mirrors the on-chain auto-release-after-grace, so an absent
+            client never strands a delivered result.
           </li>
           <li>
-            <strong className="text-text">Change executor.</strong>{' '}
-            Re-spawn against a different worker (picker shows the four
-            known EOAs minus the current one). Useful when one worker
-            consistently fails a capability the others handle.
-          </li>
-          <li>
-            <strong className="text-text">Cancel.</strong> Plan run ends
-            with <Mono>plan_failed</Mono>; settled sub-tasks stay settled,
-            pending ones return to idle. No unwind of completed work.
+            <strong className="text-text">Dispute + reason.</strong>{' '}
+            <Mono>disputeTask(reason)</Mono> freezes the funds and hands the
+            case to an <strong className="text-text">off-chain council</strong>{' '}
+            — a single <Mono>gpt-4o-mini</Mono> judge in v1 (
+            <ExternalLink href={githubBlobUrl('docs/adr/0019-off-chain-council-v1.md')}>
+              ADR-0019
+            </ExternalLink>
+            ) that reads the <Mono>spec</Mono>, the executor's result, and
+            the reason, then returns a verdict: <Mono>worker</Mono> (pay in
+            full), <Mono>client</Mono> (refund), or <Mono>split</Mono> (an{' '}
+            <Mono>executorSharePct</Mono> of the amount). A configured{' '}
+            <Mono>arbiter</Mono> EOA executes that verdict on-chain via{' '}
+            <Mono>resolveDispute</Mono> →{' '}
+            <Mono>Paid / Refunded / Split</Mono> (
+            <ExternalLink href={githubBlobUrl('docs/adr/0017-task-escrow-arbitration.md')}>
+              ADR-0017
+            </ExternalLink>
+            ).
           </li>
         </ul>
         <p>
-          Pause timeout defaults to 2 minutes — short enough that abandoned
-          runs don't accumulate sponsor-side state, ergonomic for a human
-          reading a dispute and clicking once. Timeout treats as Cancel.
-          Server side: <Mono>POST /api/demo/composite/retry-subtask</Mono>;
-          plan-runner consumes the decision via an in-memory{' '}
+          The council is conservative: if the LLM judge fails twice it
+          degrades to <Mono>client</Mono> (refund) — don't pay for an
+          unverified result. A <Mono>worker</Mono> or <Mono>split</Mono>{' '}
+          verdict leaves the result usable and the plan continues; a{' '}
+          <Mono>client</Mono> refund ends the run with{' '}
+          <Mono>plan_failed (dispute_refunded)</Mono>. After any verdict that
+          didn't fully favor the client, an <strong className="text-text">Appeal</strong>{' '}
+          button surfaces a second-level human-arbiter review — a stub in
+          this demo (the council verdict is final here), with the real
+          contract appeal window + dedicated arbiter left as future
+          hardening. Trust posture is honest: in the demo the sponsor,
+          client, and arbiter collapse to one party.
+        </p>
+        <p>
+          Separately, when <em>re-running</em> is the better remedy than
+          adjudicating escrow, the plan can recover a sub-task by
+          re-spawning rather than disputing — <strong className="text-text">Retry</strong>{' '}
+          (same executor, fresh deadline),{' '}
+          <strong className="text-text">Change executor</strong> (route to a
+          different agent), or <strong className="text-text">Cancel</strong>{' '}
+          (settled sub-tasks stay settled, pending ones return to idle; a
+          2-minute pause timeout treats as Cancel). Server side:{' '}
+          <Mono>POST /api/demo/composite/review-decision</Mono> resolves the
+          review gate, <Mono>/retry-subtask</Mono> the replan; the
+          plan-runner consumes either via an in-memory{' '}
           <Mono>run-registry</Mono> rendezvous.
         </p>
       </Section>
@@ -400,6 +456,18 @@ export default function DocsCompositionPage() {
             href={githubBlobUrl('docs/adr/0008-sage-angle-position.md')}
           />
           <SourceLink
+            label="ADR-0017 — Task escrow arbitration"
+            href={githubBlobUrl('docs/adr/0017-task-escrow-arbitration.md')}
+          />
+          <SourceLink
+            label="ADR-0018 — Composite content envelope"
+            href={githubBlobUrl('docs/adr/0018-composite-content-envelope.md')}
+          />
+          <SourceLink
+            label="ADR-0019 — Off-chain council v1"
+            href={githubBlobUrl('docs/adr/0019-off-chain-council-v1.md')}
+          />
+          <SourceLink
             label="research/observable-decomposition.md"
             href={githubBlobUrl('docs/research/observable-decomposition.md')}
           />
@@ -428,9 +496,9 @@ export default function DocsCompositionPage() {
       </Section>
 
       <DocsNextLink
-        href="/docs/use-cases"
-        label="Use cases"
-        hint="Five concrete scenarios where Sage fits — including the multi-step workflows case that's the natural fit for composite plans."
+        href="/docs/foreign-agents"
+        label="Foreign agents"
+        hint="The platform substrate the classifier routes through — anyone can register an agent, undercut the price, and get picked. Permissionless by construction."
       />
     </DocsLayout>
   );

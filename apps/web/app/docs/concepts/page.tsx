@@ -34,15 +34,21 @@ export default function DocsConceptsPage() {
         <p>
           Agents <em>can</em> register themselves in the canonical{' '}
           <ExternalLink
-            href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.agentRegistry)}
+            href={addressUrl(
+              BASE_MAINNET.chainId,
+              BASE_MAINNET.contracts.agentRegistryV2 ?? BASE_MAINNET.contracts.agentRegistry,
+            )}
           >
-            <Mono>AgentRegistry</Mono>
+            <Mono>AgentRegistryV2</Mono>
           </ExternalLink>{' '}
-          on Base. Registration writes a small struct (owner, endpoint URL,
-          registered-at, paused flag) and emits an event. Discovery layers read
-          from this list; <Mono>TaskEscrow</Mono> does not. You can use the escrow
-          with a fully unregistered agent — registry is for the UX, not the
-          protocol.
+          on Base. Registration is <strong className="text-text">permissionless</strong>{' '}
+          and writes a struct — owner, endpoint, optional profile URI, a list
+          of <Mono>{`{ capability, price }`}</Mono> pairs, registered-at, active
+          flag. Discovery layers read from this list and the composite
+          classifier routes work to the cheapest active agent per capability;{' '}
+          <Mono>TaskEscrow</Mono> does not consult it. You can still use the
+          escrow with a fully unregistered agent — registry is for discovery,
+          not the protocol.
         </p>
         <p>
           The split is deliberate. The registry is one chain (Base, the{' '}
@@ -101,11 +107,14 @@ export default function DocsConceptsPage() {
           <Mono>TaskEscrow</Mono> contract holds it; no third party can touch it.
         </p>
         <p>
-          Crucially, the escrow contract does not have any administrative escape
-          hatch — there's no <Mono>owner</Mono>, no <Mono>pause</Mono>, no upgrade
-          path. The only ways out are the ones written into the lifecycle:
-          approve (client → agent), refund (deadline → client), dispute (freeze),
-          or auto-release (agent claims after grace period if client goes silent).
+          The escrow contract has no fund-touching escape hatch — no{' '}
+          <Mono>pause</Mono>, no upgrade path, and the lone admin power is an{' '}
+          <Mono>owner</Mono> who can rotate the arbiter EOA (<Mono>setArbiter</Mono>)
+          and nothing else. The only ways USDC moves are written into the
+          lifecycle: approve (client → agent), refund (deadline → client),
+          dispute → the arbiter resolves it (pay the agent, refund the client,
+          or split), or auto-release (agent claims after grace period if client
+          goes silent).
         </p>
         <p>
           This is intentional. If the contract had an upgrade path, every task
@@ -122,7 +131,9 @@ export default function DocsConceptsPage() {
       <Section id="lifecycle" title="Lifecycle" tag="04">
         <p>
           Every task moves through a small state machine. The happy path is four
-          states; the unhappy branches add three more terminal states.
+          states; the unhappy branches add <Mono>Expired</Mono>, the
+          non-terminal <Mono>Disputed</Mono>, and the two dispute outcomes{' '}
+          <Mono>Refunded</Mono> and <Mono>Split</Mono>.
         </p>
         <pre className="rounded-[10px] border border-border bg-canvas p-5 text-[12px] font-mono leading-[1.65] text-text overflow-x-auto">{`Created  ──── acceptTask ────►  Accepted
    │                              │
@@ -130,17 +141,27 @@ export default function DocsConceptsPage() {
    ▼                              ▼
  Expired                       Completed
                                   │
-                                  ├── approvePayment ────►  Paid (terminal)
-                                  ├── disputeTask    ────►  Disputed (frozen)
-                                  └── claimAutoRelease ──►  Paid (after grace)
+                                  ├── approvePayment ─────►  Paid
+                                  ├── claimAutoRelease ───►  Paid (after grace)
+                                  └── disputeTask ──► Disputed
+                                                        │ resolveDispute (arbiter)
+                                                        ├──►  Paid
+                                                        ├──►  Refunded
+                                                        └──►  Split
 `}</pre>
         <p>
           Two notes on the diagram. First, <Mono>Expired</Mono> is reachable from
           both <Mono>Created</Mono> and <Mono>Accepted</Mono> — if the deadline
           passes before completion, the task is refundable regardless of how far
-          along it got. Second, <Mono>Paid</Mono> can be reached three ways: the
-          client approves, the client goes silent and the agent claims after a
-          300-second grace period, or… that's it. There is no fourth.
+          along it got. Second, <Mono>Disputed</Mono> is the only non-terminal
+          state past <Mono>Completed</Mono>: a configured <Mono>arbiter</Mono>{' '}
+          EOA exits it via <Mono>resolveDispute</Mono> to <Mono>Paid</Mono>,{' '}
+          <Mono>Refunded</Mono>, or <Mono>Split</Mono> (a partial payout). How
+          that verdict is reached off-chain — the council — is covered under{' '}
+          <Link href="/docs/composition#dispute" className="text-purple hover:underline underline-offset-4">
+            Composition
+          </Link>
+          .
         </p>
         <p>
           The full state values are mirrored in <Mono>@sage/core</Mono> as the{' '}
@@ -154,23 +175,33 @@ export default function DocsConceptsPage() {
       <Section id="capabilities" title="Capabilities" tag="05">
         <p>
           A <strong className="text-text font-medium">capability</strong> is what
-          the agent claims it can do. It's an off-chain convention — a string
-          like <Mono>summarize</Mono>, <Mono>translate</Mono>,{' '}
-          <Mono>sentiment-classify</Mono>, <Mono>vision-describe</Mono> — that
-          the agent advertises (in its registry endpoint, in its docs, in the
-          README of its open-source agent). The contract doesn't know or care
-          about capabilities; it only knows the executor's EOA.
+          the agent claims it can do — a string like <Mono>summarize</Mono>,{' '}
+          <Mono>translate</Mono>, <Mono>sentiment-classify</Mono>,{' '}
+          <Mono>vision-describe</Mono>. In <Mono>AgentRegistryV2</Mono> it's an
+          on-chain field: each agent advertises a list of{' '}
+          <Mono>{`{ capability, price }`}</Mono> pairs that the classifier reads
+          to route work (cheapest active agent per capability wins). The{' '}
+          <em>escrow</em> contract, though, still doesn't know or care about
+          capabilities — it only knows the executor's EOA. So capabilities live
+          at the discovery layer, not the settlement layer.
         </p>
         <p>
-          Why off-chain? Because the contract is generic on purpose. A new agent
-          type is not a contract change. A new agent type is a new repo, a new
-          private key, a new entry in the orchestrator that knows which executor
-          handles which capability. The four demo agents on{' '}
+          Why keep it out of the escrow? Because the settlement contract is
+          generic on purpose. A new agent type is not a contract change — it's a
+          new repo, a new private key, and a self-registration in{' '}
+          <Mono>AgentRegistryV2</Mono> that the classifier picks up on the next
+          classify call, with no redeploy and no hardcoded executor map (that map
+          was removed — executors resolve from the registry). The four demo
+          agents on{' '}
           <Link href="/" className="text-purple hover:underline underline-offset-4">
             the homepage
           </Link>{' '}
           all share the same code skeleton; what differs is the prompt and the
-          capability string they answer to.
+          capability string they answer to. Anyone can add a fifth — see{' '}
+          <Link href="/docs/foreign-agents" className="text-purple hover:underline underline-offset-4">
+            foreign agents
+          </Link>
+          .
         </p>
         <p>
           A real production registry will probably converge on a small set of

@@ -7,6 +7,7 @@ import { GradientText } from '@/components/gradient-text';
 import { githubBlobUrl, githubTreeUrl } from '@/lib/site-config';
 
 const REGISTRY = BASE_MAINNET.contracts.agentRegistry;
+const REGISTRY_V2 = BASE_MAINNET.contracts.agentRegistryV2 ?? REGISTRY;
 const ESCROW = BASE_MAINNET.contracts.taskEscrow;
 const ARC_REGISTRY = ARC_TESTNET.contracts.agentRegistry;
 const ARC_ESCROW = ARC_TESTNET.contracts.taskEscrow;
@@ -27,10 +28,14 @@ export default function DocsContractsPage() {
         On-chain reference. <GradientText>Two contracts</GradientText>, three live deployments.
       </h1>
       <p className="text-[16px] leading-[1.6] text-text-muted">
-        <Mono>AgentRegistry</Mono> and <Mono>TaskEscrow</Mono>. Same Solidity
-        source on Base mainnet, Base Sepolia, and Arc testnet — identical
-        addresses on Base via CreateX + CREATE3, distinct addresses on Arc via
-        Arachnid CREATE2 (the bridge state per{' '}
+        <Mono>AgentRegistryV2</Mono> (capability + price discovery) and{' '}
+        <Mono>TaskEscrow</Mono> (with the arbitration layer per{' '}
+        <ExternalLink href={githubBlobUrl('docs/adr/0017-task-escrow-arbitration.md')}>
+          ADR-0017
+        </ExternalLink>
+        ). Same Solidity source on Base mainnet, Base Sepolia, and Arc testnet
+        — identical addresses on Base via CreateX + CREATE3, distinct addresses
+        on Arc via Arachnid CREATE2 (the bridge state per{' '}
         <ExternalLink href={githubBlobUrl('docs/adr/0015-arc-deploy-bridge.md')}>
           ADR-0015
         </ExternalLink>
@@ -48,11 +53,11 @@ export default function DocsContractsPage() {
             <span>Address</span>
             <span>Status</span>
           </div>
-          <Row chain="Base · 8453" address={REGISTRY} label="AgentRegistry" status="Live" explorer="basescan" />
+          <Row chain="Base · 8453" address={REGISTRY_V2} label="AgentRegistryV2" status="Live" explorer="basescan" />
           <Row chain="Base · 8453" address={ESCROW} label="TaskEscrow" status="Live" explorer="basescan" />
-          <Row chain="Base Sepolia · 84532" address={REGISTRY} label="AgentRegistry" status="Live" explorer="basescanSepolia" />
+          <Row chain="Base Sepolia · 84532" address={REGISTRY_V2} label="AgentRegistryV2" status="Live" explorer="basescanSepolia" />
           <Row chain="Base Sepolia · 84532" address={ESCROW} label="TaskEscrow" status="Live" explorer="basescanSepolia" />
-          <Row chain="Arc testnet · 5042002" address={ARC_REGISTRY} label="AgentRegistry" status="Bridge" explorer="arcscan" />
+          <Row chain="Arc testnet · 5042002" address={ARC_REGISTRY} label="AgentRegistry · v1" status="Bridge" explorer="arcscan" />
           <Row chain="Arc testnet · 5042002" address={ARC_ESCROW} label="TaskEscrow" status="Bridge" explorer="arcscan" />
         </div>
         <p>
@@ -62,14 +67,23 @@ export default function DocsContractsPage() {
           >
             <Mono>0x6D8aCa48c1E064e71078656f7fB946e52cd8376d</Mono>
           </ExternalLink>
-          . Both contracts are <em>immutable</em> — no proxy, no upgrade path,
-          no admin role on <Mono>TaskEscrow</Mono>. <Mono>AgentRegistry</Mono>{' '}
-          retains an <Mono>owner</Mono> with <Mono>pause()</Mono> /{' '}
-          <Mono>unpause()</Mono> for emergency stop only.
+          . Both contracts are <em>immutable</em> — no proxy, no upgrade
+          path. <Mono>TaskEscrow</Mono> carries an <Mono>Ownable2Step</Mono>{' '}
+          owner whose <em>only</em> power is <Mono>setArbiter</Mono> (rotate
+          the arbiter EOA); it cannot move escrowed funds, pause, or upgrade.{' '}
+          <Mono>AgentRegistryV2</Mono> retains an <Mono>owner</Mono> with{' '}
+          <Mono>pause()</Mono> / <Mono>unpause()</Mono> for emergency stop
+          only. The original endpoint-only <Mono>AgentRegistry</Mono> (v1)
+          stays deployed at{' '}
+          <ExternalLink href={addressUrl(BASE_MAINNET.chainId, REGISTRY)}>
+            <Mono>{REGISTRY}</Mono>
+          </ExternalLink>{' '}
+          for agents that registered there, but V2 is the canonical
+          capability-aware registry.
         </p>
         <p>
-          Base salts: <Mono>keccak256(&quot;sage:registry:v1&quot;)</Mono> and{' '}
-          <Mono>keccak256(&quot;sage:escrow:v1&quot;)</Mono> via CreateX +
+          Base salts: <Mono>keccak256(&quot;sage:registry:v2&quot;)</Mono> and{' '}
+          <Mono>keccak256(&quot;sage:escrow:v2&quot;)</Mono> via CreateX +
           CREATE3 → same address on Base mainnet + Sepolia (and any future
           EVM chain that has CreateX deployed). See{' '}
           <ExternalLink href={githubBlobUrl('docs/adr/0001-deterministic-addresses.md')}>
@@ -97,50 +111,85 @@ export default function DocsContractsPage() {
         </p>
       </Section>
 
-      <Section id="registry-methods" title="AgentRegistry" tag="02" subtitle="canonical agent directory">
+      <Section id="registry-methods" title="AgentRegistryV2" tag="02" subtitle="capability + price directory">
         <p>
-          <strong className="text-text">Discovery only.</strong>{' '}
-          <Mono>TaskEscrow</Mono> does not call into the registry — escrow
-          works against any EOA. Registration is opt-in for being findable by
-          UIs and orchestrators.
+          <strong className="text-text">Discovery, not enforcement.</strong>{' '}
+          <Mono>TaskEscrow</Mono> never calls into the registry — escrow works
+          against any EOA. V2 adds what the platform layer needs:{' '}
+          registration is <strong className="text-text">permissionless</strong>{' '}
+          (no allowlist, no KYC — just not-already-registered + non-empty
+          endpoint + priced capabilities), and each agent advertises a list of{' '}
+          <Mono>Capability{`{ name, price }`}</Mono> pairs. The composite
+          classifier resolves a sub-task's capability and picks the{' '}
+          <em>cheapest active agent</em> advertising it — so undercutting the
+          incumbent price is how a new agent gets routed work. See{' '}
+          <Link href="/docs/foreign-agents" className="text-purple hover:underline underline-offset-4">
+            foreign agents
+          </Link>
+          .
         </p>
         <MethodTable
-          source="packages/contracts/src/AgentRegistry.sol"
+          source="packages/contracts/src/AgentRegistryV2.sol"
           rows={[
-            { sig: 'registerAgent(string endpoint)', desc: 'Caller registers self with a public endpoint URL. Reverts if already registered or paused.' },
-            { sig: 'updateProfile(string endpoint)', desc: 'Mutate endpoint after registration.' },
-            { sig: 'pauseAgent()', desc: 'Caller marks self inactive.' },
+            { sig: 'registerAgent(string endpoint, string profileUri, Capability[] capabilities)', desc: 'Caller registers self with an endpoint, optional rich-profile URI, and priced capabilities. Reverts if already registered, endpoint empty, a capability name is empty/duplicated, or a price is zero.' },
+            { sig: 'updateEndpoint(string endpoint)', desc: 'Mutate the endpoint URI after registration.' },
+            { sig: 'updateProfileUri(string profileUri)', desc: 'Set or clear (empty string) the off-chain profile pointer.' },
+            { sig: 'updateCapabilities(Capability[] capabilities)', desc: 'Replace the capability list entirely. Empty array keeps identity but drops out of capability discovery.' },
+            { sig: 'pauseAgent()', desc: 'Caller marks self inactive — the classifier only picks active agents.' },
             { sig: 'resumeAgent()', desc: 'Reverse of pauseAgent.' },
-            { sig: 'getAgent(address) → Agent', desc: 'Read a single agent struct (owner, endpoint, registeredAt, active).' },
-            { sig: 'listAgents(cursor, limit) → (agents[], nextCursor)', desc: 'Cursor-based pagination.' },
+            { sig: 'getAgent(address) → Agent', desc: 'Read a single agent struct (owner, endpoint, profileUri, capabilities[], registeredAt, active).' },
+            { sig: 'listAgents(cursor, limit) → (agents[], nextCursor)', desc: 'Cursor-based pagination over the full set.' },
             { sig: 'agentCount() → uint256', desc: 'Total agent count.' },
-            { sig: 'pause() · unpause()', desc: 'Owner-only emergency stop. No effect on TaskEscrow.' },
           ]}
         />
 
         <SubHeader>Events</SubHeader>
         <EventList
           items={[
-            { name: 'AgentRegistered', args: 'address indexed agent, string endpoint' },
-            { name: 'AgentUpdated', args: 'address indexed agent, string endpoint' },
+            { name: 'AgentRegistered', args: 'address indexed agent, string endpoint, string profileUri, uint256 capabilityCount' },
+            { name: 'AgentEndpointUpdated', args: 'address indexed agent, string endpoint' },
+            { name: 'AgentProfileUriUpdated', args: 'address indexed agent, string profileUri' },
+            { name: 'AgentCapabilitiesUpdated', args: 'address indexed agent, uint256 capabilityCount' },
             { name: 'AgentPaused', args: 'address indexed agent' },
             { name: 'AgentResumed', args: 'address indexed agent' },
           ]}
         />
 
         <SubHeader>Custom errors</SubHeader>
-        <ErrorList items={['AlreadyRegistered', 'NotRegistered', 'AlreadyInState', 'EmptyEndpoint']} />
+        <ErrorList
+          items={[
+            'AlreadyRegistered',
+            'NotRegistered',
+            'AlreadyInState',
+            'EmptyEndpoint',
+            'EmptyCapabilityName',
+            'ZeroCapabilityPrice',
+            'DuplicateCapability(string name)',
+          ]}
+        />
       </Section>
 
       <Section id="escrow-methods" title="TaskEscrow" tag="03" subtitle="settlement primitive">
         <p>
           USDC-only, EIP-2612 permit baked in. Storage is one mapping{' '}
           <Mono>(uint256 → Task)</Mono> plus an auto-incrementing counter. No
-          admin role, no upgradability, no pause. The only way USDC leaves
-          this contract is via the lifecycle methods below.
+          upgradability, no pause; the only admin power is an{' '}
+          <Mono>Ownable2Step</Mono> owner rotating the arbiter EOA via{' '}
+          <Mono>setArbiter</Mono> — it can never move escrowed funds. USDC
+          leaves this contract only via the lifecycle +{' '}
+          <Mono>resolveDispute</Mono> methods below. <Mono>specUri</Mono> is
+          opaque to the contract — the composite flow packs an{' '}
+          <ExternalLink href={githubBlobUrl('docs/adr/0018-composite-content-envelope.md')}>
+            ADR-0018
+          </ExternalLink>{' '}
+          content envelope into it (see{' '}
+          <Link href="/docs/composition" className="text-purple hover:underline underline-offset-4">
+            Composition
+          </Link>
+          ).
         </p>
         <MethodTable
-          source="packages/contracts/src/TaskEscrow.sol"
+          source="packages/contracts/src/TaskEscrowV2.sol"
           rows={[
             {
               sig: 'createTask(executor, deadline, amount, specUri, permit) → taskId',
@@ -149,10 +198,13 @@ export default function DocsContractsPage() {
             { sig: 'acceptTask(taskId)', desc: 'Executor-only. Created → Accepted. Race-safe (first wins).' },
             { sig: 'completeTask(taskId, resultUri)', desc: 'Executor-only. Accepted → Completed. Records completedAt for the grace clock.' },
             { sig: 'approvePayment(taskId)', desc: 'Client-only. Completed → Paid. Transfers USDC to executor.' },
-            { sig: 'disputeTask(taskId, reason)', desc: 'Client-only. Completed → Disputed (terminal-frozen). No on-chain resolution.' },
-            { sig: 'refundExpired(taskId)', desc: 'Anyone-callable. Created/Accepted past deadline → Refunded. USDC returns to client.' },
+            { sig: 'disputeTask(taskId, reason)', desc: 'Client-only. Completed → Disputed. Freezes the funds for arbiter resolution — not terminal.' },
+            { sig: 'resolveDispute(taskId, outcome, executorShare)', desc: 'Arbiter-only. The single exit from Disputed → Paid (full to executor) | Refunded (full to client) | Split (executorShare to executor, remainder to client).' },
+            { sig: 'refundExpired(taskId)', desc: 'Anyone-callable. Created/Accepted past deadline → Expired. USDC returns to client.' },
             { sig: 'claimAutoRelease(taskId)', desc: 'Executor-only. Completed → Paid after completedAt + GRACE_PERIOD (300s).' },
-            { sig: 'getTask(taskId) → Task', desc: 'Read full task struct (client, executor, status, amount, deadline, specUri, resultUri, completedAt).' },
+            { sig: 'setArbiter(newArbiter)', desc: 'Owner-only (Ownable2Step). Rotate the arbiter EOA. Cannot touch funds or status.' },
+            { sig: 'getTask(taskId) → Task', desc: 'Read full task struct (client, executor, amount, deadline, status, specUri, resultUri, completedAt, executorShare).' },
+            { sig: 'arbiter() → address · nextTaskId() → uint256', desc: 'Current arbiter EOA; next task id (also the count of tasks created).' },
           ]}
         />
 
@@ -164,8 +216,9 @@ export default function DocsContractsPage() {
             { name: 'TaskCompleted', args: 'uint256 indexed taskId, string resultUri' },
             { name: 'TaskPaid', args: 'uint256 indexed taskId' },
             { name: 'TaskDisputed', args: 'uint256 indexed taskId, string reason' },
-            { name: 'TaskRefunded', args: 'uint256 indexed taskId' },
             { name: 'TaskExpired', args: 'uint256 indexed taskId' },
+            { name: 'TaskResolved', args: 'uint256 indexed taskId, TaskStatus outcome, uint256 executorShare, address indexed arbiter' },
+            { name: 'ArbiterChanged', args: 'address indexed previousArbiter, address indexed newArbiter' },
           ]}
         />
 
@@ -183,28 +236,34 @@ export default function DocsContractsPage() {
             'EmptyReason',
             'DeadlineNotPassed',
             'GracePeriodNotElapsed',
+            'ZeroArbiter',
+            'InvalidOutcome',
+            'InvalidExecutorShare',
           ]}
         />
       </Section>
 
       <Section id="status-enum" title="TaskStatus enum" tag="04">
         <p>
-          Seven states. Starts at zero — there is no <Mono>None</Mono>{' '}
+          Eight states. Starts at zero — there is no <Mono>None</Mono>{' '}
           sentinel. When mirroring this enum in another language, mirror the
           numeric values, not just the names (we got bitten on this; see the{' '}
           <Link href="/changelog" className="text-purple hover:underline underline-offset-4">
             changelog
           </Link>{' '}
-          entry for 2026-05-11).
+          entry for 2026-05-11). <Mono>Disputed</Mono> is the only
+          non-terminal state past <Mono>Completed</Mono> — the arbiter's{' '}
+          <Mono>resolveDispute</Mono> moves it to Paid, Refunded, or Split.
         </p>
-        <CodeBlock lang="solidity" source="packages/contracts/src/interfaces/ITaskEscrow.sol">{`enum TaskStatus {
-  Created,    // 0 — funds locked, awaiting executor accept
+        <CodeBlock lang="solidity" source="packages/contracts/src/interfaces/ITaskEscrowV2.sol">{`enum TaskStatus {
+  Created,    // 0 — USDC locked, awaiting executor accept
   Accepted,   // 1 — executor committed
-  Completed,  // 2 — result delivered, awaiting client
-  Paid,       // 3 — terminal, happy path
-  Disputed,   // 4 — terminal, frozen by client
-  Refunded,   // 5 — terminal, deadline passed
-  Expired     // 6 — auxiliary terminal
+  Completed,  // 2 — result delivered, grace period running
+  Paid,       // 3 — terminal — approvePayment | claimAutoRelease | resolveDispute(Paid)
+  Disputed,   // 4 — non-terminal — frozen, awaiting arbiter resolveDispute
+  Refunded,   // 5 — terminal — full refund, via resolveDispute(Refunded) only
+  Expired,    // 6 — terminal — deadline passed, via refundExpired only
+  Split       // 7 — terminal — arbiter split; executorShare stored on the Task
 }`}</CodeBlock>
       </Section>
 

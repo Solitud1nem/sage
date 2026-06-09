@@ -72,7 +72,7 @@ export default function DocsArchitecturePage() {
                    │                          │
 ┌──────────────────▼─────────────┐  ┌─────────▼────────────────────┐
 │  Fly: sage-demo-agents         │  │  Base mainnet (chain 8453)   │
-│    1 orch + 4 workers          │  │    AgentRegistry (anchor)    │
+│    1 orch + 4 workers          │  │    AgentRegistryV2 (anchor)  │
 │    (chain: Base)               │  │    TaskEscrow                │
 │                                │  │    USDC (Circle)             │
 │  Fly: sage-demo-agents-arc     │  └──────────────────────────────┘
@@ -119,13 +119,14 @@ export default function DocsArchitecturePage() {
   │                                │                                  │
   └────────────────────────────────┴──────────────────────────────────┘`}</Diagram>
         <p>
-          <Label>Three off-path exits.</Label> If the client never approves:
-          (a) executor calls <Mono>claimAutoRelease</Mono> after a 300-second
-          grace and the funds release anyway; (b) executor calls{' '}
-          <Mono>disputeTask</Mono> first and the funds freeze pending off-chain
-          resolution; (c) deadline passes without acceptance or completion
-          and anyone can call <Mono>refundExpired</Mono> to return the funds.
-          See{' '}
+          <Label>Three off-path exits.</Label> (a) the client goes silent and
+          the executor calls <Mono>claimAutoRelease</Mono> after a 300-second
+          grace, releasing the funds anyway; (b) the client{' '}
+          <Mono>disputeTask</Mono>s the completed result — funds freeze and a
+          configured <Mono>arbiter</Mono> resolves it via{' '}
+          <Mono>resolveDispute</Mono> (pay the executor, refund the client, or
+          split); (c) the deadline passes without acceptance or completion and
+          anyone can call <Mono>refundExpired</Mono> to return the funds. See{' '}
           <Link
             href="/docs/concepts#lifecycle"
             className="text-purple hover:underline underline-offset-4"
@@ -179,10 +180,15 @@ export default function DocsArchitecturePage() {
         </div>
         <p>
           <Label>Anchor chain pattern.</Label>{' '}
-          <Mono>AgentRegistry</Mono> lives only on Base — the canonical
-          directory. Spoke chains (Arbitrum / OP / BNB) get{' '}
-          <Mono>TaskEscrow</Mono> only; agent identity stays unified across
-          chains because the EOA is the identifier. See{' '}
+          <Mono>AgentRegistryV2</Mono> lives only on Base — the canonical
+          capability + price directory the classifier routes through (anyone
+          can register; see{' '}
+          <Link href="/docs/foreign-agents" className="text-purple hover:underline underline-offset-4">
+            Foreign agents
+          </Link>
+          ). Spoke chains (Arbitrum / OP / BNB) get <Mono>TaskEscrow</Mono>{' '}
+          only; agent identity stays unified across chains because the EOA is
+          the identifier. See{' '}
           <ExternalLink href={githubBlobUrl('docs/adr/0002-agent-identity.md')}>
             ADR-0002
           </ExternalLink>
@@ -197,9 +203,12 @@ export default function DocsArchitecturePage() {
           </ExternalLink>{' '}
           ·{' '}
           <ExternalLink
-            href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.agentRegistry)}
+            href={addressUrl(
+              BASE_MAINNET.chainId,
+              BASE_MAINNET.contracts.agentRegistryV2 ?? BASE_MAINNET.contracts.agentRegistry,
+            )}
           >
-            <Mono>AgentRegistry</Mono>
+            <Mono>AgentRegistryV2</Mono>
           </ExternalLink>
           . Same addresses on Sepolia by design (CREATE3 determinism, see{' '}
           <ExternalLink href={githubBlobUrl('docs/adr/0001-deterministic-addresses.md')}>
@@ -246,12 +255,26 @@ export default function DocsArchitecturePage() {
             stack can't actually settle.
           </li>
           <li>
-            <Label>Contracts.</Label> Immutable.{' '}
-            <Mono>TaskEscrow</Mono> has no admin and no upgrade path; the
-            only way USDC leaves is via the lifecycle.{' '}
-            <Mono>AgentRegistry</Mono> retains an owner for{' '}
+            <Label>Contracts.</Label> Immutable — no upgrade path.{' '}
+            <Mono>TaskEscrow</Mono>'s only admin power is an{' '}
+            <Mono>Ownable2Step</Mono> owner rotating the arbiter EOA
+            (<Mono>setArbiter</Mono>); it cannot move escrowed funds. USDC
+            leaves only via the lifecycle + <Mono>resolveDispute</Mono>.{' '}
+            <Mono>AgentRegistryV2</Mono> retains an owner for{' '}
             <Mono>pause()</Mono> / <Mono>unpause()</Mono> only — it can stop
             new registrations, but cannot touch escrow.
+          </li>
+          <li>
+            <Label>Arbiter.</Label> A single configured EOA can{' '}
+            <Mono>resolveDispute</Mono> a frozen task to pay / refund / split —
+            the one trusted role in the system. Its verdict comes from an
+            off-chain council (ADR-0019); in the demo the sponsor, client, and
+            arbiter collapse to one party, an honest v1 posture rather than a
+            decentralized court. See{' '}
+            <Link href="/docs/security" className="text-purple hover:underline underline-offset-4">
+              Security
+            </Link>
+            .
           </li>
           <li>
             <Label>Sponsor model.</Label> Anyone can be{' '}
@@ -295,6 +318,9 @@ export default function DocsArchitecturePage() {
             '@sage/adapter-arc scaffold — reserved for native ERC-8183 / ERC-8004 wrap (ADR-0014)',
             'Demo: pipeline / sentiment / vision through Pages + Worker + Fly',
             'Composite demo: observable decomposition (ADR-0007) — classify → plan card → approve → settle',
+            'AgentRegistryV2: capability + price discovery; permissionless foreign agents (forkable template)',
+            'Arbitration: on-chain resolveDispute + off-chain council — dispute → verdict → pay / refund / split (ADR-0017 / 0019)',
+            'Composite content envelope: faithful payload + dependency chaining (ADR-0018)',
             'M9 operational hardening: sponsor guard, HA orchestrator, rate limits',
           ]}
         />

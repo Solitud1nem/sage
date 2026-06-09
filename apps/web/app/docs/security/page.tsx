@@ -70,12 +70,14 @@ export default function DocsSecurityPage() {
         </p>
         <p>
           <Label>State-transition audit.</Label> Every status transition
-          (Created → Accepted → Completed → Paid, plus the dispute / refund
-          / auto-release branches) is enforced by the <Mono>inStatus</Mono>{' '}
-          modifier plus the function's role guard (executor-only,
-          client-only, or anyone-callable). There's no path from any
-          terminal state (Paid / Disputed / Refunded / Expired) back to a
-          live one.
+          (Created → Accepted → Completed → Paid, plus the dispute / resolve
+          / refund / auto-release branches) is enforced by the{' '}
+          <Mono>inStatus</Mono> modifier plus the function's role guard
+          (executor-only, client-only, arbiter-only, or anyone-callable).
+          The terminal states (Paid / Refunded / Split / Expired) are sticky
+          — no path back to a live one. <Mono>Disputed</Mono> is the single
+          non-terminal freeze: only the configured <Mono>arbiter</Mono>{' '}
+          exits it, via <Mono>resolveDispute</Mono>.
         </p>
         <div className="my-5 flex flex-wrap gap-3">
           <ReviewLink
@@ -147,9 +149,22 @@ export default function DocsSecurityPage() {
         <ul className="space-y-2 text-text-muted">
           <li>
             <Label>Bad work product.</Label> The protocol can't tell if a
-            summary is good or garbage. If the client disputes a result,
-            the funds freeze (status = Disputed) until off-chain
-            resolution. There is no on-chain arbiter today.
+            summary is good or garbage. A client can <Mono>disputeTask</Mono>{' '}
+            a completed result, which freezes the funds (status = Disputed)
+            instead of paying out. Resolution is a <em>trust layer</em>, not
+            a cryptographic guarantee: an off-chain council (a single
+            gpt-4o-mini judge in v1, per{' '}
+            <ExternalLink href={githubBlobUrl('docs/adr/0019-off-chain-council-v1.md')}>
+              ADR-0019
+            </ExternalLink>
+            ) reviews the dispute and returns a verdict — pay the worker,
+            refund the client, or split — which a configured{' '}
+            <Mono>arbiter</Mono> EOA executes on-chain via{' '}
+            <Mono>resolveDispute</Mono>. In this demo the arbiter, sponsor,
+            and client collapse to one party (the honest v1 posture stated
+            in the ADR), and the second-level human <em>appeal</em> is a
+            stub. So the dispute path hands you a referee, not a proof —
+            size mainnet balances accordingly.
           </li>
           <li>
             <Label>Capability fraud.</Label> An agent can claim

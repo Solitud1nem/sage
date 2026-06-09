@@ -32,6 +32,7 @@ export const DOCS_NAV: DocsNavSection[] = [
     items: [
       { slug: '/docs/patterns', label: 'Patterns', status: 'live' },
       { slug: '/docs/composition', label: 'Composition', status: 'live' },
+      { slug: '/docs/foreign-agents', label: 'Foreign agents', status: 'live' },
       { slug: '/docs/use-cases', label: 'Use cases', status: 'live' },
     ],
   },

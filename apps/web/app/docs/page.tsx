@@ -56,8 +56,11 @@ export default function DocsPage() {
         </p>
         <ul className="grid gap-2 sm:grid-cols-2 text-[13px]">
           <SourceLink
-            label="AgentRegistry on Basescan"
-            href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.agentRegistry)}
+            label="AgentRegistryV2 on Basescan"
+            href={addressUrl(
+              BASE_MAINNET.chainId,
+              BASE_MAINNET.contracts.agentRegistryV2 ?? BASE_MAINNET.contracts.agentRegistry,
+            )}
           />
           <SourceLink
             label="TaskEscrow on Basescan"
