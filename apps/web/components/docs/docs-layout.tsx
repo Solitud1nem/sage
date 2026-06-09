@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { DOCS_NAV } from './docs-nav';
+import { DocsAnalytics } from './docs-analytics';
 
 /**
  * Shared shell for every /docs sub-page.
@@ -23,6 +24,7 @@ export function DocsLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 md:px-10 py-14">
+      <DocsAnalytics />
       <div className="grid lg:grid-cols-[220px_1fr] gap-12">
         <aside className="lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto pb-8 lg:pb-0">
           <Link

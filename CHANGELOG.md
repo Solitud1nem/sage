@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-06-09 (later ×2) — Docs engagement analytics — `feat` (consent-gated)
+
+Docs navigation was already visible via `$pageview` (each /docs section is its own route + `capture_pageview: 'history_change'`), but in-page engagement wasn't. Added four targeted events via a `DocsAnalytics` component mounted in `DocsLayout` (so it covers every docs sub-page) — keeping `autocapture: false` to stay within ADR-0006:
+
+- `docs_section_viewed` — richer than pageview: carries `section` + `from` (prior docs section, or external referrer on first hit).
+- `docs_scroll_depth` — 25/50/75/100%, once each per page (did they read it?).
+- `docs_link_clicked` — links in the doc body only (sidebar nav excluded; that's covered by the destination pageview).
+- `docs_code_copied` — text copied from a `<pre>`/`<code>` block (+ length).
+
+All consent-gated automatically (`track()` no-ops before cookie acceptance). Pages deploy `b4326be2`; web typecheck clean.
+
 ## 2026-06-09 (later) — Server-side analytics: authoritative dispute/council/outcome events in PostHog — `feat` (consent-gated)
 
 Frontend analytics captured user clicks but lost events on tab close and never saw ground truth (council verdicts, on-chain outcomes, which executor ran, costs). The orchestrator now emits those authoritative lifecycle events to PostHog directly, **consent-gated** to preserve ADR-0006: the frontend forwards the cookie-consent state in `/execute`, and the server captures only for opted-in runs. Events are anonymous — keyed by a random `run_id`, no person identifier, `$process_person_profile: false`.
