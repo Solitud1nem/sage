@@ -36,6 +36,15 @@ export interface Env {
    * `x-sage-backend`. Set with `wrangler secret put SAGE_BACKEND_KEY`.
    */
   SAGE_BACKEND_KEY: string;
+  /**
+   * Shared secret for the reverse hop: gateway → Fly orchestrator. Attached
+   * as `x-sage-gateway` to forwarded demo requests; the orchestrator (when
+   * its DEMO_GATEWAY_KEY is set) rejects state-changing POSTs without it, so
+   * direct-to-Fly callers can't bypass this Worker's rate limit. Optional —
+   * unset means the header isn't attached (staged rollout / local dev).
+   * Set with `wrangler secret put SAGE_GATEWAY_KEY`.
+   */
+  SAGE_GATEWAY_KEY?: string;
 }
 
 export default {

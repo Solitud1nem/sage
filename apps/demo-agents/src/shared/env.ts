@@ -18,6 +18,24 @@ export interface OrchestratorEnv {
   taskAmount: bigint;
   allowedOrigins: string[];
   sponsorMinBalanceUsdc: bigint;
+  /**
+   * Ceilings for client-supplied composite plans (code review 2026-06-09,
+   * finding H1). `/api/demo/composite/execute` escrows client-controlled
+   * amounts from the sponsor wallet — without a server-side bound a single
+   * crafted plan can drain the wallet to an arbitrary executor address.
+   * Defaults sized against the classifier's own output range (≤0.2 USDC per
+   * sub-task, ≤0.5 USDC per plan in practice) with headroom.
+   */
+  maxSubtaskUnits: bigint;
+  maxPlanSubtasks: number;
+  maxPlanTotalUnits: bigint;
+  /**
+   * Shared secret for the gateway→orchestrator hop. When set, expensive
+   * POST endpoints require the `x-sage-gateway` header to match — closing
+   * the direct-to-Fly bypass of the gateway's rate limit. Optional so the
+   * Fly secret and the Worker secret can be rolled out in either order.
+   */
+  gatewayKey: string | undefined;
 }
 
 export function loadOrchestratorEnv(): OrchestratorEnv {
@@ -39,6 +57,11 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
     // If sponsor balance (USDC 6 decimals) drops below this, reject new demo-starts.
     // 5 USDC = 5_000_000 base units.
     sponsorMinBalanceUsdc: BigInt(process.env.SPONSOR_MIN_BALANCE_USDC ?? '5000000'),
+    // 0.5 USDC per sub-task, 8 sub-tasks, 2 USDC per plan.
+    maxSubtaskUnits: BigInt(process.env.MAX_SUBTASK_UNITS ?? '500000'),
+    maxPlanSubtasks: parseBoundedIntEnv('MAX_PLAN_SUBTASKS', 8, 1, 64),
+    maxPlanTotalUnits: BigInt(process.env.MAX_PLAN_TOTAL_UNITS ?? '2000000'),
+    gatewayKey: process.env.DEMO_GATEWAY_KEY || undefined,
   };
 }
 
@@ -59,6 +82,16 @@ function optHex(name: string, hexChars: number): `0x${string}` | undefined {
     throw new Error(`${name} is not a ${hexChars}-char hex address`);
   }
   return v as `0x${string}`;
+}
+
+function parseBoundedIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const v = process.env[name];
+  if (!v) return fallback;
+  const n = Number.parseInt(v, 10);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    throw new Error(`${name} must be an integer in [${min}, ${max}]`);
+  }
+  return n;
 }
 
 function parseIntEnv(name: string, fallback: number): number {

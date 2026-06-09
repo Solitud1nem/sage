@@ -72,10 +72,24 @@ export function makeDisputeFlow(bundle: SageClientBundle, councilEnv: CouncilEnv
     bundle.chainConfig.contracts.usdc,
   );
 
+  // Both receipts are checked for `reverted` (code review 2026-06-09, H3):
+  // a mined-but-reverted disputeTask/resolveDispute previously fell through
+  // as success — emitting a false `subtask_dispute_resolved` while the task
+  // stayed Disputed with funds escrowed. A throw here propagates through the
+  // plan-runner into an honest `plan_failed`.
+  const waitChecked = async (hash: string, label: string): Promise<void> => {
+    const receipt = await bundle.publicClient.waitForTransactionReceipt({
+      hash: hash as `0x${string}`,
+    });
+    if (receipt.status === 'reverted') {
+      throw new Error(`${label} reverted on-chain (tx ${hash})`);
+    }
+  };
+
   return async ({ taskId, amount, spec, result, reason }): Promise<DisputeResolution> => {
     // 1. Raise the dispute on-chain (client = sponsor EOA).
     const disputeTxHash = await escrow.disputeTask(taskId as TaskId, reason);
-    await bundle.publicClient.waitForTransactionReceipt({ hash: disputeTxHash as `0x${string}` });
+    await waitChecked(disputeTxHash, `disputeTask(${taskId})`);
 
     // 2. Council verdict.
     const verdict = await judgeDispute({ spec, result, reason }, councilEnv);
@@ -83,7 +97,7 @@ export function makeDisputeFlow(bundle: SageClientBundle, councilEnv: CouncilEnv
 
     // 3. Arbiter executes the verdict on-chain.
     const resolveTxHash = await escrow.resolveDispute(taskId as TaskId, outcome, callShare);
-    await bundle.publicClient.waitForTransactionReceipt({ hash: resolveTxHash as `0x${string}` });
+    await waitChecked(resolveTxHash, `resolveDispute(${taskId})`);
 
     return {
       verdict,

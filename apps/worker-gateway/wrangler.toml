@@ -40,6 +40,10 @@ head_sampling_rate = 1.0
 
 # Secrets (set via `wrangler secret put`, not committed):
 #   ALCHEMY_KEY        — Alchemy API key for /api/rpc proxy
+#   SAGE_BACKEND_KEY   — shared secret: Fly orchestrator → /api/rpc
+#   SAGE_GATEWAY_KEY   — shared secret: gateway → Fly orchestrator (x-sage-gateway).
+#                        Must match DEMO_GATEWAY_KEY in Fly secrets. Until both
+#                        are set, the orchestrator accepts direct calls (legacy).
 
 # Custom domain routes — uncomment when sage.xyz DNS is set up:
 # [[routes]]

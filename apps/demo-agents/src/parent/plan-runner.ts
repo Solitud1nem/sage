@@ -232,7 +232,7 @@ export async function runPlan(
           return;
         }
         if (err instanceof DisputedError) {
-          const decision = await awaitUserDecision(options.runId, sub.id);
+          const decision = await awaitUserDecision(options.runId, sub.id, 'dispute-retry');
           if (decision.kind === 'retry') {
             attempt += 1;
             const nextExecutor = decision.newExecutor ?? sub.executor_address;
@@ -393,6 +393,26 @@ async function withRetry<T>(
   }
 }
 
+/**
+ * Wait for a tx receipt and throw when the tx mined but reverted. Without the
+ * status check a reverted approvePayment would be reported to the stream (and
+ * analytics) as success while the escrow stays unsettled on-chain — code
+ * review 2026-06-09, finding H3. The wait itself also keeps the next
+ * sponsor-side tx from reusing a still-pending nonce.
+ */
+async function waitReceiptOrThrow(
+  bundle: SageClientBundle,
+  hash: string,
+  label: string,
+): Promise<void> {
+  const receipt = await bundle.publicClient.waitForTransactionReceipt({
+    hash: hash as `0x${string}`,
+  });
+  if (receipt.status === 'reverted') {
+    throw new PlanError(`${label} reverted on-chain (tx ${hash})`);
+  }
+}
+
 async function runSubtask(args: RunSubtaskArgs): Promise<string> {
   const { sub, runId, bundle, channel, timeoutMs, txHashes } = args;
   if (!sub.executor_address) {
@@ -459,16 +479,28 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     const decision = await awaitUserDecision(
       runId,
       sub.id,
+      'review',
       args.reviewTimeoutMs ?? REVIEW_TIMEOUT_MS,
     );
     if (decision.kind === 'dispute') {
       return runDisputeFlow(args, tid, result, decision.reason);
     }
-    // 'approve' | 'timeout' → fall through to approvePayment.
+    // Only an explicit approval (or the silence-equals-approval timeout) may
+    // release payment. The registry's gate typing rejects retry/cancel here
+    // ('wrong-gate'), so this throw is a defensive backstop — money must
+    // never move on an unrecognized decision kind (review finding H2).
+    if (decision.kind !== 'approve' && decision.kind !== 'timeout') {
+      throw new PlanError(
+        `subtask #${sub.id} review gate received unexpected decision "${decision.kind}"`,
+      );
+    }
   }
 
   const approveHash = await bundle.sage.tasks.approvePayment(tid);
   txHashes.push(approveHash);
+  // Verify the receipt BEFORE emitting subtask_paid — a mined-but-reverted
+  // approvePayment must surface as plan_failed, not as a success event.
+  await waitReceiptOrThrow(bundle, approveHash, `approvePayment for subtask #${sub.id}`);
   channel.emit('subtask_paid', {
     subId: sub.id,
     taskId: tid.toString(),
@@ -482,11 +514,6 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     amount_units: sub.estimated_cost_units.toString(),
     disputed: false,
   });
-
-  // Same rationale as demo-run.ts:222-224 — block until the approvePayment
-  // receipt lands before sending the next sponsor-side createTask, otherwise
-  // the next tx reuses the still-pending nonce.
-  await bundle.publicClient.waitForTransactionReceipt({ hash: approveHash as `0x${string}` });
 
   return result;
 }
@@ -512,9 +539,9 @@ async function runDisputeFlow(
     console.error(JSON.stringify({ ts: Date.now(), event: 'plan.dispute.no_resolver', subId: sub.id }));
     const approveHash = await bundle.sage.tasks.approvePayment(tid);
     txHashes.push(approveHash);
+    await waitReceiptOrThrow(bundle, approveHash, `approvePayment for subtask #${sub.id}`);
     channel.emit('subtask_paid', { subId: sub.id, taskId: tid.toString(), txHash: approveHash });
     channel.emit('subtask_status', { subId: sub.id, status: 'paid' satisfies SubTaskRunStatus });
-    await bundle.publicClient.waitForTransactionReceipt({ hash: approveHash as `0x${string}` });
     return result;
   }
 

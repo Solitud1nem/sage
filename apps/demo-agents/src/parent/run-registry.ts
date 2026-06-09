@@ -35,8 +35,31 @@ export type RetryAction =
   | { kind: 'dispute'; reason: string }
   | { kind: 'timeout' };
 
+/**
+ * Which gate a paused run is waiting at. The two gates share the
+ * one-pending-per-run primitive but accept disjoint decision kinds:
+ *   - `dispute-retry` (M10.5): `retry` | `cancel`;
+ *   - `review` (M11.4, ADR-0019): `approve` | `dispute`.
+ * Typed explicitly (code review 2026-06-09, finding H2): before this, a
+ * `cancel` delivered to a review gate fell through the runner's
+ * `kind === 'dispute'` check straight into approvePayment — paying the
+ * executor on a cancel.
+ */
+export type PauseGate = 'dispute-retry' | 'review';
+
+const GATE_BY_KIND: Record<RetryAction['kind'], PauseGate | 'any'> = {
+  retry: 'dispute-retry',
+  cancel: 'dispute-retry',
+  approve: 'review',
+  dispute: 'review',
+  // Delivered by the registry's own timer, never via resolveUserDecision —
+  // accepted on either gate defensively.
+  timeout: 'any',
+};
+
 interface PausedRun {
   readonly subId: number;
+  readonly gate: PauseGate;
   readonly resolve: (action: RetryAction) => void;
   readonly timer: NodeJS.Timeout;
 }
@@ -62,6 +85,7 @@ export const DEFAULT_PAUSE_TIMEOUT_MS = 2 * 60 * 1000;
 export function awaitUserDecision(
   runId: string,
   subId: number,
+  gate: PauseGate,
   timeoutMs: number = DEFAULT_PAUSE_TIMEOUT_MS,
 ): Promise<RetryAction> {
   if (paused.has(runId)) {
@@ -77,7 +101,7 @@ export function awaitUserDecision(
     }, timeoutMs);
     // Keep Node's event loop free to exit if this is the only outstanding work.
     timer.unref?.();
-    paused.set(runId, { subId, resolve, timer });
+    paused.set(runId, { subId, gate, resolve, timer });
   });
 }
 
@@ -86,6 +110,8 @@ export function awaitUserDecision(
  *   - `'ok'`        — pending decision matched the supplied `subId`, resolved.
  *   - `'not-found'` — no pending decision for this runId.
  *   - `'sub-mismatch'` — pending decision is for a different subId.
+ *   - `'wrong-gate'` — the action's kind belongs to the other gate (e.g. a
+ *     `cancel` aimed at a review pause). The pause stays open untouched.
  *
  * The frontend always submits the subId it saw in `subtask_disputed`, so a
  * mismatch in practice means the user double-clicked retry after a different
@@ -97,10 +123,12 @@ export function resolveUserDecision(
   runId: string,
   subId: number,
   action: RetryAction,
-): 'ok' | 'not-found' | 'sub-mismatch' {
+): 'ok' | 'not-found' | 'sub-mismatch' | 'wrong-gate' {
   const pending = paused.get(runId);
   if (!pending) return 'not-found';
   if (pending.subId !== subId) return 'sub-mismatch';
+  const expected = GATE_BY_KIND[action.kind];
+  if (expected !== 'any' && expected !== pending.gate) return 'wrong-gate';
   clearTimeout(pending.timer);
   paused.delete(runId);
   pending.resolve(action);

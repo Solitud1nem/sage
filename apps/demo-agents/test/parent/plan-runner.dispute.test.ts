@@ -416,6 +416,30 @@ describe('runPlan — review gate (ADR-0019)', () => {
     expect(names).not.toContain('plan_completed');
   });
 
+  it('fails the plan instead of emitting subtask_paid when approvePayment reverts', async () => {
+    // Receipt verification (code review 2026-06-09, H3): a mined-but-reverted
+    // approvePayment must surface as plan_failed, never as subtask_paid.
+    const cap = new CaptureChannel();
+    const bundle = makeDisputeBundle([
+      [TaskStatus.Created, TaskStatus.Accepted, TaskStatus.Completed],
+    ]);
+    bundle.publicClient.waitForTransactionReceipt = async ({ hash }: { hash: `0x${string}` }) => ({
+      status: 'reverted',
+      transactionHash: hash,
+    });
+    const plan = makePlan([makeSubtask({ id: 1 })]);
+
+    const promise = runPlan(plan, cap.channel, bundle, { runId: 'run-reverted-approve' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await promise;
+
+    const names = cap.events.map((e) => e.event);
+    expect(names).not.toContain('subtask_paid');
+    const failed = cap.events.find((e) => e.event === 'plan_failed');
+    expect(failed).toBeDefined();
+    expect((failed!.data as { error: string }).error).toMatch(/reverted/);
+  });
+
   it('treats a review-gate timeout as silent approval', async () => {
     const cap = new CaptureChannel();
     const bundle = makeDisputeBundle([[TaskStatus.Created, TaskStatus.Accepted, TaskStatus.Completed]]);

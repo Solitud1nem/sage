@@ -148,6 +148,35 @@ function parsePlanFromBody(raw: unknown): Plan {
   };
 }
 
+/**
+ * Server-side economic ceilings for client-supplied plans (code review
+ * 2026-06-09, finding H1). The plan body is fully client-controlled and the
+ * sponsor wallet pays for every sub-task, so amounts and count must be
+ * bounded here regardless of what the classifier proposed — otherwise a
+ * single crafted POST can escrow the whole sponsor balance to an arbitrary
+ * executor address. Returns an error string for a 400, or null when within
+ * caps.
+ */
+function checkPlanCaps(plan: Plan): string | null {
+  if (plan.subtasks.length > env.maxPlanSubtasks) {
+    return `plan has ${plan.subtasks.length} subtasks — the sponsored demo allows at most ${env.maxPlanSubtasks}`;
+  }
+  let total = 0n;
+  for (const s of plan.subtasks) {
+    if (s.estimated_cost_units <= 0n) {
+      return `subtask #${s.id} estimated_cost_units must be > 0`;
+    }
+    if (s.estimated_cost_units > env.maxSubtaskUnits) {
+      return `subtask #${s.id} estimated_cost_units exceeds the sponsored per-subtask cap (${env.maxSubtaskUnits} base units)`;
+    }
+    total += s.estimated_cost_units;
+  }
+  if (total > env.maxPlanTotalUnits) {
+    return `plan total ${total} base units exceeds the sponsored per-plan cap (${env.maxPlanTotalUnits} base units)`;
+  }
+  return null;
+}
+
 function parseSubTask(raw: unknown, idx: number): SubTask {
   if (!raw || typeof raw !== 'object') throw `subtasks[${idx}] must be an object`;
   const s = raw as Record<string, unknown>;
@@ -190,6 +219,26 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (applyCors(req, res)) return;
 
   const { method, url = '/' } = req;
+
+  // Gateway shared-secret guard (code review 2026-06-09, finding A1). The Fly
+  // app is publicly reachable, so when DEMO_GATEWAY_KEY is set every
+  // state-changing demo endpoint must arrive through the Worker gateway —
+  // which injects `x-sage-gateway` and enforces the per-IP rate limit that a
+  // direct-to-Fly caller would otherwise bypass. GET endpoints (health, SSE
+  // streams) stay open. No-op when the secret is unset, so local dev and the
+  // Fly/Worker secret rollout don't have to be simultaneous.
+  if (
+    env.gatewayKey &&
+    method === 'POST' &&
+    (url === '/api/demo/start' || url === '/process' || url.startsWith('/api/demo/composite/')) &&
+    req.headers['x-sage-gateway'] !== env.gatewayKey
+  ) {
+    json(res, 401, {
+      error: 'gateway_required',
+      message: 'This endpoint must be called through the Sage gateway.',
+    });
+    return;
+  }
 
   // --- /health ---------------------------------------------------------
   if (url === '/health' && method === 'GET') {
@@ -398,6 +447,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         return;
       }
 
+      const capError = checkPlanCaps(plan);
+      if (capError) {
+        json(res, 400, { error: capError });
+        return;
+      }
+
       // Reuse the sponsor guard from the 3-mode flow — composite runs draw
       // from the same sponsor wallet, so the same balance floor applies.
       if (env.sponsorMinBalanceUsdc > 0n) {
@@ -553,6 +608,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         });
         return;
       }
+      if (status === 'wrong-gate') {
+        json(res, 409, {
+          error: 'wrong_gate',
+          message: `Run ${body.runId} is paused at a review gate — use /api/demo/composite/review-decision (approve | dispute).`,
+        });
+        return;
+      }
       json(res, 202, { ok: true, action });
     } catch (err) {
       console.error('[Orchestrator] /api/demo/composite/retry-subtask error:', err);
@@ -602,6 +664,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         json(res, 409, {
           error: 'sub_mismatch',
           message: `The paused sub-task does not match subId ${body.subId}.`,
+        });
+        return;
+      }
+      if (status === 'wrong-gate') {
+        json(res, 409, {
+          error: 'wrong_gate',
+          message: `Run ${body.runId} is paused at a dispute-retry gate — use /api/demo/composite/retry-subtask (retry | cancel).`,
         });
         return;
       }

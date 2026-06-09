@@ -2,11 +2,28 @@ import { checkDailyRateLimit } from './rate-limit';
 import type { Env } from './index';
 
 /**
- * Passthrough to the Fly.io orchestrator with a rate-limit guard on
- * `POST /api/demo/start` only. The SSE stream endpoint (`/api/demo/stream/:id`)
- * and /health are not rate-limited — a client that successfully created a run
- * is allowed to finish watching it even after hitting the daily cap.
+ * Passthrough to the Fly.io orchestrator with a rate-limit guard on every
+ * POST that spends sponsor funds or OpenAI tokens. SSE stream endpoints,
+ * /health and /review-decision are not rate-limited — a client that
+ * successfully created a run is allowed to finish watching (and reviewing)
+ * it even after hitting the daily cap.
  */
+
+/**
+ * POSTs that draw the shared daily budget (code review 2026-06-09, A1):
+ * start + composite classify/execute/retry all spend sponsor USDC, gas or
+ * OpenAI tokens. One bucket (`demo_start`) across all of them — a composite
+ * run shouldn't multiply the allowance. `/review-decision` is deliberately
+ * absent: it resolves a pause that an already-counted execute opened, and
+ * denying it would strand a legitimately paused run.
+ */
+const RATE_LIMITED_POSTS = new Set([
+  '/api/demo/start',
+  '/api/demo/composite/classify',
+  '/api/demo/composite/execute',
+  '/api/demo/composite/retry-subtask',
+]);
+
 export async function handleOrchestrator(
   req: Request,
   env: Env,
@@ -14,8 +31,7 @@ export async function handleOrchestrator(
 ): Promise<Response> {
   const url = new URL(req.url);
 
-  // Rate limit only the expensive action.
-  if (url.pathname === '/api/demo/start' && req.method === 'POST') {
+  if (RATE_LIMITED_POSTS.has(url.pathname) && req.method === 'POST') {
     const ip = clientIp(req);
     const rl = await checkDailyRateLimit(env, 'demo_start', ip);
     if (!rl.ok) {
@@ -61,9 +77,15 @@ export async function handleOrchestrator(
     url.pathname + (forwardQs ? `?${forwardQs}` : ''),
     upstreamBase,
   );
+  const forwardHeaders = stripHopByHop(req.headers);
+  // Gateway hop marker (code review 2026-06-09, A1): when the shared secret
+  // is configured, the orchestrator rejects state-changing POSTs without it —
+  // closing the direct-to-Fly bypass of the rate limit above. Same pattern as
+  // SAGE_BACKEND_KEY on /api/rpc.
+  if (env.SAGE_GATEWAY_KEY) forwardHeaders.set('x-sage-gateway', env.SAGE_GATEWAY_KEY);
   const upstreamReq = new Request(upstream.toString(), {
     method: req.method,
-    headers: stripHopByHop(req.headers),
+    headers: forwardHeaders,
     body: req.method === 'GET' || req.method === 'HEAD' ? null : req.body,
     // SSE responses stream — don't buffer.
     // @ts-expect-error — Cloudflare extension
