@@ -27,6 +27,7 @@ import { demoRegistry } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { classifyBrief, type ParentEnv } from './classify.js';
 import { runPlan, type DisputeFlow } from './plan-runner.js';
+import { createCapture } from '../shared/analytics.js';
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
 
@@ -34,6 +35,10 @@ type SageClientBundle = ReturnType<typeof createSageFromConfig>;
 export interface ExecutePlanOptions {
   readonly reviewMode?: boolean;
   readonly disputeFlow?: DisputeFlow;
+  /** Per-run analytics consent (ADR-0006) — server capture only when true. */
+  readonly analyticsConsent?: boolean;
+  /** Chain tag for analytics (e.g. "base" / "arc"). */
+  readonly chain?: string;
 }
 
 export interface ExecuteResult {
@@ -66,8 +71,15 @@ export function executePlan(
   const runId = randomUUID();
   const channel = demoRegistry.create(runId);
 
+  const capture = createCapture(
+    runId,
+    { run_id: runId, ...(options.chain ? { chain: options.chain } : {}) },
+    !!options.analyticsConsent,
+  );
+
   void runPlan(plan, channel, bundle, {
     runId,
+    capture,
     ...(options.reviewMode ? { reviewMode: true } : {}),
     ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
   }).catch((err) => {

@@ -35,6 +35,7 @@ import type { createSageFromConfig } from '../shared/config.js';
 import { encodeParentId, type EnvelopeContent } from './parent-id-codec.js';
 import { awaitUserDecision } from './run-registry.js';
 import type { CouncilOutcome, CouncilVerdict } from './council.js';
+import type { Capture } from '../shared/analytics.js';
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
 
@@ -102,6 +103,12 @@ export interface RunPlanOptions {
    * when absent, a dispute decision falls back to approval (degraded, logged).
    */
   readonly disputeFlow?: DisputeFlow;
+  /**
+   * Consent-gated server-side analytics capturer (ADR-0006). When provided,
+   * authoritative lifecycle events (plan / subtask / dispute outcomes) are sent
+   * to PostHog. No-op stub when analytics is off or the run has no consent.
+   */
+  readonly capture?: Capture;
 }
 
 /** Explicit polling interval. Do NOT lower below 10s — see GOTCHAS 2026-05-13. */
@@ -168,6 +175,12 @@ export async function runPlan(
     order: order.map((s) => s.id),
     startedAt,
   });
+  options.capture?.('srv_plan_started', {
+    subtask_count: subtasks.length,
+    decomposability: plan.decomposability,
+    stakes: plan.stakes,
+    review_mode: options.reviewMode ?? false,
+  });
 
   const results = new Map<number, string>();
   const txHashes: string[] = [];
@@ -194,6 +207,7 @@ export async function runPlan(
           reviewMode: options.reviewMode ?? false,
           reviewTimeoutMs: options.reviewTimeoutMs ?? REVIEW_TIMEOUT_MS,
           ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
+          ...(options.capture ? { capture: options.capture } : {}),
         });
         results.set(sub.id, result);
         break;
@@ -207,6 +221,7 @@ export async function runPlan(
             error: reason,
             reason: 'dispute_refunded',
           });
+          options.capture?.('srv_plan_failed', { reason: 'dispute_refunded', failed_sub_id: sub.id });
           channel.close({
             runId: options.runId,
             ok: false,
@@ -244,6 +259,10 @@ export async function runPlan(
                 ? 'pause_timeout'
                 : 'user_cancelled_after_dispute',
           });
+          options.capture?.('srv_plan_failed', {
+            reason: decision.kind === 'timeout' ? 'pause_timeout' : 'user_cancelled_after_dispute',
+            failed_sub_id: sub.id,
+          });
           channel.close({
             runId: options.runId,
             ok: false,
@@ -260,6 +279,7 @@ export async function runPlan(
           failedSubId: sub.id,
           error: message,
         });
+        options.capture?.('srv_plan_failed', { reason: 'subtask_error', failed_sub_id: sub.id });
         channel.close({
           runId: options.runId,
           ok: false,
@@ -273,6 +293,10 @@ export async function runPlan(
   }
 
   channel.emit('plan_completed', { runId: options.runId, durationMs: Date.now() - startedAt });
+  options.capture?.('srv_plan_completed', {
+    duration_ms: Date.now() - startedAt,
+    subtask_count: subtasks.length,
+  });
   channel.close({
     runId: options.runId,
     ok: true,
@@ -305,6 +329,8 @@ interface RunSubtaskArgs {
   readonly reviewMode?: boolean;
   readonly reviewTimeoutMs?: number;
   readonly disputeFlow?: DisputeFlow;
+  /** Consent-gated server-side analytics capturer. */
+  readonly capture?: Capture;
 }
 
 /**
@@ -449,6 +475,13 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     txHash: approveHash,
   });
   channel.emit('subtask_status', { subId: sub.id, status: 'paid' satisfies SubTaskRunStatus });
+  args.capture?.('srv_subtask_paid', {
+    sub_id: sub.id,
+    type: sub.type,
+    executor: sub.executor_address,
+    amount_units: sub.estimated_cost_units.toString(),
+    disputed: false,
+  });
 
   // Same rationale as demo-run.ts:222-224 — block until the approvePayment
   // receipt lands before sending the next sponsor-side createTask, otherwise
@@ -487,6 +520,7 @@ async function runDisputeFlow(
 
   channel.emit('subtask_dispute_raised', { subId: sub.id, taskId: tid.toString(), reason });
   channel.emit('subtask_status', { subId: sub.id, status: 'disputed' satisfies SubTaskRunStatus });
+  args.capture?.('srv_dispute_raised', { sub_id: sub.id, type: sub.type });
 
   const resolution = await disputeFlow({
     taskId: tid,
@@ -509,6 +543,15 @@ async function runDisputeFlow(
     reasoning: resolution.verdict.reasoning,
     ...(resolution.resolveTxHash ? { txHash: resolution.resolveTxHash } : {}),
   });
+  args.capture?.('srv_dispute_resolved', {
+    sub_id: sub.id,
+    type: sub.type,
+    outcome: resolution.outcome,
+    executor_share_units: resolution.executorShare.toString(),
+    ...(resolution.verdict.executorSharePct !== undefined
+      ? { executor_share_pct: resolution.verdict.executorSharePct }
+      : {}),
+  });
 
   if (resolution.outcome === 'client') {
     channel.emit('subtask_refunded', {
@@ -517,6 +560,7 @@ async function runDisputeFlow(
       ...(resolution.resolveTxHash ? { txHash: resolution.resolveTxHash } : {}),
     });
     channel.emit('subtask_status', { subId: sub.id, status: 'errored' satisfies SubTaskRunStatus });
+    args.capture?.('srv_subtask_refunded', { sub_id: sub.id, type: sub.type });
     throw new RefundedError(sub.id, resolution.verdict.reasoning);
   }
 
@@ -528,6 +572,14 @@ async function runDisputeFlow(
     ...(resolution.resolveTxHash ? { txHash: resolution.resolveTxHash } : {}),
   });
   channel.emit('subtask_status', { subId: sub.id, status: 'paid' satisfies SubTaskRunStatus });
+  args.capture?.('srv_subtask_paid', {
+    sub_id: sub.id,
+    type: sub.type,
+    executor: sub.executor_address,
+    amount_units: resolution.executorShare.toString(),
+    disputed: true,
+    outcome: resolution.outcome,
+  });
   return result;
 }
 

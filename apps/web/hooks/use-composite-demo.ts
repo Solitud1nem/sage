@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
 
-import { track } from '@/lib/posthog';
+import { track, readConsent } from '@/lib/posthog';
 
 /**
  * Capture an exception to Sentry with the composite-flow tags so we can
@@ -280,7 +280,9 @@ export function useCompositeDemo(chainId: number) {
       const res = await fetch(urlFor('/api/demo/composite/execute', runChainId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...plan, reviewMode }),
+        // Forward cookie-consent so the orchestrator only captures server-side
+        // analytics for this run when the user has opted in (ADR-0006).
+        body: JSON.stringify({ ...plan, reviewMode, analyticsConsent: readConsent() === 'granted' }),
       });
       if (!res.ok) {
         const body = (await safeJson(res)) as { error?: string; message?: string };

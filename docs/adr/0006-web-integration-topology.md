@@ -1,10 +1,22 @@
 # ADR-0006 — Web frontend integration topology
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-06-09 (server-side analytics)
 - **Date:** 2026-04-23
 - **Deciders:** Alex, Claude
 - **Supersedes:** —
 - **Related:** ADR-0001 (deterministic addresses), ADR-0002 (agent identity), ADR-0003 (x402 transport), ADR-0005 (monorepo + Foundry + viem); `apps/web/INTEGRATION.md` (detailed plan + milestones)
+
+> **Amendment (2026-06-09) — consent-gated server-side analytics.** The original
+> decision was frontend-only "funnel events, session-replay disabled, GDPR banner
+> gates everything." The orchestrator now also emits authoritative lifecycle
+> events (council verdicts, on-chain outcomes, executor selection, costs) to
+> PostHog, because the frontend loses events on tab close and never sees ground
+> truth. To keep the consent posture intact, the frontend forwards the
+> cookie-consent state into `/execute` and the server captures **only for
+> opted-in runs**. Server events are anonymous — keyed by a random `run_id`, no
+> person identifier, `$process_person_profile: false`. The `srv_*` namespace
+> distinguishes them from frontend `composite_*`. See
+> `apps/demo-agents/src/shared/analytics.ts`.
 
 ## Context
 

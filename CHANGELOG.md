@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-09 (later) — Server-side analytics: authoritative dispute/council/outcome events in PostHog — `feat` (consent-gated)
+
+Frontend analytics captured user clicks but lost events on tab close and never saw ground truth (council verdicts, on-chain outcomes, which executor ran, costs). The orchestrator now emits those authoritative lifecycle events to PostHog directly, **consent-gated** to preserve ADR-0006: the frontend forwards the cookie-consent state in `/execute`, and the server captures only for opted-in runs. Events are anonymous — keyed by a random `run_id`, no person identifier, `$process_person_profile: false`.
+
+- `feat` **`shared/analytics.ts`** — `createCapture(distinctId, base, enabled)`: fire-and-forget POST to PostHog `/capture`; no-op without `POSTHOG_KEY` or consent.
+- `feat` **`plan-runner.ts`** captures `srv_plan_started`, `srv_subtask_paid` (with executor, amount, `disputed` flag), `srv_dispute_raised`, `srv_dispute_resolved` (**outcome + executor share** — the council ground truth), `srv_subtask_refunded`, `srv_plan_completed`, `srv_plan_failed` (with reason). `executePlan` builds the capturer from per-run consent + runId; `/execute` parses `analyticsConsent`.
+- `feat` **`use-composite-demo.ts`** forwards `analyticsConsent: readConsent() === 'granted'`.
+- `POSTHOG_KEY`/`POSTHOG_HOST` set as Fly secrets on Base + Arc orchestrators. demo-agents 184/184; web typecheck clean.
+- Backend events use the `srv_*` namespace (distinct from the frontend `composite_*`); both carry `run_id` for joining.
+
 ## 2026-06-09 — M11.8.1: forkable foreign-agent template (permissionless third-party agents) — `feat` (template shipped; live reference instance parked)
 
 The last MVP pillar — third-party ("foreign") agents — at the template + flow level. `templates/foreign-agent/` is a self-contained, forkable Sage worker: on boot it self-registers in `AgentRegistryV2`, polls `TaskEscrow` for tasks routed to its address, accepts + executes them via a pluggable `src/handler.ts`, and submits results on-chain. It talks only to the public `@sage/adapter-evm` SDK + deployed contracts — nothing Sage-team-specific. Pauses its registry entry on SIGTERM so a stopped agent falls back to another provider (the classifier only picks `active` agents).

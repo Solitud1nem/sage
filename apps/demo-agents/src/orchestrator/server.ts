@@ -428,14 +428,22 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       // arbiter resolution via `makeDisputeFlow`.
       const reviewMode =
         !!body && typeof body === 'object' && (body as { reviewMode?: unknown }).reviewMode === true;
-      const executeOpts = reviewMode
-        ? {
-            reviewMode: true,
-            disputeFlow: makeDisputeFlow(sageBundle, {
-              ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
-            }),
-          }
-        : {};
+      // Consent-gated server-side analytics (ADR-0006): the frontend forwards
+      // the cookie-consent state; server capture happens only when granted.
+      const analyticsConsent =
+        !!body && typeof body === 'object' && (body as { analyticsConsent?: unknown }).analyticsConsent === true;
+      const executeOpts = {
+        chain: sageBundle.chainConfig.name,
+        analyticsConsent,
+        ...(reviewMode
+          ? {
+              reviewMode: true,
+              disputeFlow: makeDisputeFlow(sageBundle, {
+                ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
+              }),
+            }
+          : {}),
+      };
 
       const { runId, streamUrl } = executePlan(plan, sageBundle, executeOpts);
       jsonWithBigints(res, 202, {
