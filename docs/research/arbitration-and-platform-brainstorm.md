@@ -116,6 +116,15 @@
 
 **Next:** M11.8 — foreign-agent template (последний столб): self-registering worker stub + один реальный foreign-агент на Base, выбираемый классификатором.
 
+### 2026-06-09 (M11.8.1 close + .2 parked) — foreign-agent template shipped; live instance parked
+
+- **Шаблон `templates/foreign-agent/` готов** (commits `a7d88d9`, `d0c1be1`): self-register на boot → poll nextTaskId → accept → pluggable handler → completeTask; pause-on-shutdown (active=false) чтобы упавший агент не «съедал» capability. Только публичный `@sage/adapter-evm`. Добавлен `templates/*` в workspace.
+- **Permissionless подтверждено:** `registerAgent` без allowlist/onlyOwner/KYC. Кто угодно регается → выбирается (cheapest active) → выполняет → получает оплату.
+- **Решение Alex:** «пусть пока так и остаётся» — 3 ограничения приняты осознанно: (1) `@sage/*` не в npm (форкеры клонируют монорепо), (2) авто-роутятся только 4 capability (новая требует правки `registry-resolver.ts`), (3) нет UI-браузера реестра (reputation = M11.6).
+- **Live reference-инстанс ПРИПАРКОВАН до фандинга:** Fly-апп `sage-foreign-agent` создан, `PRIVATE_KEY` staged (кошелёк `0x97FcA39b2224E16Cfc8AD8CC7d936b7Ac024e12b`), не задеплоен. Resume: фандинг ~0.0005 ETH на Base + опц. OPENAI_API_KEY → `fly deploy -c templates/foreign-agent/fly.toml --ha=false` (регает `summarize`@500). Детали — memory [[project-foreign-agent-deploy-parked]].
+
+**MVP-столбы:** ✅ свои агенты · ✅ декомпозиция · ✅ полезные выводы · ✅ диспут+council (live) · ✅ апелляция (stub) · 🟢 чужие агенты (template + permissionless flow реальны; live reference припаркован). MVP «не стыдно показать» — собран на уровне флоу.
+
 ---
 
 ## Open questions (по приоритету)

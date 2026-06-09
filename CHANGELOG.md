@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-06-09 — M11.8.1: forkable foreign-agent template (permissionless third-party agents) — `feat` (template shipped; live reference instance parked)
+
+The last MVP pillar — third-party ("foreign") agents — at the template + flow level. `templates/foreign-agent/` is a self-contained, forkable Sage worker: on boot it self-registers in `AgentRegistryV2`, polls `TaskEscrow` for tasks routed to its address, accepts + executes them via a pluggable `src/handler.ts`, and submits results on-chain. It talks only to the public `@sage/adapter-evm` SDK + deployed contracts — nothing Sage-team-specific. Pauses its registry entry on SIGTERM so a stopped agent falls back to another provider (the classifier only picks `active` agents).
+
+**Registration is permissionless** — `AgentRegistryV2.registerAgent` has no allowlist / owner-gate / KYC (just not-already-registered + non-empty endpoint + price > 0). Anyone can register, get picked (cheapest active wins), execute, and get paid; funds sit in escrow with disputes resolved by the council/arbiter (ADR-0017/0019), not custodied by Sage.
+
+- `feat` `templates/foreign-agent/` — runtime (`src/index.ts`, nextTaskId polling + ADR-0018 envelope decode), pluggable handler (gpt-4o-mini when `OPENAI_API_KEY` set, else deterministic echo), Dockerfile + fly.toml, README (fork / fund-ETH-gas / undercut-price / run). Added `templates/*` to the pnpm workspace. Commits `a7d88d9`, `d0c1be1`.
+- **Reference live instance parked (Alex, deliberate):** Fly app `sage-foreign-agent` created + `PRIVATE_KEY` staged (wallet `0x97FcA39b2224E16Cfc8AD8CC7d936b7Ac024e12b`); not deployed — awaiting ETH funding + optional OpenAI key (sponsor/OpenAI keys are write-only Fly secrets, operator-only). Deploy step: `fly deploy -c templates/foreign-agent/fly.toml --ha=false` → self-registers `summarize` @ 500 (undercuts demo Summarizer's 1000).
+
+**Accepted limitations (not fixed now):** (1) `@sage/*` not on npm → outsiders clone the monorepo; (2) classifier auto-routes only the 4 known capabilities — a new one needs `registry-resolver.ts` extended; (3) no registry-browser UI (reputation = M11.6 indexer, unbuilt). See [[project-foreign-agent-deploy-parked]].
+
 ## 2026-06-08 (later still ×2) — M11.5: appeal layer (UI stub) — `feat` (deployed Pages)
 
 Closes the MVP "dispute + **appeal**" pillar at the stub level (Alex's scoping: a visible mechanism, not a wired human ruling). After a council verdict that didn't fully favor the client (`worker` / `split`), the sub-task drawer shows an **Appeal verdict** button; clicking reveals an honest notice — *"Appeal is a second-level review by a human arbiter. That ruling is out of scope for this demo — the council verdict above is final here."* Frontend-only (`subtask-drawer.tsx`); no backend, no ADR (single-surface stub). The real second-level flow (contract appeal window, human arbiter, multi-judge) stays future work. Pages deploy `0f8ff93a`.
