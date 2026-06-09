@@ -8,6 +8,10 @@
 
 ---
 
+## 2026-06-09 (later ×6) — Code review: CR.2 — summarizer/translator переживают OpenAI error-ответы — `fix`
+
+Закрыт CR.2 из реестра ревизии (`docs/reviews/2026-06-09-code-review.md`, находка M4). В `src/summarizer/agent.ts` + `src/translator/agent.ts` ответ OpenAI кастился к `{ choices: [...] }` без проверок: на 429/5xx (тело `{ error }` без `choices`) `data.choices[0]` бросал TypeError, внешний catch только логировал — задача навсегда оставалась в `Accepted`, эскроу застревал, plan-runner таймаутился. Портирован паттерн vision/sentiment (`choices?` + `error?` + проверка `data.error`), плюс `res.ok` и `res.json().catch(() => null)` на не-JSON тело: воркер завершает задачу честной failure-строкой (`Summary/Translation failed: <detail>`) через `completeTask` — эскроу settles вместо стрэндинга. Protected-файлы — явное основание = таск CR.2. Build + typecheck + 190/190 тестов. **Задеплоено Fly Base+Arc 2026-06-09**, `/health` обоих апов healthy (8453 + 5042002).
+
 ## 2026-06-09 (later ×5) — Code review: волна 3 (SDK correctness, web ABI→V3, docs sample, hygiene) — `fix`/`hardening`
 
 Гигиена/drift-пункты ревизии (реестр — `docs/reviews/2026-06-09-code-review.md`). Задеплоено web→Pages + demo-agents→Fly Base+Arc + gateway→Worker.

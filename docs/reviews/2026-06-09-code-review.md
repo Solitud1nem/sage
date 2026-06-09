@@ -54,7 +54,7 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 
 ## Волна 2 — частично закрыта (robustness / funds-stranding / template)
 
-> ✅ CR.1 (B1–B5), CR.4 (M3), CR.6 (A2) исправлены и (где есть live-surface) задеплоены 2026-06-09 — см. CHANGELOG «волна 2». Остаются CR.2, CR.3, CR.5, A2-остаток ниже.
+> ✅ CR.1 (B1–B5), CR.2 (M4), CR.4 (M3), CR.6 (A2) исправлены и (где есть live-surface) задеплоены 2026-06-09 — см. CHANGELOG «волна 2». Остаются CR.3, CR.5, A2-остаток ниже.
 
 ### ✅ B1–B5. Foreign-agent template guards (CR.1, High) — исправлено
 
@@ -68,9 +68,9 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 - README: секции «runtime serves anything routed to your address» + «Deploying your fork» (B7/B8).
 - ⏸ Живого инстанса нет (parked) — деплоить нечего; вступит в силу при поднятии M11.8.2.
 
-### 🔲 M4. Summarizer/translator падают на OpenAI error-ответах, стрэндя эскроу (Medium)
+### ✅ M4. Summarizer/translator падают на OpenAI error-ответах (CR.2, Medium) — исправлено
 
-`src/summarizer/agent.ts:59-60`, `src/translator/agent.ts:64-65` — нет проверки `res.ok` / `data.error`; на 429/5xx `data.choices[0]` бросает TypeError, catch только логирует — task навсегда в `Accepted`, plan-runner таймаутится, эскроу застревает. Vision/sentiment уже делают правильно (`data.error` + `data.choices?.[0]`) — портировать паттерн. **Protected-файлы** — таск CR.2 в TASKS.md и есть требуемый явный таск.
+`src/summarizer/agent.ts`, `src/translator/agent.ts` — на 429/5xx `data.choices[0]` бросал TypeError, catch только логировал — task навсегда в `Accepted`, plan-runner таймаутился, эскроу застревал. Исправлено 2026-06-09: портирован паттерн vision/sentiment (`choices?` + `error?` + проверка `data.error`), плюс `res.ok` и `res.json().catch(() => null)` на не-JSON тело. Воркер завершает задачу честной failure-строкой (`Summary/Translation failed: <detail>`) через `completeTask` — эскроу settles. Build + typecheck + 190/190 тестов.
 
 ### 🔲 M2+M1. Застрявшие эскроу не возвращаются; dispute-retry плодит двойной эскроу (Medium)
 

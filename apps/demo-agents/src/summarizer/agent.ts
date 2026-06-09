@@ -56,8 +56,20 @@ async function callOpenAI(systemPrompt: string, userText: string, maxTokens: num
       max_tokens: maxTokens,
     }),
   });
-  const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-  return data.choices[0]?.message?.content ?? 'Result unavailable';
+  // OpenAI returns `{ error }` without `choices` on 429/5xx; a bare cast to
+  // `{ choices: [...] }` made `data.choices[0]` throw, stranding the task in
+  // Accepted (CR.2). Mirror the vision/sentiment handling: surface an honest
+  // failure result so completeTask still runs and the escrow settles.
+  const data = (await res.json().catch(() => null)) as {
+    choices?: Array<{ message: { content: string } }>;
+    error?: { message: string };
+  } | null;
+  if (!res.ok || data?.error) {
+    const detail = data?.error?.message ?? `HTTP ${res.status}`;
+    console.error(`[Summarizer] OpenAI error: ${detail}`);
+    return `Summary failed: ${detail}`;
+  }
+  return data?.choices?.[0]?.message?.content ?? 'Result unavailable';
 }
 
 const COMPOSITE_SYSTEM_PROMPT =
