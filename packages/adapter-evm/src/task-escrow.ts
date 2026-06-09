@@ -29,6 +29,22 @@ const STATUS_MAP: Record<number, TaskStatus> = {
   7: TaskStatus.Split,
 };
 
+/**
+ * Decode an on-chain status uint8. The map covers every value the deployed
+ * contracts emit (0-7); a value outside that range means the SDK is reading a
+ * newer contract than it knows. Throw rather than the old `?? Created`
+ * fallback, which silently reported an unknown status as an *active* state —
+ * the "cutover ≠ address swap" failure class (see GOTCHAS / code review
+ * 2026-06-09). A loud failure is recoverable; a fake Created is not.
+ */
+function decodeStatus(raw: number): TaskStatus {
+  const status = STATUS_MAP[raw];
+  if (status === undefined) {
+    throw new Error(`Unknown on-chain TaskStatus ${raw} — SDK/contract version mismatch`);
+  }
+  return status;
+}
+
 export function createTaskEscrowClient(
   publicClient: PublicClient,
   walletClient: BoundWalletClient,
@@ -136,9 +152,15 @@ export function createTaskEscrowClient(
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
-      // Extract taskId from TaskCreated event
+      // Extract taskId from TaskCreated event. Match on the escrow address too,
+      // not just the topic — a future hook/multicall in the same tx emitting an
+      // identical signature would otherwise shadow the real event.
       const taskCreatedTopic = '0x7407b0ef416b5ba5fe0caf5447bb4b7bbbd2adc61093638361dd31a28b14fc5c';
-      const log = receipt.logs.find((l) => l.topics[0] === taskCreatedTopic);
+      const log = receipt.logs.find(
+        (l) =>
+          l.topics[0] === taskCreatedTopic &&
+          l.address.toLowerCase() === escrowAddress.toLowerCase(),
+      );
       if (!log?.topics[1]) {
         throw new Error('TaskCreated event not found in receipt');
       }
@@ -224,7 +246,7 @@ export function createTaskEscrowClient(
         executor: agentId(result.executor),
         amount: result.amount,
         deadline: Number(result.deadline),
-        status: STATUS_MAP[result.status] ?? TaskStatus.Created,
+        status: decodeStatus(result.status),
         specUri: result.specUri,
         resultUri: result.resultUri,
         completedAt: Number(result.completedAt),

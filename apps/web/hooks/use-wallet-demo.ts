@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Address } from 'viem';
+import type { Address, PublicClient } from 'viem';
 import { parseEventLogs } from 'viem';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 
@@ -211,7 +211,10 @@ export function useWalletDemo() {
         logEvent('stage_started', { stage: params.stage });
         activateStep('createTask');
 
-        const permit = await signUsdcPermit(publicClient as any, walletClient!, {
+        // wagmi's publicClient is a structurally-compatible PublicClient with
+        // narrower generics than permit.ts expects; bridge through `unknown`
+        // rather than `any` (AGENTS.md) — no behavioral effect.
+        const permit = await signUsdcPermit(publicClient as unknown as PublicClient, walletClient!, {
           usdcAddress: chain.contracts.usdc,
           owner: params.client,
           spender: chain.contracts.taskEscrow,
@@ -320,8 +323,17 @@ export function useWalletDemo() {
             functionName: 'getTask',
             args: [taskId],
           })) as { status: number; resultUri: string };
-          if (task.status >= TaskStatus.Completed) {
+          // Only Completed/Paid carry a usable result. The other terminals
+          // (Disputed/Refunded/Expired/Split, all > Paid) have no deliverable to
+          // approve — returning them as "complete" would drive approvePayment
+          // into a revert. Fail loudly instead. (Code review 2026-06-09, web-M5.)
+          if (task.status === TaskStatus.Completed || task.status === TaskStatus.Paid) {
             return { txHash: undefined, resultUri: task.resultUri };
+          }
+          if (task.status > TaskStatus.Paid) {
+            throw new Error(
+              `task ${taskId} ended in a non-completable state (status ${task.status})`,
+            );
           }
           await sleep(3000);
         }

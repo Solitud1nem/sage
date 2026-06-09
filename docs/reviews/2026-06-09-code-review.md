@@ -98,37 +98,40 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 
 ---
 
-## Волна 3 — открыто (гигиена / drift / мелочь)
+## Волна 3 — частично закрыта (гигиена / drift / мелочь)
 
-### SDK (`packages/`)
+> ✅ CR.7 (SDK), CR.8 (web ABI→V3), CR.9 (docs sample), CR.10 (hygiene-batch), CR.11 (CLAUDE.md) исправлены и задеплоены 2026-06-09 (web→Pages, demo-agents→Fly Base+Arc, gateway→Worker). Остаток — мелкие/protected пункты ниже.
 
-- 🔲 `adapter-evm/task-escrow.ts:227` + `task-escrow-v2.ts:262` — `STATUS_MAP[...] ?? TaskStatus.Created`: неизвестный on-chain статус молча маппится в активный `Created` (класс ошибки «cutover ≠ address swap»). Должен throw.
-- 🔲 `adapter-evm/events.ts` — все 8 `watchContractEvent` без `onError` (viem молча глотает transport-ошибки) и без управления `pollingInterval` (наследуется 4s default клиента — против правила ≥10s для потребителей библиотеки).
-- 🔲 `adapter-evm/index.ts:10-25` — `TaskStatus` (runtime enum) реэкспортирован под `export type` — value-import у потребителя падает на build.
-- 🔲 `core/interfaces/task-client.ts:55` + `contracts/src/interfaces/ITaskEscrow.sol:127` — док-комментарий `refundExpired → Refunded`, фактически → `Expired` (+ в v1-интерфейсе мёртвое событие `TaskRefunded`, никогда не эмитится).
-- 🔲 `adapter-evm/task-escrow.ts:140` — поиск `TaskCreated` в receipt без фильтра по `address` контракта.
-- 🔲 `adapter-evm/client.ts:76-78` (unsound cast + мёртвая ветка x402-стаба), `x402.ts:85` (безусловный `response.json()`), `pay-direct.ts` (док-дрейф «with permit»), `agent-registry-v2.ts:46-67` (`listActiveAgentsV2` может вернуть > maxAgents), дублированный `signPermit` с hardcoded EIP-712 `version: '2'` (вынести + EIP-5267 fallback), `adapter-arc/chain.ts` vs `adapter-evm/chains/arc.ts` — `name: 'Arc'` vs `'arc-testnet'` при заявленном «mirror».
+### ✅ SDK (`packages/`) — CR.7
 
-### Web (`apps/web/`)
+- ✅ `task-escrow.ts` + `task-escrow-v2.ts` — `?? TaskStatus.Created` заменён на `decodeStatus()`/`decodeStatusV2()` (throw на статус вне 0–7; карты уже полны, так что throw недостижим для деплоенного контракта — но будущий enum больше не превратится в тихий `Created`).
+- ✅ `events.ts` — `createEventSubscriptions` принимает `EventSubscriptionOptions { pollingInterval?, onError? }`; pollingInterval флорится на 10s, onError дефолтит в `console.error` (раньше viem молча глотал). Все 8 watch-вызовов прокинуты.
+- ✅ `index.ts` — `TaskStatus` теперь value-export (`export { TaskStatus }`), value-import работает.
+- ✅ `core/interfaces/task-client.ts` + `contracts/.../ITaskEscrow.sol` — doc исправлен `→ Expired` (проверено по контракту: `refundExpired` ставит `Expired`, эмитит `TaskExpired`).
+- ✅ `task-escrow.ts` + `v2` — `TaskCreated`-lookup в receipt теперь фильтрует и по `escrowAddress`.
+- 🔲 **Не делалось (отдельный заход):** `client.ts` x402-стаб cast/мёртвая ветка, `x402.ts` безусловный `response.json()`, `pay-direct.ts` док-дрейф, `listActiveAgentsV2` overshoot, дублированный `signPermit` (вынести + EIP-5267), `adapter-arc` name-drift, мёртвое событие `TaskRefunded` в v1-интерфейсе.
 
-- 🔲 ABI-mirror отстал от V3: `lib/abi/task-escrow.ts` без `Split = 7` и `executorShare`; `task-escrow-events.ts` без `TaskResolved` → live-tx-фид никогда не покажет арбитражные исходы. `use-wallet-demo.ts:323` `status >= Completed` трактует Disputed/Refunded/Expired/Split как успех.
-- 🔲 `/docs/patterns` (page.tsx:51-53) публично учит `escrowAddress`-ternary анти-паттерну из GOTCHAS, подписанному как «actual production agent» — в реальном коде он давно выпилен. Обновить сэмпл.
-- 🔲 `use-demo-stream.ts` / `use-wallet-demo.ts` — нет generation-token'а: stale run может влить события/стейт в сброшенный UI; `reset()`+`start()` реанимирует отменённый wallet-run (wallet-mode сейчас скрыт в UI). `use-wallet-demo.ts:227,275` — `writeContract` с `chain: null` отключает chain-id валидацию.
-- 🔲 Два `any` (`use-wallet-demo.ts:214`, `lib/posthog.ts:54` — второй заодно теряет события между consent и async-загрузкой PostHog: присваивать `instance` синхронно после `init`).
-- 🔲 PlanEditor: «Custom address» `'0x'`/мусор проходит Approve-гейт (валидировать `/^0x[a-fA-F0-9]{40}$/`); «Depends on» input дерётся с пользователем (парсить на blur); SubtaskDrawer `STATUS_COLORS` без `awaiting-review`/`refunded`; hardcoded `5042002` в трёх местах (импортировать из `chains/arc.ts`); `SAGE_CHAINS` включает Arc, а `wagmiConfig` — нет (латентный drift; Arc-эскроу — pre-arbitration контракт, при подключении Arc к wallet-mode нужен re-audit ABI-допущений).
+### ✅ Web (`apps/web/`) — CR.8/CR.9/CR.10
 
-### Backend / gateway мелочь
+- ✅ ABI-mirror → V3: `task-escrow.ts` +`Split=7` +`executorShare`; `task-escrow-events.ts` +`TaskResolved` (+ `EVENT_TO_METHOD.resolveDispute` + case в `formatEventPayload` → live-tx-фид показывает арбитражные исходы worker/client/split). `use-wallet-demo.ts waitForCompletion` различает терминальные failure-статусы (Disputed/Refunded/Expired/Split → throw, не «успех»).
+- ✅ `/docs/patterns` — устаревший `escrowAddress`-ternary сэмпл заменён на реальный `chainConfig.contracts.taskEscrow`.
+- ✅ Оба `any`: `use-wallet-demo.ts:214` → `as unknown as PublicClient`; `posthog.ts` → `instance = posthog` синхронно после `init` (события между consent и loaded больше не теряются).
+- ✅ PlanCard Approve-гейт валидирует `/^0x[a-fA-F0-9]{40}$/` (`'0x'`-placeholder больше не проходит).
+- 🔲 **Не делалось:** generation-token'ы в `use-demo-stream`/`use-wallet-demo` (wallet-mode скрыт в UI — низкий приоритет), `chain: null` в wallet-mode writeContract, «Depends on» input на blur, `STATUS_COLORS` для awaiting-review/refunded, hardcoded `5042002`, `SAGE_CHAINS`/`wagmiConfig` Arc-drift.
 
-- 🔲 `shared/sse.ts:31` — `attach()` пишет `Access-Control-Allow-Origin: *` в `writeHead`, перекрывая CORS-allowlist сервера (стримы world-readable; митигировано UUID-runId).
-- 🔲 `server.ts readBody` — без лимита размера (memory-DoS); stream-роуты не отрезают `?query` у runId; `sse.ts` GC не убирает каналы зависших run'ов (плюс `waitForTransactionReceipt` без `timeout` — зависшая tx держит канал вечно).
-- 🔲 `dispute-flow.ts mapVerdict` — при `amount === 1n` Split-clamp даёт `executorShare = 0` → revert `resolveDispute`; деградировать вердикт до worker/client при `amount <= 1n`.
-- 🔲 `orchestrator-proxy.ts:92-99` — спуфабельные `X-Real-IP`/`X-Forwarded-For` fallback'и (мертвы за Cloudflare, опасны при смене фронта); `detail: String(err)` в 502-ответах наружу.
-- ⏸ `demo-run.ts` (protected): receipt-check на approvePayment (H3-остаток) + 2s/3s status-polling в `waitForCompletion` (формально не `watchContractEvent`, но та же квота Worker'а; bounded, не горит).
+### Backend / gateway мелочь — CR.10
 
-### Требует решения Alex
+- ✅ `dispute-flow.ts mapVerdict` — при `amount <= 1n` Split деградирует до Paid/Refunded (по `executorSharePct >= 50`), `resolveDispute` больше не реверт-ит на share=0.
+- ✅ `server.ts readBody` — cap 1 MB (memory-DoS); оба stream-роута отрезают `?query` у runId.
+- ✅ `orchestrator-proxy.ts` — `clientIp` доверяет только `CF-Connecting-IP` (спуфабельные fallback'и убраны); 502 больше не отдаёт `String(err)` наружу (логируется server-side).
+- 🔲 **Не делалось (protected `shared/`):** `sse.ts:31` `ACAO: *` в `attach()` перекрывает CORS-allowlist (стримы world-readable, митигировано UUID-runId); `sse.ts` GC не убирает каналы зависших run'ов; `waitForTransactionReceipt` без `timeout`. Требует явного TASKS-таска для shared/.
+- ⏸ `demo-run.ts` (protected): receipt-check на approvePayment (H3-остаток) + 2s/3s status-polling в `waitForCompletion`.
 
-- ⏸ `wrangler.toml DAILY_LIMIT = "10"` при «3/IP/day» в корневом CLAUDE.md (комментарий в файле говорит «rebaselined 2026-05-21») — синхронизировать доку или вернуть 3. Заодно: корневой CLAUDE.md всё ещё называет активным M10 и описывает «незакоммиченное working tree» от 2026-05-11 — секция «Текущее состояние» устарела.
-- ⏸ Foreign-agent README: добавить предупреждение «runtime исполняет всё, что назначено на твой адрес» + строку «отредактируй app/RPC_URL/ENDPOINT в fly.toml» (B7/B8: дефолтный `ENDPOINT=example.com` уходит on-chain при пропущенном env).
+### ✅ CLAUDE.md / решения Alex — CR.11
+
+- ✅ Корневой CLAUDE.md «Текущее состояние» обновлён: активный milestone M10 → M11, устаревший working-tree снапшот 2026-05-11 заменён актуальным (+ ссылка на этот review).
+- ⏸ **Решение за Alex:** `wrangler.toml DAILY_LIMIT = "10"` при «3/IP/day» в позиционировании — синхронизировать текст или вернуть 3 (значение не менял, флаг оставлен в CLAUDE.md).
+- ✅ Foreign-agent README: добавлены секции «runtime serves anything routed to your address» + «Deploying your fork» (B7/B8).
 
 ---
 

@@ -35,6 +35,20 @@ const STATUS_MAP_V2: Record<number, TaskStatus> = {
   7: TaskStatus.Split,
 };
 
+/**
+ * Decode an on-chain status uint8 (V2/V3). Throws on an unmapped value instead
+ * of the old `?? Created` fallback that silently reported an unknown status as
+ * an active state — see the v1 client's `decodeStatus` and code review
+ * 2026-06-09.
+ */
+function decodeStatusV2(raw: number): TaskStatus {
+  const status = STATUS_MAP_V2[raw];
+  if (status === undefined) {
+    throw new Error(`Unknown on-chain TaskStatus ${raw} — SDK/contract version mismatch`);
+  }
+  return status;
+}
+
 /** Maps SDK `DisputeOutcome` to the on-chain uint8 expected by `resolveDispute`. */
 const OUTCOME_TO_UINT8: Record<DisputeOutcome, number> = {
   [TaskStatus.Paid]: 3,
@@ -150,8 +164,14 @@ export function createTaskEscrowV2Client(
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
       // TaskCreated event signature topic — same as v1 (event shape unchanged).
+      // Match the escrow address too so a same-tx event with an identical
+      // signature can't shadow ours.
       const taskCreatedTopic = '0x7407b0ef416b5ba5fe0caf5447bb4b7bbbd2adc61093638361dd31a28b14fc5c';
-      const log = receipt.logs.find((l) => l.topics[0] === taskCreatedTopic);
+      const log = receipt.logs.find(
+        (l) =>
+          l.topics[0] === taskCreatedTopic &&
+          l.address.toLowerCase() === escrowAddress.toLowerCase(),
+      );
       if (!log?.topics[1]) {
         throw new Error('TaskCreated event not found in receipt');
       }
@@ -259,7 +279,7 @@ export function createTaskEscrowV2Client(
         executor: agentId(result.executor),
         amount: result.amount,
         deadline: Number(result.deadline),
-        status: STATUS_MAP_V2[result.status] ?? TaskStatus.Created,
+        status: decodeStatusV2(result.status),
         specUri: result.specUri,
         resultUri: result.resultUri,
         completedAt: Number(result.completedAt),

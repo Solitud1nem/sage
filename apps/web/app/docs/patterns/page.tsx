@@ -38,7 +38,7 @@ export default function DocsPatternsPage() {
         <CodeBlock lang="typescript" source="apps/demo-agents/src/summarizer/agent.ts">{`import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { BaseAgent } from '../shared/base-agent.js';
 import { taskId } from '@sage/core';
-import { taskEscrowAbi, base, baseSepolia } from '@sage/adapter-evm';
+import { taskEscrowAbi } from '@sage/adapter-evm';
 
 // Per-role private key override — multi-process Fly inherits the same env,
 // so each worker reads its own override before falling back to PRIVATE_KEY.
@@ -47,10 +47,11 @@ if (process.env.SUMMARIZER_PRIVATE_KEY) {
 }
 
 const config = loadConfig(3001);
-const { sage, publicClient, account } = createSageFromConfig(config);
-const escrowAddress = config.chain === 'mainnet'
-  ? base.contracts.taskEscrow
-  : baseSepolia.contracts.taskEscrow;
+// The bundle resolves the contract addresses for whatever chain it's on —
+// read the escrow from chainConfig, never branch on the chain name (a stale
+// ternary here once shipped the wrong address to a third chain).
+const { sage, publicClient, account, chainConfig } = createSageFromConfig(config);
+const escrowAddress = chainConfig.contracts.taskEscrow;
 
 // === CAPABILITY-SPECIFIC: this is the only block that changes per agent ===
 async function summarize(text: string): Promise<string> {

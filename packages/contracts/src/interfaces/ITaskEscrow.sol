@@ -123,7 +123,9 @@ interface ITaskEscrow {
     /// @notice Dispute a completed task (client only). Completed → Disputed.
     function disputeTask(uint256 taskId, string calldata reason) external;
 
-    /// @notice Refund expired task (anyone). Created|Accepted → Refunded if deadline passed.
+    /// @notice Refund expired task (anyone). Created|Accepted → Expired if deadline passed
+    ///         (USDC returned to client; emits TaskExpired). The terminal status is Expired,
+    ///         not Refunded — Refunded is reserved for dispute resolution.
     function refundExpired(uint256 taskId) external;
 
     /// @notice Claim auto-release after grace period (executor only). Completed → Paid.

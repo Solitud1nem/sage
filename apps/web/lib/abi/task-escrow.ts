@@ -53,6 +53,10 @@ export const taskEscrowAbi = [
           { name: 'specUri', type: 'string' },
           { name: 'resultUri', type: 'string' },
           { name: 'completedAt', type: 'uint64' },
+          // V3 (arbitration) field — USDC awarded to executor on Split. 0 for
+          // all non-Split terminals. The deployed escrow is V3, so the mirror
+          // must carry it (decoding worked without it, but the shape now matches).
+          { name: 'executorShare', type: 'uint256' },
         ],
       },
     ],
@@ -112,11 +116,11 @@ export const usdcAbi = [
 
 /**
  * TaskStatus mirror — must match the on-chain enum order in
- * `packages/contracts/src/interfaces/ITaskEscrow.sol`. The enum starts at 0
- * with Created (no None sentinel), so any drift here causes silent timeouts:
- * polling for `status >= Completed` waits forever when the value is +1 off.
- * If you touch this, also touch the contract — and prefer importing from
- * @sage/core where possible.
+ * `packages/contracts/src/interfaces/ITaskEscrowV2.sol` (the deployed escrow is
+ * V3/arbitration-aware). The enum starts at 0 with Created (no None sentinel),
+ * so any drift here causes silent timeouts: polling for `status >= Completed`
+ * waits forever when the value is +1 off. If you touch this, also touch the
+ * contract — and prefer importing from @sage/core where possible.
  */
 export enum TaskStatus {
   Created = 0,
@@ -126,4 +130,6 @@ export enum TaskStatus {
   Disputed = 4,
   Refunded = 5,
   Expired = 6,
+  /** V3 terminal: arbiter awarded partial USDC to each side. See `executorShare`. */
+  Split = 7,
 }

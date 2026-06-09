@@ -155,6 +155,17 @@ export function formatEventPayload(ev: LiveTxEvent): string {
       return 'disputed';
     case 'TaskExpired':
       return 'refunded';
+    case 'TaskResolved': {
+      // outcome is the V3 TaskStatus enum: 3=Paid, 5=Refunded, 7=Split.
+      const outcome = ev.args.outcome as number | undefined;
+      if (outcome === 3) return 'resolved → worker paid';
+      if (outcome === 5) return 'resolved → client refunded';
+      if (outcome === 7) {
+        const share = ev.args.executorShare as bigint | undefined;
+        return share ? `resolved → split (${formatUsdc(share)} USDC)` : 'resolved → split';
+      }
+      return 'resolved';
+    }
   }
 }
 

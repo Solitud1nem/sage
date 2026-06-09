@@ -50,7 +50,9 @@ export interface TaskClient {
   /**
    * Trigger refund for an expired task (callable by anyone).
    * Only works if deadline has passed and task is in Created or Accepted.
-   * Transitions: Created|Accepted → Refunded.
+   * Transitions: Created|Accepted → Expired (USDC returned to client; the
+   * terminal status is `Expired`, not `Refunded` — `Refunded` is the
+   * dispute-resolution outcome). Emits `TaskExpired`.
    * @returns The transaction hash.
    */
   refundExpired(taskId: TaskId): Promise<string>;

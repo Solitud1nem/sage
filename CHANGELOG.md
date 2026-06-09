@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-06-09 (later ×5) — Code review: волна 3 (SDK correctness, web ABI→V3, docs sample, hygiene) — `fix`/`hardening`
+
+Гигиена/drift-пункты ревизии (реестр — `docs/reviews/2026-06-09-code-review.md`). Задеплоено web→Pages + demo-agents→Fly Base+Arc + gateway→Worker.
+
+- `fix` **CR.7 SDK:** `?? TaskStatus.Created` → `decodeStatus()` throw на неизвестном статусе (класс «cutover ≠ address swap»; карты полны 0–7, throw недостижим для деплоя, но будущий enum не станет тихим Created). `events.ts` — `onError` + `pollingInterval≥10s` опции. `TaskStatus` стал value-export. `refundExpired` doc → `Expired` (проверено по контракту). `TaskCreated`-lookup фильтрует по `escrowAddress`.
+- `fix` **CR.8 web ABI→V3:** mirror получил `Split=7`, `executorShare`, событие `TaskResolved` (+ маппинг + case в live-tx-фид → арбитражные исходы worker/client/split теперь видны). `waitForCompletion` различает терминальные failure-статусы.
+- `fix` **CR.9 docs:** `/docs/patterns` сэмпл «actual production agent» больше не учит `escrowAddress`-ternary анти-паттерну — заменён на реальный `chainConfig.contracts.taskEscrow`.
+- `hardening` **CR.10:** оба web `any` убраны; PostHog `instance` присваивается синхронно (события между consent и loaded не теряются); PlanCard Approve валидирует адрес; `mapVerdict` не реверт-ит на `amount<=1n`; `readBody` cap 1 MB; runId `?query`-trim; gateway `clientIp` только `CF-Connecting-IP` + 502 не течёт `String(err)`.
+- `docs` **CR.11:** корневой CLAUDE.md «Текущее состояние» M10→M11 + актуальный working-tree; `DAILY_LIMIT` 10-vs-3 оставлен решением Alex.
+- Тесты: demo-agents 190/190, adapter-evm 30/30; typecheck core+adapter+demo-agents+gateway+web чистый; web build + e2e на Base mainnet зелёный (SDK status-decoding в живом пути).
+- **Отложено (protected `shared/`):** `sse.ts` `ACAO:*` + GC зависших каналов, `demo-run.ts` receipt-check — требуют явного TASKS-таска. Прочий SDK-мелочёвка (x402-стаб, signPermit-вынос, adapter-arc name) — отдельным заходом.
+
 ## 2026-06-09 (later ×4) — Code review: волна 2 (template guards, council injection, RPC denylist) — `fix`/`hardening`
 
 Продолжение ревизии (реестр — `docs/reviews/2026-06-09-code-review.md`). Три пункта волны 2, не трогающие живой 3-mode demo-путь:

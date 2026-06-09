@@ -100,24 +100,27 @@ export async function handleOrchestrator(
       headers: stripHopByHop(upstreamRes.headers),
     });
   } catch (err) {
+    // Log the detail server-side (observability is enabled) but don't leak it
+    // to the client — fetch errors can carry internal hostnames.
+    console.error('[gateway] orchestrator unreachable:', err);
     return new Response(
       JSON.stringify({
         error: 'orchestrator_unreachable',
         message: 'The demo backend is temporarily unavailable. Try again in a moment.',
-        detail: String(err),
       }),
       { status: 502, headers: { 'Content-Type': 'application/json' } },
     );
   }
 }
 
+/**
+ * Client IP for rate-limiting. Trust ONLY Cloudflare's `CF-Connecting-IP` —
+ * the `X-Real-IP` / `X-Forwarded-For` fallbacks are attacker-controlled and
+ * would be a free rate-limit bypass if this Worker were ever fronted
+ * differently. On the CF edge the header is always set.
+ */
 function clientIp(req: Request): string {
-  return (
-    req.headers.get('CF-Connecting-IP') ??
-    req.headers.get('X-Real-IP') ??
-    req.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ??
-    'unknown'
-  );
+  return req.headers.get('CF-Connecting-IP') ?? 'unknown';
 }
 
 const HOP_BY_HOP = new Set([

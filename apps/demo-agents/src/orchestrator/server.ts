@@ -80,10 +80,24 @@ function applyCors(req: IncomingMessage, res: ServerResponse): boolean {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
+/** Hard cap on request body size — the app is publicly reachable, so an
+ * unbounded POST is a trivial memory-DoS. 1 MB is far above any real demo
+ * payload (a plan + brief). */
+const MAX_BODY_BYTES = 1_000_000;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('request body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString()));
     req.on('error', reject);
   });
@@ -384,7 +398,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
   // --- GET /api/demo/stream/:id ---------------------------------------
   if (method === 'GET' && url.startsWith('/api/demo/stream/')) {
-    const demoRunId = url.slice('/api/demo/stream/'.length);
+    // Trim any ?query (EventSource polyfills append cache-busters) before the lookup.
+    const demoRunId = url.slice('/api/demo/stream/'.length).split('?')[0]!;
     const channel = demoRegistry.get(demoRunId);
     if (!channel) {
       json(res, 404, { error: 'demo run not found or already expired' });
@@ -684,7 +699,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
   // --- GET /api/demo/composite/stream/:runId --------------------------
   if (method === 'GET' && url.startsWith('/api/demo/composite/stream/')) {
-    const runId = url.slice('/api/demo/composite/stream/'.length);
+    const runId = url.slice('/api/demo/composite/stream/'.length).split('?')[0]!;
     const channel = demoRegistry.get(runId);
     if (!channel) {
       json(res, 404, { error: 'composite run not found or already expired' });

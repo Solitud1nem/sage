@@ -48,6 +48,15 @@ export function mapVerdict(
     case 'client':
       return { outcome: TaskStatus.Refunded, callShare: 0n, displayShare: 0n };
     case 'split': {
+      // A Split needs a share strictly inside (0, amount); for amount <= 1 no
+      // such integer exists, so the contract's bounds check would revert. Fall
+      // back to the nearer full outcome by the judge's intended share.
+      if (amount <= 1n) {
+        const pct = verdict.executorSharePct ?? 50;
+        return pct >= 50
+          ? { outcome: TaskStatus.Paid, callShare: 0n, displayShare: amount }
+          : { outcome: TaskStatus.Refunded, callShare: 0n, displayShare: 0n };
+      }
       const pct = BigInt(verdict.executorSharePct ?? 50);
       // Clamp the resulting share into (0, amount) so the contract's
       // bounds check can't revert on a 0 or full share for a Split.

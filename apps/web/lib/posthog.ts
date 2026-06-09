@@ -51,10 +51,12 @@ export async function initPostHog(): Promise<void> {
     persistence: 'localStorage+cookie',
     respect_dnt: true,
     autocapture: false,
-    loaded: (ph: any) => {
-      instance = ph;
-    },
   });
+  // Assign synchronously after init() rather than in the async `loaded`
+  // callback: events fired in the gap between consent and `loaded` firing
+  // (e.g. composite_classify_started right after the banner) were silently
+  // dropped. `posthog` is usable for capture() immediately after init().
+  instance = posthog;
 }
 
 /** Fire a custom analytics event. Safe before consent — becomes a no-op. */

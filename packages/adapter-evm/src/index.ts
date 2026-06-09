@@ -16,7 +16,6 @@ export type {
   TaskId,
   TaskRecord,
   TaskSpec,
-  TaskStatus,
   DisputeOutcome,
   AgentClient,
   AgentClientV2,
@@ -24,6 +23,11 @@ export type {
   TaskClientV2,
   ChainAdapter,
 } from '@sage/core';
+
+// TaskStatus is a runtime enum (value), not just a type — re-export it as a
+// value so `import { TaskStatus } from '@sage/adapter-evm'` works for callers
+// that compare against it (previously type-only → broke value imports).
+export { TaskStatus } from '@sage/core';
 
 // Client
 export { createSageClient } from './client.js';
@@ -44,7 +48,7 @@ export type { PayDirectClient, PayDirectParams } from './pay-direct.js';
 
 // Events
 export { createEventSubscriptions } from './events.js';
-export type { SageEventSubscriptions, UnwatchFn } from './events.js';
+export type { SageEventSubscriptions, UnwatchFn, EventSubscriptionOptions } from './events.js';
 
 // ABIs (for advanced usage)
 export { agentRegistryAbi, agentRegistryV2Abi, taskEscrowAbi, taskEscrowV2Abi } from './abi/index.js';

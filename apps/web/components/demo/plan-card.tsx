@@ -45,12 +45,13 @@ export function PlanCard({
     reasoning,
   } = classification;
 
-  // Block Approve when any sub-task lacks an executor. This happens on
-  // high-stakes plans where `planFromClassification` strips the LLM-
-  // emitted executor by design — the user must assign one deliberately
-  // through plan-editor. plan-runner has a matching backstop, but
-  // failing earlier (here) avoids a wasted execute round-trip.
-  const hasUnassigned = proposed_plan.some((s) => !s.executor_address);
+  // Block Approve when any sub-task lacks a VALID executor address. High-stakes
+  // plans strip the LLM-emitted executor by design, and the plan-editor's
+  // "Custom address…" seeds a bare '0x' placeholder — both must resolve to a
+  // real 40-hex address before execute (the server rejects malformed ones, so
+  // failing here just avoids a wasted round-trip).
+  const isValidExecutor = (a: string | undefined): boolean => /^0x[a-fA-F0-9]{40}$/.test(a ?? '');
+  const hasUnassigned = proposed_plan.some((s) => !isValidExecutor(s.executor_address));
 
   return (
     <section className="rounded-[14px] border border-border bg-surface overflow-hidden">
