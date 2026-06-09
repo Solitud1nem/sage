@@ -46,6 +46,38 @@ need USDC — that's what you earn.
   `summarize`, `translate`, `sentiment-classify`, `vision-describe`). `PRICE_UNITS`
   is USDC base units (6 decimals; `1000` = 0.001 USDC).
 
+## Safety: the runtime serves anything routed to your address
+
+The classifier picks the cheapest active agent — but `createTask` is
+permissionless, so **anyone** can route a task to your address directly, with
+whatever economics they choose (1-unit pay, a near-past deadline, a megabyte
+payload). The runtime guards against this before spending gas, via env knobs
+(see `.env.example`):
+
+- `MIN_TASK_UNITS` (default = `PRICE_UNITS`) — refuse underpaying tasks.
+- `MIN_DEADLINE_MARGIN_S` (default 120) — refuse tasks you can't finish in time.
+- `MAX_MATERIAL_CHARS` (default 100000) — truncate oversized payloads before
+  your handler runs.
+- `BOOT_SCAN_BACK` (default 200) — on restart, pick up tasks created while you
+  were offline instead of black-holing them.
+- `HANDLER_RETRIES` (default 2) — retry the handler on a transient failure
+  before giving up.
+
+Tune these for your agent's economics before going live.
+
+## Deploying your fork
+
+`fly.toml` ships configured for the Sage **reference** instance. Before you
+deploy your own, edit:
+
+- `app` — your Fly app name (not `sage-foreign-agent`).
+- `RPC_URL` — your own/proxied Base RPC (the default public node is best-effort).
+- `ENDPOINT` env — a URL describing *your* agent; the default `example.com`
+  placeholder gets written into the on-chain registry if you skip it.
+
+The Dockerfile builds from the **repo root** (it needs `packages/*`), so deploy
+with `fly deploy -c templates/foreign-agent/fly.toml` from the monorepo root.
+
 ## Notes
 
 - This template lives in the Sage monorepo and resolves `@sage/*` via the

@@ -45,6 +45,18 @@ const priceUnits = BigInt(required('PRICE_UNITS'));
 const endpoint = process.env['ENDPOINT'] ?? 'https://example.com/foreign-agent';
 const port = Number(process.env['PORT'] ?? 3010);
 
+// ── Safety guards ──────────────────────────────────────────────────────────
+// The loop will accept ANY task routed to this address, including ones created
+// outside the Sage classifier with hostile economics (1-unit pay, megabyte
+// payloads, near-past deadlines). These bounds keep a forked agent from burning
+// gas/LLM spend on work it can't profitably complete. Defaults are conservative;
+// operators tune via env.
+const minTaskUnits = BigInt(process.env['MIN_TASK_UNITS'] ?? priceUnits.toString());
+const minDeadlineMarginS = Number(process.env['MIN_DEADLINE_MARGIN_S'] ?? 120);
+const maxMaterialChars = Number(process.env['MAX_MATERIAL_CHARS'] ?? 100_000);
+const bootScanBack = Number(process.env['BOOT_SCAN_BACK'] ?? 200);
+const handlerRetries = Number(process.env['HANDLER_RETRIES'] ?? 2);
+
 const registryAddr = sageChain.contracts.agentRegistryV2;
 if (!registryAddr) {
   throw new Error(`Chain "${CHAIN}" has no agentRegistryV2 configured — cannot register.`);
@@ -148,9 +160,20 @@ async function ensureRegistered(): Promise<void> {
  * kill); a crashed agent that can't pause is recovered by your restart policy.
  */
 let shuttingDown = false;
+/** True while a task is between acceptTask and completeTask — see drain below. */
+let inFlight = false;
 async function pauseOnShutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  // Drain an in-flight task first (bounded): a task accepted but not yet
+  // completed would otherwise strand the client's escrow until its deadline.
+  // The host's kill timeout caps how long we get; if it cuts us off, the task
+  // stays Accepted and your restart policy / the deadline recovers it.
+  const drainDeadline = Date.now() + 25_000;
+  while (inFlight && Date.now() < drainDeadline) {
+    log('waiting for in-flight task to finish before pausing…');
+    await sleep(1000);
+  }
   log(`${signal} — pausing registry entry…`);
   try {
     const h = await registry.pauseAgent();
@@ -166,6 +189,40 @@ process.on('SIGTERM', () => void pauseOnShutdown('SIGTERM'));
 
 // ── Task loop ─────────────────────────────────────────────────────────────────
 
+/**
+ * Decide whether to take a task BEFORE spending gas on acceptTask. The task
+ * record (amount, deadline) is already in hand from the poll, so every reject
+ * here is free. Returns a reason string to skip, or null to proceed.
+ */
+function rejectReason(amount: bigint, deadline: number): string | null {
+  if (amount < minTaskUnits) {
+    return `pays ${amount} < MIN_TASK_UNITS ${minTaskUnits}`;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (deadline <= now + minDeadlineMarginS) {
+    return `deadline in ${deadline - now}s < MIN_DEADLINE_MARGIN_S ${minDeadlineMarginS}`;
+  }
+  return null;
+}
+
+/** Run the handler, retrying on transient failure up to HANDLER_RETRIES. */
+async function executeWithRetry(job: { spec: string; material: string | null }): Promise<string> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= handlerRetries; attempt++) {
+    try {
+      return await execute(job);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < handlerRetries) {
+        const backoff = 2000 * (attempt + 1);
+        log(`handler attempt ${attempt + 1} failed (${e}) — retrying in ${backoff}ms`);
+        await sleep(backoff);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function handleTask(id: TaskId): Promise<void> {
   log(`task ${id} assigned to us — accepting…`);
   const acceptHash = await escrow.acceptTask(id);
@@ -174,21 +231,40 @@ async function handleTask(id: TaskId): Promise<void> {
     log(`task ${id} accept reverted (another agent got it first)`);
     return;
   }
-  // Bounded wait for the Accepted state to be readable before reading specUri.
-  let task = await escrow.getTask(id);
-  for (let i = 0; i < 5 && task?.status !== TaskStatus.Accepted; i++) {
-    await sleep(2000);
-    task = await escrow.getTask(id);
+  // From here the client's escrow is committed to us — guard the rest with
+  // inFlight so a shutdown drains it instead of stranding the escrow.
+  inFlight = true;
+  try {
+    // Bounded wait for the Accepted state to be readable before reading specUri.
+    let task = await escrow.getTask(id);
+    for (let i = 0; i < 5 && task?.status !== TaskStatus.Accepted; i++) {
+      await sleep(2000);
+      task = await escrow.getTask(id);
+    }
+    if (!task) {
+      log(`task ${id} not readable — skipping`);
+      return;
+    }
+    const job = decodeJob(task.specUri);
+    // Cap the material so a hostile payload can't inflate the handler's cost.
+    if (maxMaterialChars > 0 && job.material && job.material.length > maxMaterialChars) {
+      log(`task ${id} material ${job.material.length} chars — truncating to ${maxMaterialChars}`);
+      job.material = job.material.slice(0, maxMaterialChars);
+    }
+    log(`task ${id} working (spec: ${job.spec.slice(0, 60)}…)`);
+    const result = await executeWithRetry(job);
+    const completeHash = await escrow.completeTask(id, `data:text/plain,${encodeURIComponent(result)}`);
+    const completeReceipt = await publicClient.waitForTransactionReceipt({
+      hash: completeHash as `0x${string}`,
+    });
+    if (completeReceipt.status === 'reverted') {
+      log(`task ${id} completeTask reverted — task stays Accepted, leaving for retry/deadline`);
+      return;
+    }
+    log(`task ${id} completed (tx ${completeHash})`);
+  } finally {
+    inFlight = false;
   }
-  if (!task) {
-    log(`task ${id} not readable — skipping`);
-    return;
-  }
-  const job = decodeJob(task.specUri);
-  log(`task ${id} working (spec: ${job.spec.slice(0, 60)}…)`);
-  const result = await execute(job);
-  await escrow.completeTask(id, `data:text/plain,${encodeURIComponent(result)}`);
-  log(`task ${id} completed`);
 }
 
 async function readNextTaskId(): Promise<number> {
@@ -201,9 +277,12 @@ async function readNextTaskId(): Promise<number> {
 }
 
 async function pollLoop(): Promise<void> {
-  // Start from the current head so we don't re-scan historical tasks.
-  let cursor = await readNextTaskId();
-  log(`watching from task #${cursor}`);
+  const head = await readNextTaskId();
+  // Scan back from the head so tasks created while we were offline (deploys,
+  // crashes) aren't missed. Re-scanning is safe: the executor+Created filter
+  // skips anything we already handled (a completed task is no longer Created).
+  let cursor = bootScanBack > 0 ? Math.max(0, head - bootScanBack) : head;
+  log(`watching from task #${cursor} (head ${head}, scan-back ${bootScanBack})`);
   for (;;) {
     try {
       const next = await readNextTaskId();
@@ -211,6 +290,11 @@ async function pollLoop(): Promise<void> {
         const tid = taskId(String(id));
         const task = await escrow.getTask(tid);
         if (task && String(task.executor).toLowerCase() === me && task.status === TaskStatus.Created) {
+          const reason = rejectReason(task.amount, task.deadline);
+          if (reason) {
+            log(`task ${id} skipped — ${reason}`);
+            continue;
+          }
           await handleTask(tid).catch((e) => log(`task ${id} error: ${e}`));
         }
       }
