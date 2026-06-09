@@ -8,6 +8,19 @@
 
 ---
 
+## 2026-06-09 (later ×10) — Code review: CR.13 — SDK-мелочёвка, все 7 пунктов — `fix`/`refactor`
+
+Закрыт CR.13 — SDK-хвост ревизии (`packages/adapter-evm` + `adapter-arc` + `contracts`):
+
+- `refactor` **Общий `signPermit` + EIP-5267:** идентичные ~80 строк в `task-escrow.ts`/`task-escrow-v2.ts` вынесены в `src/permit.ts`. Домен теперь резолвится через EIP-5267 `eip712Domain()` (authoritative name/version от самого токена; есть в Circle FiatTokenV2_2) с кэшем per `chainId:token`; **fallback при любой ошибке — прежнее поведение** (`name()` + hardcoded `'2'`), так что pre-5267 токены ничего не теряют. Money-path — подтверждён живым e2e после деплоя.
+- `fix` **`listActiveAgentsV2` overshoot:** cap проверялся только между страницами — результат мог превысить `maxAgents` на pageSize−1; теперь cap внутри страницы.
+- `fix` **`x402.ts`:** безусловный `response.json()` бросал SyntaxError на не-JSON теле (HTML от 502) — теперь `.catch(() => null)`, caller получает статус и решает сам.
+- `fix` **`client.ts`:** мёртвая no-account ветка x402-стаба + unsafe `as X402Client` cast убраны — тип `WalletClient<Transport, Chain, Account>` гарантирует account.
+- `docs` **`pay-direct.ts`:** заголовок обещал «transfer with permit» (имплементация — plain `transfer`), у `token` значился несуществующий дефолт — doc приведён к коду.
+- `fix` **`adapter-arc` name-drift:** `ARC_TESTNET_CHAIN_INFO.name` `'Arc'` → `'arc-testnet'` — паритет с живым `arcTestnet.name` в adapter-evm (kebab-конвенция); сам заголовок файла обещал «mirror the bridge config», но не зеркалил.
+- `fix` **Мёртвое `TaskRefunded`:** событие в `ITaskEscrow.sol` никогда не эмитилось (Refunded недостижим в v1; v2-арбитраж эмитит `TaskResolved`) — удалено из интерфейса и ABI-mirror'а адаптера. Bytecode задеплоенных контрактов не затронут.
+- Тесты: forge 149/149, adapter-evm 37/37 (+7 — permit EIP-5267/fallback/cache/spender-binding + overshoot-матрица), adapter-arc 17/17, demo-agents 211/211, core 11/11. **Задеплоено Fly Base+Arc 2026-06-09**, e2e smoke прошёл.
+
 ## 2026-06-09 (later ×9) — Code review: CR.12 — protected-хвост: SSE CORS/GC + demo-run receipt — `fix`/`hardening`
 
 Закрыт CR.12 — отложенный protected-`shared/` хвост ревизии (этот таск = требуемое явное основание для правок `shared/` и `demo-run.ts`).

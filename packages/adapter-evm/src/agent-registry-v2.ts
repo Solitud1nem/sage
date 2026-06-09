@@ -64,6 +64,10 @@ export async function listActiveAgentsV2(
         registeredAt: Number(a.registeredAt),
         active: a.active,
       });
+      // Cap inside the page too — the while-guard only checks between pages,
+      // so without this the result overshot maxAgents by up to pageSize-1
+      // (code review 2026-06-09, CR.13).
+      if (collected.length >= maxAgents) return collected;
     }
 
     if (nextCursor === 0n) break;

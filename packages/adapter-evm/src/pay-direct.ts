@@ -1,5 +1,6 @@
 /**
- * Direct ERC-20 transfer with permit — escape-hatch when x402 is unavailable.
+ * Direct ERC-20 `transfer` — escape-hatch when x402 is unavailable.
+ * (Plain transfer, no permit involved — the sender spends their own balance.)
  *
  * WARNING: This is NOT the recommended payment path.
  * Use sage.callAgent() (x402) for pay-per-call or sage.tasks.createTask() for escrow.
@@ -29,7 +30,7 @@ export interface PayDirectParams {
   to: `0x${string}`;
   /** Amount in smallest token unit (e.g. 1_000_000 = 1 USDC). */
   amount: bigint;
-  /** Token contract address (defaults to USDC from chain config). */
+  /** Token contract address (required — e.g. USDC from the chain config). */
   token: `0x${string}`;
 }
 

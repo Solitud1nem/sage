@@ -391,19 +391,6 @@ export const taskEscrowAbi = [
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "TaskRefunded",
-    "inputs": [
-      {
-        "name": "taskId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
     "type": "error",
     "name": "DeadlineNotPassed",
     "inputs": []

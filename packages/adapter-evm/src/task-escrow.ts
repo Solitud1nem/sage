@@ -3,6 +3,7 @@ import type { TaskId, TaskRecord, TaskSpec } from '@sage/core';
 import type { TaskClient } from '@sage/core';
 import { agentId, taskId, TaskStatus } from '@sage/core';
 import { taskEscrowAbi } from './abi/index.js';
+import { createPermitSigner } from './permit.js';
 
 /**
  * WalletClient with chain + account bound. Required for `writeContract` to
@@ -51,81 +52,9 @@ export function createTaskEscrowClient(
   escrowAddress: `0x${string}`,
   usdcAddress: `0x${string}`,
 ): TaskClient {
-  async function signPermit(amount: bigint): Promise<{
-    value: bigint;
-    deadline: bigint;
-    v: number;
-    r: `0x${string}`;
-    s: `0x${string}`;
-  }> {
-    const account = walletClient.account;
-    if (!account) throw new Error('WalletClient must have an account');
-
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const nonce = await publicClient.readContract({
-      address: usdcAddress,
-      abi: [
-        {
-          name: 'nonces',
-          type: 'function',
-          stateMutability: 'view',
-          inputs: [{ name: 'owner', type: 'address' }],
-          outputs: [{ name: '', type: 'uint256' }],
-        },
-      ] as const,
-      functionName: 'nonces',
-      args: [account.address],
-    });
-
-    const name = await publicClient.readContract({
-      address: usdcAddress,
-      abi: [
-        {
-          name: 'name',
-          type: 'function',
-          stateMutability: 'view',
-          inputs: [],
-          outputs: [{ name: '', type: 'string' }],
-        },
-      ] as const,
-      functionName: 'name',
-    });
-
-    const chainId = await publicClient.getChainId();
-
-    const signature = await walletClient.signTypedData({
-      account,
-      domain: {
-        name,
-        version: '2',
-        chainId,
-        verifyingContract: usdcAddress,
-      },
-      types: {
-        Permit: [
-          { name: 'owner', type: 'address' },
-          { name: 'spender', type: 'address' },
-          { name: 'value', type: 'uint256' },
-          { name: 'nonce', type: 'uint256' },
-          { name: 'deadline', type: 'uint256' },
-        ],
-      },
-      primaryType: 'Permit',
-      message: {
-        owner: account.address,
-        spender: escrowAddress,
-        value: amount,
-        nonce,
-        deadline,
-      },
-    });
-
-    const r = `0x${signature.slice(2, 66)}` as `0x${string}`;
-    const s = `0x${signature.slice(66, 130)}` as `0x${string}`;
-    const v = parseInt(signature.slice(130, 132), 16);
-
-    return { value: amount, deadline, v, r, s };
-  }
+  // EIP-2612 permit signing is shared across the v1/v2 clients —
+  // see permit.ts (EIP-5267 domain discovery + per-token cache, CR.13).
+  const signPermit = createPermitSigner(publicClient, walletClient, usdcAddress, escrowAddress);
 
   return {
     async createTask(spec: TaskSpec): Promise<TaskId> {

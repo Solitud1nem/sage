@@ -70,12 +70,11 @@ export function createSageClient(options: CreateSageClientOptions): SageClient {
     chain.contracts.usdc,
   );
 
-  const account = walletClient.account;
+  // `walletClient` is typed with a bound Account, so the old no-account
+  // throw-stub branch (and its unsafe `as X402Client` cast) was dead code —
+  // removed per code review 2026-06-09, CR.13.
   const chainNetwork = `eip155:${chain.chainId}`;
-
-  const x402 = account
-    ? createX402Client(account, chainNetwork)
-    : ({ callAgent: () => { throw new Error('x402 requires walletClient with account'); } } as X402Client);
+  const x402 = createX402Client(walletClient.account, chainNetwork);
 
   const pay = createPayDirectClient(publicClient, walletClient);
 

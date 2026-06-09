@@ -109,7 +109,7 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 - ✅ `index.ts` — `TaskStatus` теперь value-export (`export { TaskStatus }`), value-import работает.
 - ✅ `core/interfaces/task-client.ts` + `contracts/.../ITaskEscrow.sol` — doc исправлен `→ Expired` (проверено по контракту: `refundExpired` ставит `Expired`, эмитит `TaskExpired`).
 - ✅ `task-escrow.ts` + `v2` — `TaskCreated`-lookup в receipt теперь фильтрует и по `escrowAddress`.
-- 🔲 **Не делалось (отдельный заход):** `client.ts` x402-стаб cast/мёртвая ветка, `x402.ts` безусловный `response.json()`, `pay-direct.ts` док-дрейф, `listActiveAgentsV2` overshoot, дублированный `signPermit` (вынести + EIP-5267), `adapter-arc` name-drift, мёртвое событие `TaskRefunded` в v1-интерфейсе.
+- ✅ **CR.13 (закрыт 2026-06-09), все 7:** `client.ts` — мёртвая no-account ветка + `as X402Client` cast убраны (тип гарантирует account); `x402.ts` — `response.json().catch(() => null)` (не-JSON тело больше не бросает SyntaxError); `pay-direct.ts` — doc приведён к коду (plain `transfer` без permit, `token` обязателен); `listActiveAgentsV2` — cap внутри страницы (раньше overshoot до pageSize−1 над `maxAgents`); `signPermit` вынесен в общий `src/permit.ts` — EIP-5267 `eip712Domain()` для name/version с per-token кэшем, fallback на старое поведение (`name()` + `'2'`) при любой ошибке; `adapter-arc` `ARC_TESTNET_CHAIN_INFO.name` `'Arc'` → `'arc-testnet'` (паритет с adapter-evm); мёртвое `TaskRefunded` (никогда не эмитилось — Refunded недостижим в v1, в v2 — `TaskResolved`) удалено из `ITaskEscrow.sol` + ABI-mirror. Тесты: forge 149/149, adapter-evm 37/37 (+7: permit оба пути + cache, overshoot), adapter-arc 17/17, demo-agents 211/211.
 
 ### ✅ Web (`apps/web/`) — CR.8/CR.9/CR.10
 

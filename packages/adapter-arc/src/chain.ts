@@ -9,8 +9,10 @@
  *
  * - `chainId: '5042002'` — confirmed via `docs.arc.io/arc/references/connect-to-arc`
  *   on 2026-05-21.
- * - `name: 'Arc'` — confirmed via Circle's introductory post and the
- *   arc.network landing page (see ADR-0014 references).
+ * - `name: 'arc-testnet'` — matches the live `arcTestnet.name` in
+ *   `@sage/adapter-evm` (kebab machine-name convention, same as `base` /
+ *   `base-sepolia`). Was `'Arc'` until code review 2026-06-09 (CR.13)
+ *   flagged the drift between the two packages describing the same chain.
  * - `explorerUrl: 'https://testnet.arcscan.app'` — confirmed via
  *   `docs.arc.io`.
  *
@@ -23,6 +25,6 @@ import type { ChainInfo } from '@sage/core';
 
 export const ARC_TESTNET_CHAIN_INFO: ChainInfo = {
   chainId: '5042002',
-  name: 'Arc',
+  name: 'arc-testnet',
   explorerUrl: 'https://testnet.arcscan.app',
 };

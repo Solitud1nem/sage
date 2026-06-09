@@ -82,7 +82,10 @@ export function createX402Client(
           signal: controller.signal,
         });
 
-        const data = await response.json();
+        // Non-JSON bodies (gateway HTML on 502, empty 204) must not turn a
+        // received response into a thrown SyntaxError — the caller gets the
+        // status and decides (code review 2026-06-09, CR.13).
+        const data: unknown = await response.json().catch(() => null);
 
         const headers: Record<string, string> = {};
         response.headers.forEach((value, key) => {

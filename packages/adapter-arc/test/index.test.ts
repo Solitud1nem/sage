@@ -26,9 +26,9 @@ import { agentId, taskId } from '@sage/core';
 describe('@sage/adapter-arc — scaffold conformance', () => {
   const adapter = createSageArcClient();
 
-  it('returns a ChainInfo with Arc name + confirmed chainId', () => {
+  it('returns a ChainInfo matching the adapter-evm arcTestnet naming', () => {
     expect(adapter.chain).toEqual(ARC_TESTNET_CHAIN_INFO);
-    expect(adapter.chain.name).toBe('Arc');
+    expect(adapter.chain.name).toBe('arc-testnet');
     // Arc testnet chainId confirmed via docs.arc.io on 2026-05-21.
     expect(adapter.chain.chainId).toBe('5042002');
     expect(adapter.chain.explorerUrl).toBe('https://testnet.arcscan.app');

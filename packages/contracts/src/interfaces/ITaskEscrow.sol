@@ -56,7 +56,10 @@ interface ITaskEscrow {
     event TaskCompleted(uint256 indexed taskId, string resultUri);
     event TaskPaid(uint256 indexed taskId);
     event TaskDisputed(uint256 indexed taskId, string reason);
-    event TaskRefunded(uint256 indexed taskId);
+    // TaskRefunded removed (code review 2026-06-09, CR.13): the v1 contract
+    // never emits it — Refunded is unreachable in v1, and the v2 arbitration
+    // path emits TaskResolved instead. Declared-but-never-emitted events only
+    // mislead integrators; bytecode of the deployed contract is unaffected.
     event TaskExpired(uint256 indexed taskId);
 
     // ───────── Errors ─────────
