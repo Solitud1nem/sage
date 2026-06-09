@@ -8,6 +8,10 @@
 
 ---
 
+## 2026-06-09 (later ×8) — Code review: CR.5 — review-промпт переживает упавший POST — `fix`
+
+Закрыт CR.5 (находка Web-H1) — последний пункт волны 2. `submitReview` в `use-composite-demo.ts` оптимистично чистил `awaitingReviewSubId` до fetch'а: упавший review-POST молча съедал промпт (юзер не мог ре-решить, а backend-гейт через 3 мин тихо auto-approve'ил), и `state.error` при `status==='executing'` нигде не рендерился (ErrorPanel только при `status==='error'`). Фикс: catch восстанавливает `awaitingReviewSubId` — но только пока runtime sub-task'а ещё `awaiting-review` (если за время неудачного запроса прилетел SSE `subtask_paid` от backend-таймаута, устаревший промпт не воскрешается); `submitReview` и `retry` чистят `error` на старте (успешный повтор убирает баннер); `/demo/composite` рендерит inline error-banner при `isRunning && error` («Request failed — the run is still live») над review/replan-промптом. Typecheck + static build чистые. **Задеплоено Pages 2026-06-09.**
+
 ## 2026-06-09 (later ×7) — Code review: CR.3 — stranded-эскроу: reclaim + разруливание Disputed перед retry — `fix`
 
 Закрыт CR.3 (находки M1+M2 реестра `docs/reviews/2026-06-09-code-review.md`). Два класса застревания USDC в composite-флоу:

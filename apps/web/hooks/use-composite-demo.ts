@@ -359,6 +359,9 @@ export function useCompositeDemo(chainId: number) {
         hasNewExecutor: !!opts.newExecutorAddress,
         chain_id: runChainId,
       });
+      // Clear a stale banner from a previous failed attempt — a successful
+      // re-submit should leave no error on screen.
+      setState((prev) => ({ ...prev, error: null }));
       try {
         const res = await fetch(urlFor('/api/demo/composite/retry-subtask', runChainId), {
           method: 'POST',
@@ -414,7 +417,8 @@ export function useCompositeDemo(chainId: number) {
         chain_id: runChainId,
       });
       // Optimistically clear the prompt so the user isn't double-prompted.
-      setState((prev) => ({ ...prev, awaitingReviewSubId: null }));
+      // Also clear a stale error banner from a previous failed attempt.
+      setState((prev) => ({ ...prev, awaitingReviewSubId: null, error: null }));
       try {
         const res = await fetch(urlFor('/api/demo/composite/review-decision', runChainId), {
           method: 'POST',
@@ -433,7 +437,20 @@ export function useCompositeDemo(chainId: number) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         captureCompositeError(err, 'subtask', { subId: opts.subId, review_failed: true });
-        setState((prev) => ({ ...prev, error: `Review submit failed: ${message}` }));
+        // Restore the review prompt so the user can re-decide (web-H1: the
+        // optimistic clear above used to swallow it on a failed POST) — but
+        // only while the gate is still actually open. The backend may have
+        // auto-approved on its review timeout while this request was failing,
+        // in which case `subtask_paid` already moved the runtime past
+        // `awaiting-review` and resurrecting the prompt would be stale.
+        setState((prev) => ({
+          ...prev,
+          awaitingReviewSubId:
+            prev.runtimes[opts.subId]?.status === 'awaiting-review'
+              ? opts.subId
+              : prev.awaitingReviewSubId,
+          error: `Review submit failed: ${message}`,
+        }));
       }
     },
     [state.runId],

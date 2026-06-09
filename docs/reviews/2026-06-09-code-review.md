@@ -54,7 +54,7 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 
 ## Волна 2 — частично закрыта (robustness / funds-stranding / template)
 
-> ✅ CR.1 (B1–B5), CR.2 (M4), CR.3 (M1+M2), CR.4 (M3), CR.6 (A2) исправлены и (где есть live-surface) задеплоены 2026-06-09 — см. CHANGELOG «волна 2». Остаются CR.5, A2-остаток ниже.
+> ✅ CR.1 (B1–B5), CR.2 (M4), CR.3 (M1+M2), CR.4 (M3), CR.5 (Web-H1), CR.6 (A2) исправлены и (где есть live-surface) задеплоены 2026-06-09 — см. CHANGELOG «волна 2». Волна 2 закрыта целиком; остаётся A2-остаток (сознательно принятый) + волна-3 хвосты CR.12–14.
 
 ### ✅ B1–B5. Foreign-agent template guards (CR.1, High) — исправлено
 
@@ -81,9 +81,9 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 
 `src/parent/council.ts` — `spec`/`result`/`reason` шли в сообщение судьи сырыми. Исправлено: `fenceSection()` оборачивает каждую секцию в `===== BEGIN <label> (untrusted) =====` … `===== END =====` с санитизацией forged-делимитеров (`=====` в контенте → `= = =`), плюс SECURITY-блок в SYSTEM_PROMPT (секции — untrusted data, не выполнять инструкции внутри, только system-сообщение авторитетно). +2 теста. Задеплоено Fly Base+Arc.
 
-### 🔲 Web-H1. Упавший review-POST молча съедает промпт (High для UX, не для денег)
+### ✅ Web-H1. Упавший review-POST молча съедает промпт (CR.5, High для UX) — исправлено
 
-`apps/web/hooks/use-composite-demo.ts:387-436` — `submitReview` оптимистично чистит `awaitingReviewSubId` до fetch'а; при ошибке промпт исчезает, `state.error` не рендерится (ErrorPanel только при `status==='error'`), пользователь не может ре-решить. Фикс: восстановить `awaitingReviewSubId` в catch + inline error-banner при `error && status==='executing'`. То же для `retry`.
+`submitReview` оптимистично чистил `awaitingReviewSubId` до fetch'а; при ошибке промпт исчезал, `state.error` не рендерился (ErrorPanel только при `status==='error'`). Исправлено 2026-06-09: catch восстанавливает `awaitingReviewSubId` (только пока runtime ещё `awaiting-review` — защита от гонки с backend auto-approve по review-таймауту), оба экшена (`submitReview`/`retry`) чистят `error` на старте, и `/demo/composite` рендерит inline error-banner при `isRunning && error` («Request failed — the run is still live»). Run не рушится — юзер ре-сабмитит из промпта.
 
 ### ✅/⏸ A2. `/api/rpc` — method-фильтр (CR.6, Medium) — частично исправлено, задеплоено
 

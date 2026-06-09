@@ -253,6 +253,27 @@ function CompositePageInner() {
             runtimes={demo.runtimes}
             onSubtaskClick={setSelectedSubId}
           />
+          {isRunning && demo.error && (
+            // web-H1: a failed review/retry POST sets `error` while the run is
+            // still executing — ErrorPanel only renders at status === 'error',
+            // so without this banner the failure was invisible. The run stays
+            // live; the user just re-submits from the prompt below.
+            <div
+              className="rounded-[12px] border bg-surface px-5 py-4"
+              style={{ borderColor: 'rgba(244,114,182,0.4)' }}
+              role="alert"
+            >
+              <div
+                className="font-mono text-[11px] uppercase tracking-[0.08em] mb-1"
+                style={{ color: '#F472B6' }}
+              >
+                Request failed — the run is still live
+              </div>
+              <p className="text-[13px] text-text-muted leading-[1.55] font-mono break-all">
+                {demo.error}
+              </p>
+            </div>
+          )}
           {(() => {
             // M11.4 (ADR-0019): the review gate takes precedence — a completed
             // sub-task is paused awaiting an approve/dispute decision.
