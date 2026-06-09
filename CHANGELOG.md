@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-09 (later ×9) — Code review: CR.12 — protected-хвост: SSE CORS/GC + demo-run receipt — `fix`/`hardening`
+
+Закрыт CR.12 — отложенный protected-`shared/` хвост ревизии (этот таск = требуемое явное основание для правок `shared/` и `demo-run.ts`).
+
+- `fix` **SSE `ACAO: *` убран** из `SseChannel.attach()`: `writeHead` перебивал серверный CORS-allowlist (`server.ts` ставит ACAO по `ALLOWED_ORIGINS`), делая стримы world-readable из любого браузерного origin'а (митигация была только UUID-runId). Через gateway ничего не меняется (`applyCors` Worker'а перезаписывает ACAO своим allowlist'ом); напрямую к Fly теперь авторитетен серверный allowlist.
+- `hardening` **GC зависших каналов:** `SseRegistry` получил lifetime-ceiling `MAX_CHANNEL_AGE_MS = 2h` — канал run'а, который так и не дошёл до `close()` (упавший runner, вечная пауза), принудительно закрывается (`done {ok:false, error:'channel expired…'}` подключённым клиентам) и удаляется существующим retention-путём. Раньше такие записи жили в Map вечно.
+- **Находка «`waitForTransactionReceipt` без timeout» снята верификацией:** viem 2.48.4 имеет дефолт `timeout = 180_000` (3 мин), по истечении бросает `WaitForTransactionReceiptTimeoutError` — все call-sites уже в catch-путях. Код не менялся.
+- `fix` **H3-остаток в `demo-run.ts` (3-mode flow):** receipt-wait перенесён ДО эмита `task_paid` + проверка `receipt.status === 'reverted'` → throw → честный SSE error через `runDemo` catch. Раньше реверт `approvePayment` рапортовался как успех. Цена: `task_paid` приходит на ~2–4 с позже (receipt-wait и так был, просто после эмита). H3 теперь закрыт целиком.
+- Тесты: 211/211 (+5 — `test/shared/sse.test.ts`: no-ACAO, force-close по ceiling, retention-регрессии). Build + typecheck чистые. **Задеплоено Fly Base+Arc 2026-06-09.**
+
 ## 2026-06-09 (later ×8) — Code review: CR.5 — review-промпт переживает упавший POST — `fix`
 
 Закрыт CR.5 (находка Web-H1) — последний пункт волны 2. `submitReview` в `use-composite-demo.ts` оптимистично чистил `awaitingReviewSubId` до fetch'а: упавший review-POST молча съедал промпт (юзер не мог ре-решить, а backend-гейт через 3 мин тихо auto-approve'ил), и `state.error` при `status==='executing'` нигде не рендерился (ErrorPanel только при `status==='error'`). Фикс: catch восстанавливает `awaitingReviewSubId` — но только пока runtime sub-task'а ещё `awaiting-review` (если за время неудачного запроса прилетел SSE `subtask_paid` от backend-таймаута, устаревший промпт не воскрешается); `submitReview` и `retry` чистят `error` на старте (успешный повтор убирает баннер); `/demo/composite` рендерит inline error-banner при `isRunning && error` («Request failed — the run is still live») над review/replan-промптом. Typecheck + static build чистые. **Задеплоено Pages 2026-06-09.**

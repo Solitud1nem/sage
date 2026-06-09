@@ -211,17 +211,25 @@ async function runStage(
 
   const approveTx = await sage.tasks.approvePayment(tid);
   txHashes.push(approveTx);
+
+  // Wait for the approvePayment receipt BEFORE emitting task_paid (code
+  // review 2026-06-09, H3 / CR.12): a mined-but-reverted approvePayment must
+  // surface as a run error, not a success event. The wait also keeps the next
+  // sponsor-issued tx from reusing a still-pending nonce ("replacement
+  // underpriced") — critical for multi-stage flows. Cost: task_paid arrives
+  // one receipt-wait (~2-4s on Base) later than before.
+  const receipt = await publicClient.waitForTransactionReceipt({
+    hash: approveTx as `0x${string}`,
+  });
+  if (receipt.status === 'reverted') {
+    throw new Error(`approvePayment for stage "${stage}" reverted on-chain (tx ${approveTx})`);
+  }
+
   channel.emit('task_paid', {
     stage,
     taskId: tid.toString(),
     txHash: approveTx,
   });
-
-  // Wait for the approvePayment receipt before the next sponsor-issued tx —
-  // otherwise the next createTask reuses the same nonce while approvePayment
-  // is still pending in mempool and gets rejected as "replacement underpriced".
-  // Critical for multi-stage flows; harmless overhead for single-stage.
-  await publicClient.waitForTransactionReceipt({ hash: approveTx as `0x${string}` });
 
   return { taskId: tid, result };
 }

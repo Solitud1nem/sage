@@ -23,12 +23,16 @@ export class SseChannel {
 
   /** Attach a new HTTP response as an SSE client. */
   attach(res: ServerResponse): void {
+    // No Access-Control-Allow-Origin here (code review 2026-06-09, CR.12):
+    // `writeHead` values override the server-level `setHeader` allowlist, so
+    // a literal `*` made every stream world-readable from any browser origin.
+    // The orchestrator sets ACAO for allowlisted origins before routing, and
+    // the Worker gateway applies its own allowlist on passthrough.
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': '*', // CORS handled at server level; this is a fallback.
     });
 
     // Replay buffered events so late-connecting clients see prior history.
@@ -113,13 +117,23 @@ export class SseChannel {
  * page can still retrieve the final result.
  */
 export class SseRegistry {
-  private readonly channels = new Map<string, { channel: SseChannel; closedAt: number | null }>();
+  private readonly channels = new Map<
+    string,
+    { channel: SseChannel; createdAt: number; closedAt: number | null }
+  >();
   private readonly RETENTION_MS = 5 * 60 * 1000; // 5 minutes post-close
+  /**
+   * Hard ceiling on a channel's lifetime (CR.12): a run that hangs without
+   * ever reaching `close()` (crashed runner, eternal pause) used to keep its
+   * channel in the map forever. 2h comfortably covers the worst legitimate
+   * composite run (8 sub-tasks × 5-min timeout + review pauses ≈ 1h).
+   */
+  private readonly MAX_CHANNEL_AGE_MS = 2 * 60 * 60 * 1000;
   private gcInterval: NodeJS.Timeout | null = null;
 
   create(id: string): SseChannel {
     const channel = new SseChannel(id);
-    const entry = { channel, closedAt: null as number | null };
+    const entry = { channel, createdAt: Date.now(), closedAt: null as number | null };
     this.channels.set(id, entry);
     // Stamp closedAt when the channel actually closes so the GC window is
     // measured post-close. Tracking createdAt instead would GC long-running
@@ -155,9 +169,21 @@ export class SseRegistry {
 
   private gc(): void {
     const now = Date.now();
-    for (const [id, { channel, closedAt }] of this.channels) {
+    for (const [id, { channel, createdAt, closedAt }] of this.channels) {
       if (channel.isClosed && closedAt !== null && now - closedAt > this.RETENTION_MS) {
         this.channels.delete(id);
+        continue;
+      }
+      // Stuck-run backstop (CR.12): force-close channels that never reached
+      // `close()` within the lifetime ceiling. Attached clients get a final
+      // `done` so they don't hang on a dead stream; the wrapped close stamps
+      // `closedAt`, and the regular retention path deletes the entry on a
+      // later sweep.
+      if (!channel.isClosed && now - createdAt > this.MAX_CHANNEL_AGE_MS) {
+        console.error(
+          JSON.stringify({ ts: now, event: 'sse.gc.expired_open_channel', channelId: id }),
+        );
+        channel.close({ ok: false, error: 'channel expired (run never completed)' });
       }
     }
     if (this.channels.size === 0 && this.gcInterval) {

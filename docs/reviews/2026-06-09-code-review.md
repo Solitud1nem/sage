@@ -46,7 +46,7 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 - `apps/demo-agents/src/parent/plan-runner.ts` — `waitReceiptOrThrow()`; оба approvePayment-пути ждут и проверяют receipt **до** эмита `subtask_paid` (раньше эмит шёл до wait'а).
 - `apps/demo-agents/src/parent/dispute-flow.ts` — обе receipt-проверки (`disputeTask`, `resolveDispute`) с throw на revert → честный `plan_failed`.
 - Тест: reverted approvePayment → `plan_failed`, без `subtask_paid` (`plan-runner.dispute.test.ts`).
-- ⏸ **Остаток:** `demo-run.ts:224` (3-mode flow) — тот же паттерн, но файл под правилом «не менять» (`apps/demo-agents/CLAUDE.md`). Риск ниже (fixed-amount задачи на своих воркеров). → таск CR.10.
+- ✅ **Остаток закрыт (CR.12, 2026-06-09):** `demo-run.ts` — receipt-wait перенесён до эмита `task_paid` + проверка `reverted` → throw → честный SSE error. H3 закрыт целиком.
 
 **Верификация волны 1:** build ок, `tsc --noEmit` чистый (demo-agents + worker-gateway), 188/188 тестов (было 184, добавлено 4).
 
@@ -124,8 +124,8 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 - ✅ `dispute-flow.ts mapVerdict` — при `amount <= 1n` Split деградирует до Paid/Refunded (по `executorSharePct >= 50`), `resolveDispute` больше не реверт-ит на share=0.
 - ✅ `server.ts readBody` — cap 1 MB (memory-DoS); оба stream-роута отрезают `?query` у runId.
 - ✅ `orchestrator-proxy.ts` — `clientIp` доверяет только `CF-Connecting-IP` (спуфабельные fallback'и убраны); 502 больше не отдаёт `String(err)` наружу (логируется server-side).
-- 🔲 **Не делалось (protected `shared/`):** `sse.ts:31` `ACAO: *` в `attach()` перекрывает CORS-allowlist (стримы world-readable, митигировано UUID-runId); `sse.ts` GC не убирает каналы зависших run'ов; `waitForTransactionReceipt` без `timeout`. Требует явного TASKS-таска для shared/.
-- ⏸ `demo-run.ts` (protected): receipt-check на approvePayment (H3-остаток) + 2s/3s status-polling в `waitForCompletion`.
+- ✅ **CR.12 (закрыт 2026-06-09):** `sse.ts` — `ACAO: *` убран из `attach()` (writeHead перебивал серверный allowlist; через gateway `applyCors` и так перезаписывает, напрямую к Fly теперь работает allowlist из `ALLOWED_ORIGINS`); `SseRegistry` GC получил lifetime-ceiling `MAX_CHANNEL_AGE_MS = 2h` — открытый канал зависшего run'а принудительно закрывается (`done {ok:false, error:'channel expired…'}` подключённым клиентам) и удаляется retention-путём. **`waitForTransactionReceipt` без `timeout` — находка снята по верификации:** viem 2.48.4 имеет дефолт `timeout = 180_000` (3 мин) с throw `WaitForTransactionReceiptTimeoutError`; все call-sites в catch-путях. +5 тестов (`test/shared/sse.test.ts`).
+- ✅ `demo-run.ts` receipt-check (H3-остаток, закрыт в CR.12): receipt-wait перенесён ДО эмита `task_paid` + проверка `reverted` → throw (ловится в `runDemo` catch → SSE error + close). Цена: `task_paid` приходит на ~2–4 с позже. ⏸ Остаётся только 2s/3s status-polling в `waitForCompletion` (не тасковано).
 
 ### ✅ CLAUDE.md / решения Alex — CR.11
 
