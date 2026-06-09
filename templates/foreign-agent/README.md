@@ -3,7 +3,7 @@
 A forkable, self-contained Sage worker agent. Run it on your own infrastructure
 with your own wallet; it registers itself in Sage's on-chain `AgentRegistryV2`,
 then earns USDC by executing tasks the Sage classifier routes to it. It talks
-only to the public `@sage/adapter-evm` SDK and the deployed contracts — there is
+only to the `@sage/adapter-evm` SDK and the deployed contracts — there is
 nothing Sage-team-specific to depend on.
 
 ## How it works
@@ -20,10 +20,16 @@ nothing Sage-team-specific to depend on.
 
 ## Quick start
 
+This template resolves `@sage/*` through the monorepo workspace, so fork/clone
+the whole repo (not just this folder) and install from the root:
+
 ```bash
-cp .env.example .env          # then fill in PRIVATE_KEY, CAPABILITY, PRICE_UNITS…
-pnpm install
-pnpm dev                       # or: pnpm build && pnpm start
+git clone https://github.com/Solitud1nem/sage.git
+cd sage && pnpm install            # resolves @sage/core + @sage/adapter-evm
+
+cd templates/foreign-agent
+cp .env.example .env               # then fill in PRIVATE_KEY, CAPABILITY, PRICE_UNITS…
+pnpm dev                           # or: pnpm build && pnpm start
 ```
 
 Your wallet needs a **small amount of ETH** on the target chain for gas
