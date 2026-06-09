@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 
+import { ChunkReloadGuard } from '@/components/chunk-reload-guard';
 import { CookieConsent } from '@/components/cookie-consent';
 import { Nav } from '@/components/nav';
 import { Footer } from '@/components/footer';
@@ -50,6 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="bg-canvas text-text antialiased">
         <Providers>
+          <ChunkReloadGuard />
           <div className="min-h-screen flex flex-col">
             <Nav />
             <main className="flex-1">{children}</main>
