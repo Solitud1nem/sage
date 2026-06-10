@@ -32,6 +32,11 @@ import type { Plan, SubTask } from '@sage/core';
 
 import type { SseChannel } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
+import {
+  encodeEvaluationCase,
+  decodeVerdict,
+  type EvaluationVerdict,
+} from '../shared/evaluation.js';
 import type { WakeFn } from './wake.js';
 import { encodeParentId, type EnvelopeContent } from './parent-id-codec.js';
 import { scheduleReclaim } from './escrow-reclaim.js';
@@ -167,6 +172,20 @@ export const DEFAULT_RUN_CAPS: RunCaps = {
 /** Dispute-retry circuit breaker: re-spawn at most this many times per sub-task. */
 const MAX_DISPUTE_RETRIES = 2;
 
+/**
+ * Floor `deadline_offset_s` at 600s so we don't trip TaskEscrow's
+ * `deadline <= block.timestamp` check when the LLM classifier emits a short
+ * value (60-90s observed). Arc testnet block timestamps have inter-block
+ * variance (multiple blocks can share a ts), so a 600s minimum absorbs mining
+ * latency + accept-window. Same floor works fine on Base (~2s blocks). See
+ * ADR-0015 verification + GOTCHAS 2026-05-22.
+ */
+const MIN_DEADLINE_OFFSET_S = 600;
+
+function effectiveDeadlineOffset(offsetS: number): number {
+  return Math.max(offsetS, MIN_DEADLINE_OFFSET_S);
+}
+
 interface RunLedger {
   spentUnits: bigint;
   tasksCreated: number;
@@ -260,7 +279,17 @@ export async function runPlan(
   }
 
   validatePlan(plan);
-  const order = topoSort(subtasks);
+
+  // Evaluator rows (M12.0.3, ADR-0020 п.5) are pulled OUT of the execution
+  // order: they don't run as standalone steps — runSubtask spawns one inline
+  // when its evaluated sibling reaches Completed, and the verdict decides
+  // between payment and the dispute hook.
+  const executorRows = subtasks.filter((s) => s.evaluates === undefined);
+  const evaluators = new Map(
+    subtasks.filter((s) => s.evaluates !== undefined).map((e) => [e.evaluates!, e]),
+  );
+
+  const order = topoSort(executorRows);
   const ledger: RunLedger = { spentUnits: 0n, tasksCreated: 0 };
 
   channel.emit('plan_started', {
@@ -345,6 +374,7 @@ export async function runPlan(
           caps,
           ledger,
           depth,
+          evaluators,
           ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
           ...(options.capture ? { capture: options.capture } : {}),
           ...(options.wake ? { wake: options.wake } : {}),
@@ -482,6 +512,8 @@ interface RunSubtaskArgs {
   readonly ledger: RunLedger;
   /** Delegation depth of this run — stamped into every sub-task envelope. */
   readonly depth: number;
+  /** Evaluator rows keyed by the sub-task id they judge (M12.0.3). */
+  readonly evaluators?: ReadonlyMap<number, SubTask>;
 }
 
 /**
@@ -601,16 +633,7 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     sub.spec,
     args.content,
   );
-  // Floor `deadline_offset_s` at MIN_DEADLINE_OFFSET_S so we don't trip
-  // TaskEscrow's `deadline <= block.timestamp` check when the LLM
-  // classifier emits a short value (60-90s observed). Arc testnet block
-  // timestamps have inter-block variance (multiple blocks can share a
-  // ts), so a 600s minimum absorbs mining latency + accept-window. Same
-  // floor works fine on Base (~2s blocks). See ADR-0015 verification +
-  // GOTCHAS 2026-05-22.
-  const MIN_DEADLINE_OFFSET_S = 600;
-  const effectiveOffset = Math.max(sub.deadline_offset_s, MIN_DEADLINE_OFFSET_S);
-  const deadline = Math.floor(Date.now() / 1000) + effectiveOffset;
+  const deadline = Math.floor(Date.now() / 1000) + effectiveDeadlineOffset(sub.deadline_offset_s);
 
   channel.emit('subtask_status', { subId: sub.id, status: 'created' satisfies SubTaskRunStatus });
 
@@ -654,6 +677,23 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     executor: sub.executor_address,
   });
   const result = decodeResult(resultUri);
+
+  // Evaluator step (M12.0.3, ADR-0020 п.5): the evaluated step's payment is
+  // withheld until a paid sibling evaluator returns a verdict. Pass → fall
+  // through to the (review gate and) payment; fail → the existing dispute →
+  // council hook with the verdict's reasons; evaluator breakage → degrade to
+  // the legacy path (logged + surfaced) — an evaluator must never wedge a run.
+  const evaluator = args.evaluators?.get(sub.id);
+  if (evaluator) {
+    const verdict = await runEvaluatorStep(args, evaluator, { sub, tid, result });
+    if (verdict && !verdict.pass) {
+      const reason =
+        verdict.reasons.length > 0
+          ? `evaluator #${evaluator.id}: ${verdict.reasons.join('; ')}`
+          : `evaluator #${evaluator.id} rejected the result`;
+      return runDisputeFlow(args, tid, result, reason);
+    }
+  }
 
   // Review gate (ADR-0019): pause for an approve/dispute decision before paying.
   // Silence past the window = approval (mirrors on-chain auto-release-after-grace).
@@ -705,6 +745,135 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
   });
 
   return result;
+}
+
+/**
+ * Spawn the paid evaluator task for a Completed sub-task and return its
+ * verdict (M12.0.3, ADR-0020 п.5).
+ *
+ * The evaluator is an ordinary escrow task on an ordinary worker identity:
+ * createTask → poll → approvePayment. It is paid for the VERDICT, not the
+ * outcome — paying only on `pass` would give it a reason to always pass.
+ *
+ * Material rides the ADR-0018 `inputs` channel as an {@link EvaluationCase}
+ * (the judged step's instruction + result); the verdict comes back as an
+ * {@link EvaluationVerdict} envelope in the result.
+ *
+ * Failure posture: a tripped run cap propagates (PlanError → plan fails —
+ * budget guards outrank evaluation). Any RUNTIME failure — timeout, garbage
+ * verdict, payment revert — returns `null` and the caller degrades to the
+ * legacy approve path: evaluation is an upgrade, not a new wedge point.
+ */
+async function runEvaluatorStep(
+  args: RunSubtaskArgs,
+  evalSub: SubTask,
+  judged: { sub: SubTask; tid: TaskId; result: string },
+): Promise<EvaluationVerdict | null> {
+  const { bundle, channel, runId, txHashes } = args;
+
+  const degrade = (why: string): null => {
+    console.error(
+      JSON.stringify({
+        ts: Date.now(),
+        event: 'plan.evaluator.degraded',
+        runId,
+        evaluatorSubId: evalSub.id,
+        judgedSubId: judged.sub.id,
+        why: why.slice(0, 200),
+      }),
+    );
+    channel.emit('subtask_verdict', {
+      subId: judged.sub.id,
+      evaluatorSubId: evalSub.id,
+      taskId: judged.tid.toString(),
+      degraded: true,
+      why,
+    });
+    return null;
+  };
+
+  if (!evalSub.executor_address) {
+    return degrade(`evaluator #${evalSub.id} has no executor_address`);
+  }
+
+  // Run caps come FIRST and propagate on breach — see failure posture above.
+  chargeLedger(args.ledger, args.caps, evalSub.estimated_cost_units, `evaluator#${evalSub.id}`);
+
+  try {
+    const specUri = encodeParentId({ run: runId, sub: evalSub.id, depth: args.depth }, evalSub.spec, {
+      inputs: {
+        [judged.sub.id]: encodeEvaluationCase({
+          instruction: judged.sub.spec,
+          result: judged.result,
+        }),
+      },
+    });
+    const deadline =
+      Math.floor(Date.now() / 1000) + effectiveDeadlineOffset(evalSub.deadline_offset_s);
+
+    channel.emit('subtask_status', { subId: evalSub.id, status: 'created' satisfies SubTaskRunStatus });
+    const etid = await withRetry(
+      () =>
+        bundle.sage.tasks.createTask({
+          executor: agentId(evalSub.executor_address as `0x${string}`),
+          deadline,
+          amount: evalSub.estimated_cost_units,
+          specUri,
+        }),
+      { label: `createTask#evaluator${evalSub.id}`, subId: evalSub.id, retryable: isRetryableCreateError },
+    );
+    args.spawned.push({ subId: evalSub.id, taskId: etid, deadline, settled: false });
+    args.wake?.(evalSub.executor_address, { taskId: etid.toString() });
+    channel.emit('subtask_created', {
+      subId: evalSub.id,
+      taskId: etid.toString(),
+      executor: evalSub.executor_address,
+      amount: evalSub.estimated_cost_units.toString(),
+      deadline,
+      evaluates: judged.sub.id,
+    });
+
+    const evalResultUri = await pollUntilCompleted(bundle, etid, channel, evalSub.id, args.timeoutMs, {
+      ...(args.wake ? { wake: args.wake } : {}),
+      executor: evalSub.executor_address,
+    });
+
+    // Pay the evaluator before acting on the verdict (paid-for-verdict).
+    const approveHash = await bundle.sage.tasks.approvePayment(etid);
+    txHashes.push(approveHash);
+    await waitReceiptOrThrow(bundle, approveHash, `approvePayment for evaluator #${evalSub.id}`);
+    markSettled(args.spawned, etid);
+    channel.emit('subtask_paid', { subId: evalSub.id, taskId: etid.toString(), txHash: approveHash });
+    channel.emit('subtask_status', { subId: evalSub.id, status: 'paid' satisfies SubTaskRunStatus });
+
+    const verdict = decodeVerdict(decodeResult(evalResultUri));
+    if (!verdict) {
+      return degrade(`evaluator #${evalSub.id} returned an undecodable verdict`);
+    }
+
+    channel.emit('subtask_verdict', {
+      subId: judged.sub.id,
+      evaluatorSubId: evalSub.id,
+      taskId: judged.tid.toString(),
+      pass: verdict.pass,
+      reasons: verdict.reasons,
+      ...(verdict.score !== undefined ? { score: verdict.score } : {}),
+    });
+    args.capture?.('srv_subtask_verdict', {
+      sub_id: judged.sub.id,
+      evaluator_sub_id: evalSub.id,
+      pass: verdict.pass,
+    });
+    return verdict;
+  } catch (err) {
+    if (err instanceof DisputedError) {
+      // Someone disputed the EVALUATOR task itself — exotic; degrade rather
+      // than entering the dispute-retry path meant for executor steps.
+      return degrade(`evaluator #${evalSub.id} task was disputed externally`);
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return degrade(`evaluator #${evalSub.id} lifecycle failed: ${message}`);
+  }
 }
 
 /**
@@ -904,6 +1073,9 @@ function validatePlan(plan: Plan): void {
     if (ids.has(s.id)) throw new PlanError(`duplicate subtask id ${s.id}`);
     ids.add(s.id);
   }
+  const evaluatorIds = new Set(
+    plan.subtasks.filter((s) => s.evaluates !== undefined).map((s) => s.id),
+  );
   for (const s of plan.subtasks) {
     for (const dep of s.depends_on ?? []) {
       if (!ids.has(dep)) {
@@ -912,6 +1084,32 @@ function validatePlan(plan: Plan): void {
       if (dep === s.id) {
         throw new PlanError(`subtask #${s.id} depends on itself`);
       }
+      // Evaluator rows never enter the execution order and never produce
+      // chainable results — depending on one would deadlock the topo sort.
+      if (evaluatorIds.has(dep)) {
+        throw new PlanError(`subtask #${s.id} depends on evaluator #${dep} — evaluator verdicts are not chainable results`);
+      }
+    }
+  }
+  // Evaluator referential rules (M12.0.3).
+  const evaluatedTargets = new Set<number>();
+  for (const s of plan.subtasks) {
+    if (s.evaluates === undefined) continue;
+    if (s.evaluates === s.id) {
+      throw new PlanError(`evaluator #${s.id} evaluates itself`);
+    }
+    if (!ids.has(s.evaluates)) {
+      throw new PlanError(`evaluator #${s.id} evaluates unknown id ${s.evaluates}`);
+    }
+    if (evaluatorIds.has(s.evaluates)) {
+      throw new PlanError(`evaluator #${s.id} evaluates evaluator #${s.evaluates} — nested evaluation is not supported`);
+    }
+    if (evaluatedTargets.has(s.evaluates)) {
+      throw new PlanError(`subtask #${s.evaluates} has more than one evaluator`);
+    }
+    evaluatedTargets.add(s.evaluates);
+    if (s.depends_on && s.depends_on.length > 0) {
+      throw new PlanError(`evaluator #${s.id} must not declare depends_on — it implicitly follows its target`);
     }
   }
 }

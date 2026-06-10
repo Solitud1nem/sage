@@ -224,6 +224,12 @@ function parseSubTask(raw: unknown, idx: number): SubTask {
     s['depends_on'].every((d) => typeof d === 'number' && Number.isInteger(d))
       ? { depends_on: (s['depends_on'] as number[]).slice() }
       : {}),
+    // Evaluator marker (M12.0.3) — id of the sibling sub-task this step
+    // judges. Validated structurally here; referential checks (target exists,
+    // no evaluator-of-evaluator) live in the plan-runner's validatePlan.
+    ...(typeof s['evaluates'] === 'number' && Number.isInteger(s['evaluates']) && s['evaluates'] >= 1
+      ? { evaluates: s['evaluates'] }
+      : {}),
   };
   return out;
 }

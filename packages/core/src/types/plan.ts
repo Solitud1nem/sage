@@ -76,6 +76,16 @@ export interface SubTask {
 
   /** Free-form sub-task instructions handed to the executor (rendered into specUri). */
   readonly spec: string;
+
+  /**
+   * Marks this sub-task as an EVALUATOR step (ADR-0020 п.5): the id of the
+   * sibling sub-task whose result it judges. The plan-runner withholds the
+   * evaluated step's payment until this step returns a verdict — pass releases
+   * payment, fail raises the dispute → council hook (ADR-0019). The evaluator
+   * itself is paid for the verdict regardless of outcome. Absent on ordinary
+   * executor sub-tasks.
+   */
+  readonly evaluates?: number;
 }
 
 /**
