@@ -162,7 +162,7 @@ async function handleTaskCreated(
 const agent = new BaseAgent({
   name: 'Vision',
   port: config.port,
-  async onStart() {
+  onStart() {
     console.error('[Vision] Watching for TaskCreated events...');
 
     // Direct polling — viem event watchers fail on Arc (GOTCHAS 2026-05-22).

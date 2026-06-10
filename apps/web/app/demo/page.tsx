@@ -35,7 +35,7 @@ export default function DemoPage() {
   }, [mode, agentMode]);
 
   const handleStart = (input: string) => {
-    active.start(input, agentMode);
+    void active.start(input, agentMode);
   };
 
   return (

@@ -371,7 +371,7 @@ function RunHeader({
   completedAt,
   totalCost,
 }: {
-  status: 'executing' | 'completed' | string;
+  status: string;
   chainName: string | null;
   runId: string | null;
   startedAt: number | null;

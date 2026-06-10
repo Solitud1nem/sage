@@ -294,7 +294,7 @@ function ImageUrlInput({
             alt="preview"
             className="max-h-[120px] w-auto rounded-[6px]"
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
+              (e.currentTarget).style.display = 'none';
             }}
           />
         </div>

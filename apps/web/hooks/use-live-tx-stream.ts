@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePublicClient } from 'wagmi';
-import type { Abi, ContractEventName, Log } from 'viem';
+import type { ContractEventName, Log } from 'viem';
 
 import { useSageChain } from '@/hooks/use-sage-chain';
 import {
@@ -81,12 +81,12 @@ export function useLiveTxStream({
       }
     }
 
-    seed();
+    void seed();
 
     // 2. Subscribe to new events going forward.
     const unwatch = publicClient.watchContractEvent({
       address: chain.contracts.taskEscrow,
-      abi: taskEscrowEventsAbi as Abi,
+      abi: taskEscrowEventsAbi,
       onLogs(logs) {
         const fresh = logs
           .map(toLiveEvent)

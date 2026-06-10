@@ -406,7 +406,7 @@ describe('runPlan — failure paths', () => {
     const bundle = {
       sage: {
         tasks: {
-          async createTask(spec: TaskSpec): Promise<TaskId> {
+          async createTask(_spec: TaskSpec): Promise<TaskId> {
             calls += 1;
             if (calls === 1) throw new Error('first task explodes');
             return makeTaskId(String(calls));

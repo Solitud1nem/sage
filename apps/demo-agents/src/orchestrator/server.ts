@@ -118,36 +118,36 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 function jsonWithBigints(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(
-    JSON.stringify(body, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+    JSON.stringify(body, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v)),
   );
 }
 
 /**
  * Parse and validate a Plan from a JSON request body. The wire format is
  * the `Plan` shape from `@sage/core` with `estimated_*cost_units` carried
- * as decimal strings. Throws a string error on validation failure — the
- * caller wraps it in a 400.
+ * as decimal strings. Throws an `Error` whose message is the validation
+ * failure — the caller wraps it in a 400.
  */
 function parsePlanFromBody(raw: unknown): Plan {
-  if (!raw || typeof raw !== 'object') throw 'body must be a JSON object';
+  if (!raw || typeof raw !== 'object') throw new Error('body must be a JSON object');
   const r = raw as Record<string, unknown>;
   if (typeof r['brief'] !== 'string' || r['brief'].length === 0) {
-    throw 'brief must be a non-empty string';
+    throw new Error('brief must be a non-empty string');
   }
   if (r['decomposability'] !== 'one-shot' && r['decomposability'] !== 'composite') {
-    throw 'decomposability must be "one-shot" or "composite"';
+    throw new Error('decomposability must be "one-shot" or "composite"');
   }
   if (r['stakes'] !== 'low' && r['stakes'] !== 'high') {
-    throw 'stakes must be "low" or "high"';
+    throw new Error('stakes must be "low" or "high"');
   }
   if (!Array.isArray(r['subtasks']) || r['subtasks'].length === 0) {
-    throw 'subtasks must be a non-empty array';
+    throw new Error('subtasks must be a non-empty array');
   }
   if (typeof r['estimated_total_cost_units'] !== 'string') {
-    throw 'estimated_total_cost_units must be a decimal string';
+    throw new Error('estimated_total_cost_units must be a decimal string');
   }
   if (typeof r['estimated_duration_ms'] !== 'number') {
-    throw 'estimated_duration_ms must be a number';
+    throw new Error('estimated_duration_ms must be a number');
   }
 
   const subtasks: SubTask[] = r['subtasks'].map((s, i) => parseSubTask(s, i));
@@ -192,22 +192,22 @@ function checkPlanCaps(plan: Plan): string | null {
 }
 
 function parseSubTask(raw: unknown, idx: number): SubTask {
-  if (!raw || typeof raw !== 'object') throw `subtasks[${idx}] must be an object`;
+  if (!raw || typeof raw !== 'object') throw new Error(`subtasks[${idx}] must be an object`);
   const s = raw as Record<string, unknown>;
   if (typeof s['id'] !== 'number' || !Number.isInteger(s['id']) || s['id'] < 1) {
-    throw `subtasks[${idx}].id must be a positive integer`;
+    throw new Error(`subtasks[${idx}].id must be a positive integer`);
   }
   if (typeof s['type'] !== 'string' || s['type'].length === 0) {
-    throw `subtasks[${idx}].type must be a non-empty string`;
+    throw new Error(`subtasks[${idx}].type must be a non-empty string`);
   }
   if (typeof s['estimated_cost_units'] !== 'string' || !/^\d+$/.test(s['estimated_cost_units'])) {
-    throw `subtasks[${idx}].estimated_cost_units must be a non-negative decimal string`;
+    throw new Error(`subtasks[${idx}].estimated_cost_units must be a non-negative decimal string`);
   }
   if (typeof s['deadline_offset_s'] !== 'number' || s['deadline_offset_s'] < 0) {
-    throw `subtasks[${idx}].deadline_offset_s must be a non-negative number`;
+    throw new Error(`subtasks[${idx}].deadline_offset_s must be a non-negative number`);
   }
   if (typeof s['spec'] !== 'string') {
-    throw `subtasks[${idx}].spec must be a string`;
+    throw new Error(`subtasks[${idx}].spec must be a string`);
   }
 
   const out: SubTask = {
@@ -229,7 +229,9 @@ function parseSubTask(raw: unknown, idx: number): SubTask {
 }
 
 // ── Routes ────────────────────────────────────────────────────────────
-const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+// createServer expects a void listener; the async handler is routed through
+// an explicitly ignored promise — every route handles its own errors.
+const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
   if (applyCors(req, res)) return;
 
   const { method, url = '/' } = req;
@@ -458,7 +460,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       try {
         plan = parsePlanFromBody(body);
       } catch (validationErr) {
-        json(res, 400, { error: String(validationErr) });
+        json(res, 400, {
+          error: validationErr instanceof Error ? validationErr.message : String(validationErr),
+        });
         return;
       }
 
@@ -761,6 +765,10 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
   res.writeHead(404);
   res.end('Not found');
+};
+
+const server = createServer((req, res) => {
+  void handleRequest(req, res);
 });
 
 server.listen(env.port, () => {

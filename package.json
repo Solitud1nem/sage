@@ -10,8 +10,8 @@
     "test": "pnpm -r test",
     "test:contracts": "pnpm --filter @sage/contracts test",
     "test:sdk": "pnpm --filter @sage/core test && pnpm --filter @sage/adapter-evm test",
-    "lint": "eslint . --ext .ts,.tsx",
-    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "lint": "eslint . --ext .ts,.tsx && pnpm --filter @sage/web lint",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix && pnpm --filter @sage/web exec eslint . --fix",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

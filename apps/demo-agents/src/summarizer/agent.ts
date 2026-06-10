@@ -140,7 +140,7 @@ async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, e
 const agent = new BaseAgent({
   name: 'Summarizer',
   port: config.port,
-  async onStart() {
+  onStart() {
     console.error('[Summarizer] Watching for TaskCreated events...');
 
     // Direct nextTaskId polling instead of `watchContractEvent`. viem's

@@ -295,7 +295,7 @@ function SubTaskEditorRow({
               onChange={(e) => {
                 const v = e.target.value;
                 if (v === 'custom') {
-                  onUpdate({ executor_address: '0x' as `0x${string}` });
+                  onUpdate({ executor_address: '0x' });
                 } else if (v === 'unset') {
                   onUpdate({ executor_address: undefined });
                 } else {

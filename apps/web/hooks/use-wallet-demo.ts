@@ -272,7 +272,7 @@ export function useWalletDemo() {
           logs: createReceipt.logs,
         });
         if (!taskCreatedLog) throw new Error('TaskCreated event not found in receipt');
-        const taskId = taskCreatedLog.args.taskId as bigint;
+        const taskId = taskCreatedLog.args.taskId;
 
         completeStep('createTask', createTaskHash);
         logEvent('task_created', {
@@ -332,7 +332,7 @@ export function useWalletDemo() {
             abi: taskEscrowAbi,
             functionName: 'getTask',
             args: [taskId],
-          })) as { status: number };
+          })) as { status: TaskStatus };
           if (task.status >= target) return undefined;
           await sleep(3000);
         }
@@ -351,7 +351,7 @@ export function useWalletDemo() {
             abi: taskEscrowAbi,
             functionName: 'getTask',
             args: [taskId],
-          })) as { status: number; resultUri: string };
+          })) as { status: TaskStatus; resultUri: string };
           // Only Completed/Paid carry a usable result. The other terminals
           // (Disputed/Refunded/Expired/Split, all > Paid) have no deliverable to
           // approve — returning them as "complete" would drive approvePayment

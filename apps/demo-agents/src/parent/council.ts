@@ -233,7 +233,7 @@ export async function judgeDispute(c: DisputeCase, env: CouncilEnv): Promise<Cou
     return v;
   }
 
-  const apiKey = env.openaiApiKey as string;
+  const apiKey = env.openaiApiKey;
   const fetchImpl = env.fetchImpl ?? fetch;
   try {
     const v = await callOpenAIOnce(c, apiKey, fetchImpl);

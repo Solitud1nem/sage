@@ -27,7 +27,7 @@ const RATE_LIMITED_POSTS = new Set([
 export async function handleOrchestrator(
   req: Request,
   env: Env,
-  ctx: ExecutionContext,
+  _ctx: ExecutionContext,
 ): Promise<Response> {
   const url = new URL(req.url);
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
 
 import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
-import { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
+import type { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
 import { track, readConsent } from '@/lib/posthog';
 
 /** Chains the composite-demo orchestrators run on (per ADR-0015). */
@@ -705,7 +705,7 @@ function attachStream(
 
   Object.entries(handlers).forEach(([name, handler]) => {
     es.addEventListener(name, (ev) => {
-      const data = safeParse((ev as MessageEvent).data);
+      const data = safeParse(typeof ev.data === 'string' ? ev.data : '');
       pushEvent(setState, eventIdRef, name, data);
       handler(data);
     });
@@ -771,7 +771,7 @@ function stringField(d: Record<string, unknown>, key: string): string | null {
 
 function safeParse(raw: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};

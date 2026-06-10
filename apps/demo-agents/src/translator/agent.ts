@@ -138,7 +138,7 @@ async function handleTaskCreated(taskIdBigInt: bigint, _client: `0x${string}`, e
 const agent = new BaseAgent({
   name: 'Translator',
   port: config.port,
-  async onStart() {
+  onStart() {
     console.error('[Translator] Watching for TaskCreated events...');
 
     // Direct polling — viem event watchers fail on Arc, see

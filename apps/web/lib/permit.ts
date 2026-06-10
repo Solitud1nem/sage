@@ -40,7 +40,7 @@ export async function signUsdcPermit(
     abi: usdcAbi,
     functionName: 'nonces',
     args: [params.owner],
-  })) as bigint;
+  }));
 
   const chainId = await publicClient.getChainId();
 
@@ -94,7 +94,7 @@ export async function readUsdcBalance(
     functionName: 'balanceOf',
     args: [owner],
   });
-  return result as bigint;
+  return result;
 }
 
 /** Quick-ish hex→bigint for when viem's hexToBigInt is needed inline. */

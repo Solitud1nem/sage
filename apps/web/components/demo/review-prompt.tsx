@@ -70,7 +70,7 @@ export function ReviewPrompt({ subtask, runtime, onDecision }: ReviewPromptProps
           <button
             type="button"
             disabled={submitting}
-            onClick={approve}
+            onClick={() => void approve()}
             className="h-10 px-5 rounded-[8px] bg-cyan text-[#0A0A0F] font-mono text-[12px] font-medium hover:bg-[#7AEAF8] transition-colors disabled:opacity-40"
           >
             {submitting ? 'Submitting…' : 'Approve & pay →'}
@@ -97,7 +97,7 @@ export function ReviewPrompt({ subtask, runtime, onDecision }: ReviewPromptProps
             <button
               type="button"
               disabled={submitting}
-              onClick={dispute}
+              onClick={() => void dispute()}
               className="h-10 px-5 rounded-[8px] bg-[#A78BFA] text-[#0A0A0F] font-mono text-[12px] font-medium hover:bg-[#B9A4FB] transition-colors disabled:opacity-40"
             >
               {submitting ? 'Sending to council…' : 'Send to council →'}

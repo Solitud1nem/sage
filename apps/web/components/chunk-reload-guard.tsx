@@ -30,8 +30,10 @@ function isChunkLoadError(reason: unknown): boolean {
       ? reason.message
       : typeof reason === 'string'
         ? reason
-        : typeof reason === 'object' && reason !== null
-          ? String((reason as { message?: unknown }).message ?? '')
+        : typeof reason === 'object' &&
+            reason !== null &&
+            typeof (reason as { message?: unknown }).message === 'string'
+          ? (reason as { message: string }).message
           : '';
   return /Loading (?:chunk|CSS chunk) [^ ]+ failed|ChunkLoadError|error loading dynamically imported module/i.test(
     msg,

@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { TaskStatus, agentId } from '@sage/core';
 import type { TaskId } from '@sage/core';
 
-import { SseChannel, demoRegistry } from '../shared/sse.js';
+import type { SseChannel} from '../shared/sse.js';
+import { demoRegistry } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 
 /**

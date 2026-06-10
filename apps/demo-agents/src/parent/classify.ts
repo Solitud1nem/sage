@@ -679,7 +679,7 @@ export async function classifyBrief(
   });
 
   const raw = useReal
-    ? await classifyLLM(brief, env.openaiApiKey as string, env.fetchImpl ?? fetch)
+    ? await classifyLLM(brief, env.openaiApiKey, env.fetchImpl ?? fetch)
     : classifyMock(brief);
 
   trace('parent.classify.raw', {

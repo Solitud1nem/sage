@@ -62,7 +62,7 @@ export async function checkSponsorStatus(
     abi: ERC20_BALANCE_OF_ABI,
     functionName: 'balanceOf',
     args: [sponsor],
-  })) as bigint;
+  }));
 
   // Two bands: below min → critical (reject). Below 2×min → low (accept + warn).
   let level: SponsorStatus['level'] = 'healthy';

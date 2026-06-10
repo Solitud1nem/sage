@@ -252,7 +252,7 @@ export function useDemoStream() {
         // Attach handlers. Custom SSE events arrive as named listeners.
         Object.entries(handlers).forEach(([name, handler]) => {
           es.addEventListener(name, (ev) => {
-            const data = safeParse((ev as MessageEvent).data);
+            const data = safeParse(typeof ev.data === 'string' ? ev.data : '');
             pushEvent(safeSetState, eventIdRef, name, data);
             handler(data);
           });
@@ -323,7 +323,7 @@ function stashTx(
 
 function safeParse(raw: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};

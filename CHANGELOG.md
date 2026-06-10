@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-06-10 — CR.15: lint-гейт восстановлен для всего репо, web мигрирован на ESLint CLI — `fix`
+
+При закрытии CR.14 выяснилось, что lint-гейт (AGENTS.md quality gates) фактически не работал нигде: и `next lint` (web), и корневой `eslint .` падали на загрузке `@typescript-eslint/await-thenable` — `recommended-type-checked` был включён без `parserOptions` для type information. Исправлено:
+
+- **Корневой `.eslintrc.json`** — `parserOptions.projectService: true`; override `*.test.ts` / `*.config.ts` → `plugin:@typescript-eslint/disable-type-checked` (файлы вне tsconfig-проектов линтятся без typed-правил); `varsIgnorePattern: ^_`; `apps/web/` исключён (линтится своим конфигом).
+- **Web → ESLint CLI** (`next lint` deprecated, удаляется в Next 16): flat-конфиг `eslint.config.mjs` (eslint 9) — FlatCompat `next/core-web-vitals` + `@typescript-eslint` recommended/type-checked scoped на ts/tsx с `projectService`; `.eslintrc.json` удалён; script `lint: eslint .`.
+- **`pnpm lint`** в корне chained с web-lint'ом — CI `ci-packages.yml` без изменений покрывает оба.
+- **~85 вскрывшихся нарушений починены** по всему репо. Существенное: string-throws в `server.ts` валидации → `Error` (catch отдаёт `.message`, wire-формат 400 не изменился); async request-handler оркестратора и SIGINT/SIGTERM-хуки `base-agent` через явный `void`; `onStart` воркеров приведён к sync (интерфейс `void | Promise<void>`); web — floating/misused promises (`void`-обёртки), `getTask`-cast'ы типизированы `TaskStatus` (enum-safe сравнения), `JSON.parse` через `unknown`, base-to-string guard в chunk-reload-guard. Остальное — autofix (unnecessary assertions, type-imports).
+- Gotcha: autofix `no-unnecessary-type-assertion` снёс **нужный** `0x${string}`-assertion в `adapter-evm/permit.ts` (lint-проект ≠ tsc-проект) — поймано `pnpm -r typecheck`, заменено на явные аннотации. Урок: после массового `--fix` обязателен полный typecheck.
+
+Гейты: root lint 0 ошибок, web lint 0 ошибок, `pnpm -r typecheck` чистый, demo-agents 211/211, adapter-evm 37/37, web build чистый. Деплоев не требуется (изменения поведенчески нейтральны; уйдут с очередным deploy Fly/Pages).
+
 ## 2026-06-10 — Code review 2026-06-09 закрыт полностью: CR.14 (web-остаток) + merge в main + Pages deploy — `fix`
 
 Закрыт CR.14 — последний контентный пункт ревизии 2026-06-09, все 6 web-находок:

@@ -73,13 +73,13 @@ type EscrowArgs = Parameters<typeof createTaskEscrowV2Client>;
 type RegistryArgs = Parameters<typeof createAgentRegistryV2Client>;
 const escrow = createTaskEscrowV2Client(
   publicClient as EscrowArgs[0],
-  walletClient as EscrowArgs[1],
+  walletClient,
   sageChain.contracts.taskEscrow,
   sageChain.contracts.usdc,
 );
 const registry = createAgentRegistryV2Client(
   publicClient as RegistryArgs[0],
-  walletClient as RegistryArgs[1],
+  walletClient,
   registryAddr,
 );
 
@@ -180,7 +180,7 @@ async function pauseOnShutdown(signal: string): Promise<void> {
     await publicClient.waitForTransactionReceipt({ hash: h as `0x${string}` });
     log('paused — safe to stop');
   } catch (e) {
-    log(`pause-on-shutdown failed (continuing to exit): ${e}`);
+    log(`pause-on-shutdown failed (continuing to exit): ${String(e)}`);
   }
   process.exit(0);
 }
@@ -215,7 +215,7 @@ async function executeWithRetry(job: { spec: string; material: string | null }):
       lastErr = e;
       if (attempt < handlerRetries) {
         const backoff = 2000 * (attempt + 1);
-        log(`handler attempt ${attempt + 1} failed (${e}) — retrying in ${backoff}ms`);
+        log(`handler attempt ${attempt + 1} failed (${String(e)}) — retrying in ${backoff}ms`);
         await sleep(backoff);
       }
     }
@@ -300,7 +300,7 @@ async function pollLoop(): Promise<void> {
       }
       cursor = next;
     } catch (e) {
-      log(`poll error (will retry): ${e}`);
+      log(`poll error (will retry): ${String(e)}`);
     }
     await sleep(15_000);
   }

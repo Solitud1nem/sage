@@ -3,8 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 export interface BaseAgentOptions {
   name: string;
   port: number;
-  onStart?: () => Promise<void>;
-  onStop?: () => Promise<void>;
+  onStart?: () => void | Promise<void>;
+  onStop?: () => void | Promise<void>;
 }
 
 /**
@@ -40,8 +40,12 @@ export class BaseAgent {
       await this.options.onStart();
     }
 
-    process.on('SIGINT', () => this.stop());
-    process.on('SIGTERM', () => this.stop());
+    process.on('SIGINT', () => {
+      void this.stop();
+    });
+    process.on('SIGTERM', () => {
+      void this.stop();
+    });
   }
 
   /** Override in subclasses for custom HTTP handling. */

@@ -155,8 +155,8 @@ export function createPermitSigner(
       },
     });
 
-    const r = `0x${signature.slice(2, 66)}` as `0x${string}`;
-    const s = `0x${signature.slice(66, 130)}` as `0x${string}`;
+    const r: `0x${string}` = `0x${signature.slice(2, 66)}`;
+    const s: `0x${string}` = `0x${signature.slice(66, 130)}`;
     const v = parseInt(signature.slice(130, 132), 16);
 
     return { value: amount, deadline, v, r, s };

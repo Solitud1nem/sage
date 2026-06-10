@@ -127,7 +127,7 @@ export function makeDisputeFlow(bundle: SageClientBundle, councilEnv: CouncilEnv
 
   return async ({ taskId, amount, spec, result, reason }): Promise<DisputeResolution> => {
     // 1. Raise the dispute on-chain (client = sponsor EOA).
-    const disputeTxHash = await escrow.disputeTask(taskId as TaskId, reason);
+    const disputeTxHash = await escrow.disputeTask(taskId, reason);
     await waitChecked(disputeTxHash, `disputeTask(${taskId})`);
 
     // 2. Council verdict.
@@ -135,7 +135,7 @@ export function makeDisputeFlow(bundle: SageClientBundle, councilEnv: CouncilEnv
     const { outcome, callShare, displayShare } = mapVerdict(verdict, amount);
 
     // 3. Arbiter executes the verdict on-chain.
-    const resolveTxHash = await escrow.resolveDispute(taskId as TaskId, outcome, callShare);
+    const resolveTxHash = await escrow.resolveDispute(taskId, outcome, callShare);
     await waitChecked(resolveTxHash, `resolveDispute(${taskId})`);
 
     return {
