@@ -316,14 +316,17 @@ function AddressLink({
   );
 }
 
+// Palette mirrors STATUS_META in plan-graph.tsx — keep the two in sync.
 const STATUS_COLORS: Record<string, string> = {
   waiting: '#6E6E85',
   created: '#A78BFA',
   accepted: '#5EE3F5',
   completed: '#F472B6',
+  'awaiting-review': '#A78BFA',
   paid: '#6EE7B7',
   errored: '#F87171',
-  disputed: '#F87171',
+  disputed: '#A78BFA',
+  refunded: '#F59E0B',
 };
 
 function computeElapsed(rt: SubTaskRuntime | undefined): string {

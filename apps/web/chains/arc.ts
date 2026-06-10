@@ -17,10 +17,15 @@
  * `docs/runbooks/arc-testnet-verification-2026-05-21.md`.
  */
 
+import { defineChain } from 'viem';
+
 import type { SageChainConfig } from './base';
 
+/** Arc testnet chain id — single source for the literal (CR.14). */
+export const ARC_TESTNET_CHAIN_ID = 5042002;
+
 export const ARC_TESTNET: SageChainConfig = {
-  chainId: 5042002,
+  chainId: ARC_TESTNET_CHAIN_ID,
   name: 'arc-testnet',
   displayName: 'Arc',
   explorer: 'https://testnet.arcscan.app',
@@ -43,6 +48,25 @@ export const ARC_TESTNET: SageChainConfig = {
   // facilitate Arc at time of writing; Sage's task-escrow path on Arc
   // works independently of x402 (ADR-0003).
 };
+
+/**
+ * viem `Chain` for Arc testnet — viem ships no built-in definition.
+ * Mirrors `apps/demo-agents/src/shared/config.ts`. Native currency is
+ * USDC; the 18-decimal figure follows the RPC's gas accounting, it is
+ * decorative for our paths (balance display only).
+ */
+export const arcTestnetChain = defineChain({
+  id: ARC_TESTNET_CHAIN_ID,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
+  rpcUrls: {
+    default: { http: [ARC_TESTNET.rpcUrl] },
+  },
+  blockExplorers: {
+    default: { name: 'Arcscan', url: ARC_TESTNET.explorer },
+  },
+  testnet: true,
+});
 
 /**
  * UI hover-text describing the bridge state, surfaced from the chain

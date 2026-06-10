@@ -5,9 +5,11 @@ import type { Address, PublicClient } from 'viem';
 import { parseEventLogs } from 'viem';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 
+import { SAGE_CHAINS } from '@/chains/base';
 import { useSageChain } from '@/hooks/use-sage-chain';
 import { TaskStatus, taskEscrowAbi } from '@/lib/abi/task-escrow';
 import { signUsdcPermit } from '@/lib/permit';
+import { wagmiConfig } from '@/lib/wagmi';
 import type {
   AgentMode,
   DemoEvent,
@@ -74,10 +76,17 @@ export function useWalletDemo() {
   const publicClient = usePublicClient({ chainId: chain.chainId });
   const { data: walletClient } = useWalletClient({ chainId: chain.chainId });
   const eventIdRef = useRef(0);
-  const cancelledRef = useRef(false);
+  // Run generation counter (CR.14): every start()/reset() bumps it; a run's
+  // async continuations (polling loops, post-await state writes) act only
+  // while their captured token is current. A shared boolean cancel-flag is
+  // not enough — a new start() would "un-cancel" the previous in-flight run.
+  const runTokenRef = useRef(0);
 
   const start = useCallback(
     async (input: string, agentMode: AgentMode = 'pipeline') => {
+      const token = ++runTokenRef.current;
+      const isStale = () => runTokenRef.current !== token;
+
       if (!address || !publicClient || !walletClient) {
         setState((prev) => ({
           ...prev,
@@ -87,10 +96,26 @@ export function useWalletDemo() {
         return;
       }
       if (!chain.isSupported) {
+        const supported = Object.values(SAGE_CHAINS)
+          .map((c) => c.displayName)
+          .join(' / ');
         setState((prev) => ({
           ...prev,
           status: 'error',
-          error: `Chain ${chain.chainId} isn't a Sage deployment. Switch to Base mainnet or Base Sepolia.`,
+          error: `Chain ${chain.chainId} isn't a Sage deployment. Switch to ${supported}.`,
+        }));
+        return;
+      }
+
+      // viem chain object for writeContract — lets viem enforce that the
+      // wallet is actually on the expected chain instead of silently sending
+      // the tx wherever the wallet happens to point (CR.14, was chain: null).
+      const viemChain = wagmiConfig.chains.find((c) => c.id === chain.chainId);
+      if (!viemChain) {
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: `Chain ${chain.chainId} is missing from the wagmi config — see lib/wagmi.ts.`,
         }));
         return;
       }
@@ -114,7 +139,6 @@ export function useWalletDemo() {
         return;
       }
 
-      cancelledRef.current = false;
       eventIdRef.current = 0;
       const startedAt = Date.now();
       setState({
@@ -190,12 +214,17 @@ export function useWalletDemo() {
           };
         }
 
-        setState((prev) => ({ ...prev, status: 'done', result }));
+        safeSetState((prev) => ({ ...prev, status: 'done', result }));
       } catch (err) {
-        if (cancelledRef.current) return;
+        if (isStale()) return;
         const message = extractErrorMessage(err);
         logEvent('error', { message });
-        setState((prev) => ({ ...prev, status: 'error', error: message }));
+        safeSetState((prev) => ({ ...prev, status: 'error', error: message }));
+      }
+
+      /** State writes from async continuations no-op once the run is stale. */
+      function safeSetState(action: React.SetStateAction<DemoState>) {
+        if (!isStale()) setState(action);
       }
 
       async function runStage(params: {
@@ -227,7 +256,7 @@ export function useWalletDemo() {
           abi: taskEscrowAbi,
           functionName: 'createTask',
           args: [params.executor, BigInt(deadline), AMOUNT_PER_TASK, params.brief, permit],
-          chain: null,
+          chain: viemChain,
           account: params.client,
         });
         txHashes.push(createTaskHash);
@@ -275,7 +304,7 @@ export function useWalletDemo() {
           abi: taskEscrowAbi,
           functionName: 'approvePayment',
           args: [taskId],
-          chain: null,
+          chain: viemChain,
           account: params.client,
         });
         txHashes.push(approveHash);
@@ -297,7 +326,7 @@ export function useWalletDemo() {
       async function waitForStatus(taskId: bigint, target: TaskStatus): Promise<`0x${string}` | undefined> {
         const timeout = Date.now() + 180_000;
         while (Date.now() < timeout) {
-          if (cancelledRef.current) throw new Error('cancelled');
+          if (isStale()) throw new Error('cancelled');
           const task = (await publicClient!.readContract({
             address: chain.contracts.taskEscrow,
             abi: taskEscrowAbi,
@@ -316,7 +345,7 @@ export function useWalletDemo() {
       }> {
         const timeout = Date.now() + 180_000;
         while (Date.now() < timeout) {
-          if (cancelledRef.current) throw new Error('cancelled');
+          if (isStale()) throw new Error('cancelled');
           const task = (await publicClient!.readContract({
             address: chain.contracts.taskEscrow,
             abi: taskEscrowAbi,
@@ -341,7 +370,7 @@ export function useWalletDemo() {
       }
 
       function setStage(stage: Stage) {
-        setState((prev) => ({
+        safeSetState((prev) => ({
           ...prev,
           currentStage: stage,
           steps: { ...INITIAL_STEPS },
@@ -350,11 +379,11 @@ export function useWalletDemo() {
       }
 
       function activateStep(step: StepName) {
-        setState((prev) => ({ ...prev, steps: { ...prev.steps, [step]: 'active' } }));
+        safeSetState((prev) => ({ ...prev, steps: { ...prev.steps, [step]: 'active' } }));
       }
 
       function completeStep(step: StepName, tx?: `0x${string}`) {
-        setState((prev) => ({
+        safeSetState((prev) => ({
           ...prev,
           steps: { ...prev.steps, [step]: 'complete' },
           txByStep: tx ? { ...prev.txByStep, [step]: tx } : prev.txByStep,
@@ -365,7 +394,7 @@ export function useWalletDemo() {
       function logEvent(event: string, data: Record<string, unknown>) {
         eventIdRef.current += 1;
         const ev: DemoEvent = { id: eventIdRef.current, event, data, receivedAt: Date.now() };
-        setState((prev) => ({ ...prev, events: [...prev.events, ev] }));
+        safeSetState((prev) => ({ ...prev, events: [...prev.events, ev] }));
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -373,13 +402,13 @@ export function useWalletDemo() {
   );
 
   const reset = useCallback(() => {
-    cancelledRef.current = true;
+    runTokenRef.current += 1;
     setState(INITIAL_STATE);
   }, []);
 
   useEffect(
     () => () => {
-      cancelledRef.current = true;
+      runTokenRef.current += 1;
     },
     [],
   );

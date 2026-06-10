@@ -13,10 +13,20 @@
  * as required-by-data even though the type marks them optional.
  */
 
-import { ARC_TESTNET } from './arc';
+import { ARC_TESTNET, ARC_TESTNET_CHAIN_ID } from './arc';
+
+/** Base chain ids — single source for the literals (CR.14). */
+export const BASE_MAINNET_CHAIN_ID = 8453;
+export const BASE_SEPOLIA_CHAIN_ID = 84532;
+
+/** Every chain id Sage web knows about. */
+export type SageChainId =
+  | typeof BASE_MAINNET_CHAIN_ID
+  | typeof BASE_SEPOLIA_CHAIN_ID
+  | typeof ARC_TESTNET_CHAIN_ID;
 
 export interface SageChainConfig {
-  chainId: 8453 | 84532 | 5042002;
+  chainId: SageChainId;
   name: string;
   displayName: string;
   explorer: string;
@@ -39,7 +49,7 @@ export interface SageChainConfig {
 }
 
 export const BASE_MAINNET: SageChainConfig = {
-  chainId: 8453,
+  chainId: BASE_MAINNET_CHAIN_ID,
   name: 'base',
   displayName: 'Base',
   explorer: 'https://basescan.org',
@@ -60,7 +70,7 @@ export const BASE_MAINNET: SageChainConfig = {
 };
 
 export const BASE_SEPOLIA: SageChainConfig = {
-  chainId: 84532,
+  chainId: BASE_SEPOLIA_CHAIN_ID,
   name: 'baseSepolia',
   displayName: 'Base Sepolia',
   explorer: 'https://sepolia.basescan.org',
@@ -83,10 +93,10 @@ export const BASE_SEPOLIA: SageChainConfig = {
 
 /** All chains Sage is live on, keyed by chainId. */
 export const SAGE_CHAINS = {
-  8453: BASE_MAINNET,
-  84532: BASE_SEPOLIA,
-  5042002: ARC_TESTNET,
-} as const satisfies Record<8453 | 84532 | 5042002, SageChainConfig>;
+  [BASE_MAINNET_CHAIN_ID]: BASE_MAINNET,
+  [BASE_SEPOLIA_CHAIN_ID]: BASE_SEPOLIA,
+  [ARC_TESTNET_CHAIN_ID]: ARC_TESTNET,
+} as const satisfies Record<SageChainId, SageChainConfig>;
 
 /** Default chain for landing + demo. */
 export const DEFAULT_CHAIN = BASE_MAINNET;

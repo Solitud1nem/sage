@@ -1,7 +1,10 @@
 'use client';
 
 /**
- * wagmi config — Base mainnet + Sepolia, with ConnectKit wallet lineup.
+ * wagmi config — Base mainnet + Sepolia + Arc testnet, with ConnectKit
+ * wallet lineup. The chain set mirrors `SAGE_CHAINS` (chains/base.ts) —
+ * adding a chain there requires adding it here too (CR.14 closed the
+ * Arc drift), or wallet-mode writes on it will have no transport.
  *
  * Per ADR-0006: viem-only, ConnectKit for modal, RPC behind Cloudflare Worker
  * proxy in production (NEXT_PUBLIC_RPC_URL).
@@ -10,6 +13,8 @@
 import { createConfig, http } from 'wagmi';
 import { base, baseSepolia, mainnet } from 'wagmi/chains';
 import { coinbaseWallet, injected, metaMask, walletConnect } from 'wagmi/connectors';
+
+import { ARC_TESTNET, arcTestnetChain } from '@/chains/arc';
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? '';
 
@@ -22,10 +27,11 @@ const rpcBaseSepolia = 'https://sepolia.base.org';
 const rpcEthMainnet = 'https://cloudflare-eth.com';
 
 export const wagmiConfig: ReturnType<typeof createConfig> = createConfig({
-  chains: [base, baseSepolia, mainnet],
+  chains: [base, baseSepolia, arcTestnetChain, mainnet],
   transports: {
     [base.id]: http(rpcBase),
     [baseSepolia.id]: http(rpcBaseSepolia),
+    [arcTestnetChain.id]: http(ARC_TESTNET.rpcUrl),
     [mainnet.id]: http(rpcEthMainnet),
   },
   // Bumped from wagmi's 4s default. Live tx stream + any watch-event

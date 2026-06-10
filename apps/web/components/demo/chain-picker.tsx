@@ -1,6 +1,8 @@
 'use client';
 
-import { SAGE_CHAINS } from '@/chains/base';
+import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
+import { BASE_MAINNET_CHAIN_ID, SAGE_CHAINS } from '@/chains/base';
+import type { CompositeChainId } from '@/hooks/use-composite-demo';
 
 /**
  * Segmented selector for which Sage-supported chain the composite demo
@@ -18,24 +20,24 @@ import { SAGE_CHAINS } from '@/chains/base';
  */
 
 interface ChainPickerProps {
-  chainId: 8453 | 5042002;
-  onChange: (chainId: 8453 | 5042002) => void;
+  chainId: CompositeChainId;
+  onChange: (chainId: CompositeChainId) => void;
   disabled?: boolean;
 }
 
 const OPTIONS: Array<{
-  chainId: 8453 | 5042002;
+  chainId: CompositeChainId;
   label: string;
   badge?: string;
   hint: string;
 }> = [
   {
-    chainId: 8453,
+    chainId: BASE_MAINNET_CHAIN_ID,
     label: 'Base',
     hint: 'mainnet',
   },
   {
-    chainId: 5042002,
+    chainId: ARC_TESTNET_CHAIN_ID,
     label: 'Arc',
     badge: 'testnet',
     hint: 'bridge · ADR-0015',

@@ -245,6 +245,11 @@ function SubTaskEditorRow({
   onRemove,
   onUpdate,
 }: SubTaskEditorRowProps) {
+  // "Depends on" edits buffer locally and commit on blur/Enter. Parsing on
+  // every keystroke ate commas and partial ids: the parsed value fed straight
+  // back into the controlled input, so "1," collapsed to "1" mid-typing.
+  const [dependsDraft, setDependsDraft] = useState<string | null>(null);
+
   const matchedExecutor = knownExecutors.find(
     (k) => k.address.toLowerCase() === sub.executor_address?.toLowerCase(),
   );
@@ -357,13 +362,19 @@ function SubTaskEditorRow({
           </Field>
           <Field label="Depends on">
             <input
-              value={(sub.depends_on ?? []).join(',')}
-              onChange={(e) => {
-                const parsed = e.target.value
+              value={dependsDraft ?? (sub.depends_on ?? []).join(',')}
+              onChange={(e) => setDependsDraft(e.target.value)}
+              onBlur={() => {
+                if (dependsDraft === null) return;
+                const parsed = dependsDraft
                   .split(',')
                   .map((s) => parseInt(s.trim(), 10))
                   .filter((n) => Number.isFinite(n) && allIds.includes(n));
                 onUpdate({ depends_on: parsed.length > 0 ? parsed : undefined });
+                setDependsDraft(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
               }}
               placeholder={`e.g. ${allIds.slice(0, 2).join(',') || '(none)'}`}
               className="w-full h-9 px-3 rounded-[8px] border border-border bg-[#0A0A0F] font-mono text-[12px] text-text-muted focus:outline-none focus:border-cyan"

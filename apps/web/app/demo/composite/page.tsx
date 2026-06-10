@@ -14,9 +14,12 @@ import { ReviewPrompt } from '@/components/demo/review-prompt';
 import { ErrorPanel } from '@/components/demo/error-panel';
 import { track } from '@/lib/posthog';
 import { formatUsdc } from '@/lib/format-usdc';
+import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
+import { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
 import {
   useCompositeDemo,
   planFromClassification,
+  type CompositeChainId,
   type WirePlan,
 } from '@/hooks/use-composite-demo';
 
@@ -61,15 +64,15 @@ function CompositePageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const chainId: 8453 | 5042002 =
-    searchParams.get('chain') === 'arc' ? 5042002 : 8453;
+  const chainId: CompositeChainId =
+    searchParams.get('chain') === 'arc' ? ARC_TESTNET_CHAIN_ID : BASE_MAINNET_CHAIN_ID;
 
   const demo = useCompositeDemo(chainId);
 
   const setChain = useCallback(
-    (next: 8453 | 5042002) => {
+    (next: CompositeChainId) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (next === 5042002) params.set('chain', 'arc');
+      if (next === ARC_TESTNET_CHAIN_ID) params.set('chain', 'arc');
       else params.delete('chain');
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });

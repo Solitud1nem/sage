@@ -102,9 +102,20 @@ export function useDemoStream() {
   const [state, setState] = useState<DemoState>(INITIAL_STATE);
   const esRef = useRef<EventSource | null>(null);
   const eventIdRef = useRef(0);
+  // Run generation counter (CR.14): every start()/reset() bumps it, and all
+  // async continuations of a run (late fetch resolve, SSE handlers) write
+  // state only while their captured token is still current. Without this a
+  // run that was reset/superseded mid-flight clobbers the next run's state.
+  const runTokenRef = useRef(0);
 
   const start = useCallback(
     async (input: string, agentMode: AgentMode = 'pipeline'): Promise<void> => {
+      const token = ++runTokenRef.current;
+      const isStale = () => runTokenRef.current !== token;
+      const safeSetState: typeof setState = (action) => {
+        if (!isStale()) setState(action);
+      };
+
       // Close any prior stream.
       esRef.current?.close();
       esRef.current = null;
@@ -143,6 +154,10 @@ export function useDemoStream() {
         };
         const { demoRunId, streamUrl } = startResponse;
 
+        // A newer run started (or reset fired) while the POST was in
+        // flight — don't open a stream this hook no longer tracks.
+        if (isStale()) return;
+
         setState((prev) => ({
           ...prev,
           demoRunId,
@@ -161,7 +176,7 @@ export function useDemoStream() {
           },
           stage_started: (data) => {
             const stage = data.stage as Stage;
-            setState((prev) => ({
+            safeSetState((prev) => ({
               ...prev,
               currentStage: stage,
               // Reset step states only when moving to translate stage of pipeline.
@@ -171,25 +186,25 @@ export function useDemoStream() {
             }));
           },
           task_created: (data) =>
-            setState((prev) => ({
+            safeSetState((prev) => ({
               ...prev,
               steps: { ...prev.steps, createTask: 'complete', acceptTask: 'active' },
               txByStep: stashTx(prev.txByStep, 'createTask', data),
             })),
           task_accepted: (data) =>
-            setState((prev) => ({
+            safeSetState((prev) => ({
               ...prev,
               steps: { ...prev.steps, acceptTask: 'complete', completeTask: 'active' },
               txByStep: stashTx(prev.txByStep, 'acceptTask', data),
             })),
           task_completed: (data) =>
-            setState((prev) => ({
+            safeSetState((prev) => ({
               ...prev,
               steps: { ...prev.steps, completeTask: 'complete', approvePayment: 'active' },
               txByStep: stashTx(prev.txByStep, 'completeTask', data),
             })),
           task_paid: (data) =>
-            setState((prev) => {
+            safeSetState((prev) => {
               const tx = typeof data.txHash === 'string' ? data.txHash : null;
               return {
                 ...prev,
@@ -201,10 +216,10 @@ export function useDemoStream() {
           done: (data) => {
             // Backend sends either the result payload or { error } on fatal failures.
             if ('error' in data && typeof data.error === 'string') {
-              setState((prev) => ({ ...prev, status: 'error', error: data.error as string }));
+              safeSetState((prev) => ({ ...prev, status: 'error', error: data.error as string }));
             } else {
               const resolvedMode = (data.mode as AgentMode | undefined) ?? agentMode;
-              setState((prev) => ({
+              safeSetState((prev) => ({
                 ...prev,
                 status: 'done',
                 result: {
@@ -224,13 +239,13 @@ export function useDemoStream() {
               }));
             }
             es.close();
-            esRef.current = null;
+            if (esRef.current === es) esRef.current = null;
           },
           error: (data) => {
             const msg = typeof data.message === 'string' ? data.message : 'Stream error';
-            setState((prev) => ({ ...prev, status: 'error', error: msg }));
+            safeSetState((prev) => ({ ...prev, status: 'error', error: msg }));
             es.close();
-            esRef.current = null;
+            if (esRef.current === es) esRef.current = null;
           },
         };
 
@@ -238,7 +253,7 @@ export function useDemoStream() {
         Object.entries(handlers).forEach(([name, handler]) => {
           es.addEventListener(name, (ev) => {
             const data = safeParse((ev as MessageEvent).data);
-            pushEvent(setState, eventIdRef, name, data);
+            pushEvent(safeSetState, eventIdRef, name, data);
             handler(data);
           });
         });
@@ -247,7 +262,7 @@ export function useDemoStream() {
           // EventSource auto-reconnects by default. Only surface an error if the
           // server has explicitly closed (readyState === CLOSED).
           if (es.readyState === EventSource.CLOSED) {
-            setState((prev) =>
+            safeSetState((prev) =>
               prev.status === 'done'
                 ? prev
                 : { ...prev, status: 'error', error: 'Connection to orchestrator lost' },
@@ -256,13 +271,14 @@ export function useDemoStream() {
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        setState((prev) => ({ ...prev, status: 'error', error: msg }));
+        safeSetState((prev) => ({ ...prev, status: 'error', error: msg }));
       }
     },
     [],
   );
 
   const reset = useCallback(() => {
+    runTokenRef.current += 1;
     esRef.current?.close();
     esRef.current = null;
     setState(INITIAL_STATE);
@@ -270,6 +286,7 @@ export function useDemoStream() {
 
   useEffect(
     () => () => {
+      runTokenRef.current += 1;
       esRef.current?.close();
       esRef.current = null;
     },

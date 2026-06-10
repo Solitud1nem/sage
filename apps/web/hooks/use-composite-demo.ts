@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
 
+import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
+import { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
 import { track, readConsent } from '@/lib/posthog';
+
+/** Chains the composite-demo orchestrators run on (per ADR-0015). */
+export type CompositeChainId =
+  | typeof BASE_MAINNET_CHAIN_ID
+  | typeof ARC_TESTNET_CHAIN_ID;
 
 /**
  * Capture an exception to Sentry with the composite-flow tags so we can
@@ -60,7 +67,7 @@ const ORCHESTRATOR_URL =
  * Worker treats absence and `chain=base` identically.
  */
 function chainQs(chainId: number): string {
-  return chainId === 5042002 ? '?chain=arc' : '';
+  return chainId === ARC_TESTNET_CHAIN_ID ? '?chain=arc' : '';
 }
 
 /**
