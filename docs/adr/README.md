@@ -35,6 +35,7 @@
 | [0017](./0017-task-escrow-arbitration.md) | Task escrow arbitration: `resolveDispute`, configurable arbiter, reachable `Refunded`, split outcomes | Accepted | 2026-06-04 |
 | [0018](./0018-composite-content-envelope.md) | Composite content envelope: faithful `source` payload + `inputs` dependency chaining alongside `spec` | Accepted | 2026-06-08 |
 | [0019](./0019-off-chain-council-v1.md) | Off-chain council v1: opt-in review gate, single LLM-judge verdict, arbiter EOA auto-executes `resolveDispute` | Accepted | 2026-06-08 |
+| [0020](./0020-useful-output-pipelines.md) | Useful-output pipelines: демо как поверка с чатом, консолидация воркеров, wake-on-HTTP | Accepted | 2026-06-10 |
 
 ## Ожидаемые ADR (черновик)
 

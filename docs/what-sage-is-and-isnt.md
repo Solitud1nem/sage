@@ -49,6 +49,14 @@ the protocol end-to-end on a live chain — to prove the lifecycle, the
 decomposition, the dispute path — *not* to be capable products. Capability comes
 from the agents operators bring.
 
+**Refinement (ADR-0020, 2026-06-10):** the workers stay reference
+implementations, but the demo's *output* must now be useful — something the
+user keeps (a deployable site archive, a fact-checked report with resolving
+citations, a signed structured review). The line holds: Sage still isn't the
+agents; but the demo now wins on what chat structurally lacks — a definition
+of done, forced verification before payment, and a visible fate for the money
+when a step fails.
+
 ## "So why can't I build a website with it?"
 
 You don't build the website *with Sage* — you bring (or write) a website-builder
