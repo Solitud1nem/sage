@@ -22,12 +22,14 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ClassificationResult, Plan } from '@sage/core';
+import { listActiveAgentsV2 } from '@sage/adapter-evm';
 
 import { demoRegistry } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { classifyBrief, type ParentEnv } from './classify.js';
 import { makeStrandedResolver } from './dispute-flow.js';
 import { runPlan, type DisputeFlow } from './plan-runner.js';
+import { createWaker, type WakeFn } from './wake.js';
 import { createCapture } from '../shared/analytics.js';
 
 type SageClientBundle = ReturnType<typeof createSageFromConfig>;
@@ -40,6 +42,24 @@ export interface ExecutePlanOptions {
   readonly analyticsConsent?: boolean;
   /** Chain tag for analytics (e.g. "base" / "arc"). */
   readonly chain?: string;
+  /** Test seam — overrides the registry-backed waker (M12.0.2). */
+  readonly wake?: WakeFn;
+}
+
+/**
+ * Registry-backed waker for scale-to-zero workers (ADR-0020 / M12.0.2).
+ * Lazy: the executor→endpoint map is fetched from AgentRegistryV2 on the
+ * first ping of the run and cached. Chains without a V2 registry get no
+ * waker — runPlan then behaves exactly as before (pure polling).
+ */
+function makeRegistryWaker(bundle: SageClientBundle): WakeFn | undefined {
+  // Optional-chained: embedders/tests hand executePlan minimal bundles
+  // without chainConfig — no registry, no waker, legacy polling behavior.
+  const registryV2Addr = bundle.chainConfig?.contracts?.agentRegistryV2;
+  if (!registryV2Addr) return undefined;
+  return createWaker({
+    fetchAgents: () => listActiveAgentsV2(bundle.publicClient, registryV2Addr),
+  });
 }
 
 export interface ExecuteResult {
@@ -78,6 +98,8 @@ export function executePlan(
     !!options.analyticsConsent,
   );
 
+  const wake = options.wake ?? makeRegistryWaker(bundle);
+
   void runPlan(plan, channel, bundle, {
     runId,
     capture,
@@ -87,6 +109,7 @@ export function executePlan(
     resolveStranded: makeStrandedResolver(bundle),
     ...(options.reviewMode ? { reviewMode: true } : {}),
     ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
+    ...(wake ? { wake } : {}),
   }).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[parent.agent] runPlan(${runId}) threw:`, err);

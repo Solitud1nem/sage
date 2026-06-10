@@ -32,6 +32,7 @@ import type { Plan, SubTask } from '@sage/core';
 
 import type { SseChannel } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
+import type { WakeFn } from './wake.js';
 import { encodeParentId, type EnvelopeContent } from './parent-id-codec.js';
 import { scheduleReclaim } from './escrow-reclaim.js';
 import { awaitUserDecision } from './run-registry.js';
@@ -118,10 +119,20 @@ export interface RunPlanOptions {
    * unresolved (logged loudly).
    */
   readonly resolveStranded?: (taskId: TaskId) => Promise<string>;
+  /**
+   * Wake-ping for scale-to-zero workers (ADR-0020, M12.0.2). Called
+   * fire-and-forget after each createTask, and re-called while a task sits in
+   * Created (a lost first ping must not strand the sub-task until timeout).
+   * Absent → legacy behavior: pure polling, no pings.
+   */
+  readonly wake?: WakeFn;
 }
 
 /** Explicit polling interval. Do NOT lower below 10s — see GOTCHAS 2026-05-13. */
 const POLL_INTERVAL_MS = 10_000;
+
+/** Re-ping cadence while a task stays in Created (lost-wake recovery). */
+const WAKE_REPING_MS = 60_000;
 
 const DEFAULT_SUBTASK_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -277,6 +288,7 @@ export async function runPlan(
           reviewTimeoutMs: options.reviewTimeoutMs ?? REVIEW_TIMEOUT_MS,
           ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
           ...(options.capture ? { capture: options.capture } : {}),
+          ...(options.wake ? { wake: options.wake } : {}),
         });
         results.set(sub.id, result);
         break;
@@ -395,6 +407,8 @@ interface RunSubtaskArgs {
   readonly disputeFlow?: DisputeFlow;
   /** Consent-gated server-side analytics capturer. */
   readonly capture?: Capture;
+  /** Wake-ping for scale-to-zero workers — see {@link RunPlanOptions.wake}. */
+  readonly wake?: WakeFn;
 }
 
 /**
@@ -522,6 +536,11 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
 
   args.spawned.push({ subId: sub.id, taskId: tid, deadline, settled: false });
 
+  // Wake the (possibly stopped, scale-to-zero) worker hosting this executor.
+  // Fire-and-forget: a lost ping is recovered by the re-ping below and by the
+  // worker's boot reconciliation (ADR-0020 п.4).
+  args.wake?.(sub.executor_address, { taskId: tid.toString() });
+
   channel.emit('subtask_created', {
     subId: sub.id,
     taskId: tid.toString(),
@@ -530,7 +549,10 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     deadline,
   });
 
-  const resultUri = await pollUntilCompleted(bundle, tid, channel, sub.id, timeoutMs);
+  const resultUri = await pollUntilCompleted(bundle, tid, channel, sub.id, timeoutMs, {
+    ...(args.wake ? { wake: args.wake } : {}),
+    executor: sub.executor_address,
+  });
   const result = decodeResult(resultUri);
 
   // Review gate (ADR-0019): pause for an approve/dispute decision before paying.
@@ -687,12 +709,24 @@ async function pollUntilCompleted(
   channel: SseChannel,
   subId: number,
   timeoutMs: number,
+  wakeOpts?: { wake?: WakeFn; executor?: string },
 ): Promise<string> {
   const start = Date.now();
   let lastStatus: TaskStatus | null = null;
+  // The createTask-time ping counts as the first one.
+  let lastWakeAt = Date.now();
 
   while (Date.now() - start < timeoutMs) {
     const task = await bundle.sage.tasks.getTask(taskId);
+
+    // Re-ping while the task sits unaccepted: the initial wake may have been
+    // lost, or the woken machine may have idle-exited before noticing it.
+    const unaccepted = !task || task.status === TaskStatus.Created;
+    if (unaccepted && wakeOpts?.wake && wakeOpts.executor && Date.now() - lastWakeAt >= WAKE_REPING_MS) {
+      lastWakeAt = Date.now();
+      wakeOpts.wake(wakeOpts.executor, { taskId: taskId.toString() });
+    }
+
     if (!task) {
       await sleep(POLL_INTERVAL_MS);
       continue;
@@ -835,6 +869,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export const __testing = {
+  WAKE_REPING_MS,
   topoSort,
   validatePlan,
   decodeResult,

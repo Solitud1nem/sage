@@ -1,0 +1,74 @@
+#
+# Sage generic worker — Fly.io app config (M12.0.2, ADR-0020 пп.3–4).
+#
+# A SEPARATE app from sage-demo-agents: the 3-mode production demo stays the
+# regression baseline until the first new pipeline passes e2e (ADR-0020 п.6),
+# so its fly.toml is untouched and worker deploys never restart it. Same
+# Dockerfile/image — only the entrypoint differs.
+#
+# One machine hosting N agent identities (WORKER_IDENTITIES selects which).
+# Scale-to-zero is implemented by the worker's OWN idle-exit, not by proxy
+# autostop: Fly's autostop counts inbound connections, and a worker mid-task
+# has none — it would be stopped mid-LLM-call. Hence:
+#   auto_stop_machines  = "off"   (the process exits itself when idle)
+#   auto_start_machines = true    (a /wake ping boots a stopped machine)
+#   min_machines_running = 0
+#
+# First-time launch (deploy is a separate step — NOT part of M12.0.2):
+#   fly launch --no-deploy --copy-config --config fly.workers.toml --ha=false
+#     (--ha=false: no standby machines — org cap is 20, see GOTCHAS
+#      "Fly org machine limit"; after launch verify `fly scale count 1`)
+#   fly secrets set -c fly.workers.toml CHAIN=mainnet ECHO_PRIVATE_KEY=0x… …
+#     (CHAIN is REQUIRED — the worker refuses to boot without it; the shared
+#      loader's URL-sniffing once silently sent prod to Sepolia, see GOTCHAS)
+#   fly deploy -c fly.workers.toml
+#
+
+app = "sage-workers"
+primary_region = "iad"
+
+# Aligned with the worker's WORKER_DRAIN_TIMEOUT_MS (110s): SIGTERM → drain
+# in-flight accept→complete spans → exit, before Fly hard-kills.
+kill_timeout = 120
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3100"
+  # CHAIN / CHAIN_ID intentionally NOT defaulted here — set via secrets/env
+  # explicitly per deployment (see header).
+
+[processes]
+  worker = "node dist/worker/server.js"
+
+[[services]]
+  processes       = ["worker"]
+  protocol        = "tcp"
+  internal_port   = 3100
+  auto_stop_machines   = "off"
+  auto_start_machines  = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port     = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "connections"
+    soft_limit = 20
+    hard_limit = 50
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["worker"]
+
+[deploy]
+  strategy = "immediate"
