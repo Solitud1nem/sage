@@ -8,6 +8,19 @@
 
 ---
 
+## 2026-06-10 — Code review 2026-06-09 закрыт полностью: CR.14 (web-остаток) + merge в main + Pages deploy — `fix`
+
+Закрыт CR.14 — последний контентный пункт ревизии 2026-06-09, все 6 web-находок:
+
+- **Generation-token'ы** в `use-demo-stream` / `use-wallet-demo` — счётчик поколений run'а; устаревшие async-продолжения (поздний fetch-resolve, SSE-хендлеры, polling-циклы) не пишут в state нового run'а. В wallet-хуке это закрыло реальную гонку: общий `cancelledRef` сбрасывался новым `start()` в `false` и «оживлял» старый in-flight run.
+- **`chain: null` → реальный viem-chain** в обоих wallet-mode `writeContract` — viem теперь enforce'ит сеть кошелька вместо тихой отправки tx туда, куда смотрит кошелёк.
+- **«Depends on»** (plan-editor) — локальный draft, парсинг на blur/Enter (controlled re-render съедал запятые при вводе).
+- **`STATUS_COLORS`** (subtask-drawer) — + `awaiting-review`/`refunded`, `disputed` выровнен по палитре plan-graph.
+- **Hardcoded `5042002`** убран из composite-демо — `ARC_TESTNET_CHAIN_ID`/`BASE_MAINNET_CHAIN_ID` + типы `SageChainId`/`CompositeChainId` в `chains/`.
+- **`SAGE_CHAINS`/`wagmiConfig` Arc-drift** — `arcTestnetChain` (`defineChain`, зеркало demo-agents config) добавлен в wagmi chains+transports; wallet-mode на Arc получил transport.
+
+Ветка `code-review-2026-06-09-fixes` (10 коммитов, CR.2–CR.14 + DAILY_LIMIT) смержена в `main` fast-forward (f4f7f76) и запушена. **Pages deploy `e0702efb` 2026-06-10**, смоук `/` + `/demo/composite` → 200. Typecheck + build чистые. Ревизия 2026-06-09 закрыта целиком (CR.1–CR.14); заведён CR.15 — pre-existing поломка `next lint` (typed-linting правила без `parserOptions.project` + deprecation `next lint` в Next 16), миграция на ESLint CLI.
+
 ## 2026-06-10 — `DAILY_LIMIT` возвращён на 3 — `decision`
 
 Закрыто расхождение, флагнутое ревизией 2026-06-09 (CR.11): `wrangler.toml DAILY_LIMIT` стоял `"10"` (rebaseline 2026-05-21 на период phase-3 тестирования), при этом публичное позиционирование (README, KB) обещало «3 runs/IP/UTC-day». **Решение Alex 2026-06-10: вернуть 3** — позиционирование авторитетно. Лимит общий для daily-bucket'а `demo_start` (`/api/demo/start` + composite POSTs, см. A1-фикс волны 1). Worker задеплоен; флаг в корневом CLAUDE.md снят.
