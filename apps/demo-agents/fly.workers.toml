@@ -14,14 +14,22 @@
 #   auto_start_machines = true    (a /wake ping boots a stopped machine)
 #   min_machines_running = 0
 #
-# First-time launch (deploy is a separate step — NOT part of M12.0.2):
-#   fly launch --no-deploy --copy-config --config fly.workers.toml --ha=false
-#     (--ha=false: no standby machines — org cap is 20, see GOTCHAS
-#      "Fly org machine limit"; after launch verify `fly scale count 1`)
-#   fly secrets set -c fly.workers.toml CHAIN=mainnet ECHO_PRIVATE_KEY=0x… …
+# Deploy — ALL fly commands run from the REPO ROOT (/mnt/d/Sage), never from
+# apps/demo-agents/: the Dockerfile needs the monorepo build context (see
+# docs/runbooks/deploy-demo-agents-flyio.md + the M10.2.9 mis-step).
+#   fly apps create sage-workers --org personal
+#   fly secrets set -c apps/demo-agents/fly.workers.toml --stage \
+#       CHAIN=mainnet WORKER_IDENTITIES=echo ECHO_PRIVATE_KEY=0x… \
+#       RPC_URL=https://sage-gateway.a-t-somnia.workers.dev/api/rpc SAGE_BACKEND_KEY=…
 #     (CHAIN is REQUIRED — the worker refuses to boot without it; the shared
-#      loader's URL-sniffing once silently sent prod to Sepolia, see GOTCHAS)
-#   fly deploy -c fly.workers.toml
+#      loader's URL-sniffing once silently sent prod to Sepolia, see GOTCHAS.
+#      RPC_URL must be the gateway: the public mainnet.base.org node
+#      rate-limits the reconcile scan burst after ~4 reads — observed at the
+#      first sage-workers deploy 2026-06-10; the cursor parks and recovers,
+#      but the scan crawls. SAGE_BACKEND_KEY = same value as sage-demo-agents.)
+#   fly deploy -c apps/demo-agents/fly.workers.toml --ha=false --remote-only
+#     (--ha=false: no standby machines — org cap is 20, see GOTCHAS
+#      "Fly org machine limit")
 #
 
 app = "sage-workers"

@@ -8,6 +8,10 @@
 
 ---
 
+## 2026-06-10 — sage-workers задеплоен: scale-to-zero смоук пройден на Base mainnet — `release`
+
+Первый деплой generic-worker'а (M12.0.2 deploy-шаг): Fly app **`sage-workers`** (1 машина iad, `--ha=false`), image 74MB, identity `echo` (`0x7d2fa2627abc31E4795f9bAc6e9F85C1E688863D`, свежий EOA без фандинга — echo не регистрируется и задач не получает). Смоук полного цикла: boot → reconcile pass `[0, 37)` по V3-эскроу → `/health` 200 → `POST /wake` 202 (coalescing виден в логах) → **idle-exit через 95s** («exiting for scale-to-zero», машина stopped) → `POST /wake` по холодной машине → **auto_start поднял за 2.6s** → reconcile. Две полевые находки: (1) деплой строго из корня репо (monorepo build context — повтор граблей M10.2.9, ранбук в шапке fly.workers.toml дополнен); (2) публичный `mainnet.base.org` рейт-лимитит burst скана после ~4 reads — **курсор-парковка отработала как спроектировано** (pass abort → retry с того же id следующим wake), но прод-конфиг переведён на gateway-RPC + `SAGE_BACKEND_KEY` (как у sage-demo-agents). Машин в org: 17/20.
+
 ## 2026-06-10 — M12.0.2: generic-worker каркас (identity ≠ процесс, wake-on-HTTP) — `release`
 
 Закрыт M12.0.2 — первый код Milestone 12 (ADR-0020 пп.3–4). Один Fly-процесс хостит N agent identities (кошелёк + одна capability + цена per identity; таблица — `apps/demo-agents/src/worker/identities.ts`, ключи через `<ID>_PRIVATE_KEY` Fly secrets, подмножество на процесс — `WORKER_IDENTITIES`):
