@@ -8,6 +8,10 @@
 
 ---
 
+## 2026-06-10 — `DAILY_LIMIT` возвращён на 3 — `decision`
+
+Закрыто расхождение, флагнутое ревизией 2026-06-09 (CR.11): `wrangler.toml DAILY_LIMIT` стоял `"10"` (rebaseline 2026-05-21 на период phase-3 тестирования), при этом публичное позиционирование (README, KB) обещало «3 runs/IP/UTC-day». **Решение Alex 2026-06-10: вернуть 3** — позиционирование авторитетно. Лимит общий для daily-bucket'а `demo_start` (`/api/demo/start` + composite POSTs, см. A1-фикс волны 1). Worker задеплоен; флаг в корневом CLAUDE.md снят.
+
 ## 2026-06-09 (later ×10) — Code review: CR.13 — SDK-мелочёвка, все 7 пунктов — `fix`/`refactor`
 
 Закрыт CR.13 — SDK-хвост ревизии (`packages/adapter-evm` + `adapter-arc` + `contracts`):

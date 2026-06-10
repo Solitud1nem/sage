@@ -130,7 +130,7 @@ Gateway rate-limit'ил только `POST /api/demo/start`; `composite/classify
 ### ✅ CLAUDE.md / решения Alex — CR.11
 
 - ✅ Корневой CLAUDE.md «Текущее состояние» обновлён: активный milestone M10 → M11, устаревший working-tree снапшот 2026-05-11 заменён актуальным (+ ссылка на этот review).
-- ⏸ **Решение за Alex:** `wrangler.toml DAILY_LIMIT = "10"` при «3/IP/day» в позиционировании — синхронизировать текст или вернуть 3 (значение не менял, флаг оставлен в CLAUDE.md).
+- ✅ **Решение принято (Alex, 2026-06-10): вернуть 3.** `wrangler.toml DAILY_LIMIT` `"10"` → `"3"` — соответствует публичному позиционированию («3/IP/day» в README/KB). Worker задеплоен; флаг в CLAUDE.md снят.
 - ✅ Foreign-agent README: добавлены секции «runtime serves anything routed to your address» + «Deploying your fork» (B7/B8).
 
 ---

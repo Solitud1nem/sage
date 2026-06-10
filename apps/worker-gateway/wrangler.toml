@@ -24,7 +24,7 @@ ORCHESTRATOR_URL = "https://sage-demo-agents.fly.dev"
 # through to the Base orchestrator and surfaces as chain-mismatch in UI.
 ORCHESTRATOR_URL_ARC = "https://sage-demo-agents-arc.fly.dev"
 ALCHEMY_BASE_URL = "https://base-mainnet.g.alchemy.com/v2"
-DAILY_LIMIT = "10"   # 10 runs/IP/UTC-day. Prototype-stage default; revisit when traffic warrants tighter or looser.
+DAILY_LIMIT = "3"   # 3 runs/IP/UTC-day — matches the public positioning (README/KB). Alex 2026-06-10: reverted from the 2026-05-21 rebaseline of "10".
 ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage-web.pages.dev,http://localhost:3000,http://localhost:3001"
 
 # D1 — rate limit counters.
