@@ -126,6 +126,50 @@ export interface RunPlanOptions {
    * Absent → legacy behavior: pure polling, no pings.
    */
   readonly wake?: WakeFn;
+  /**
+   * ADR-0007 run-level guards (M12.0.3). Defaults to {@link DEFAULT_RUN_CAPS};
+   * the orchestrator overrides from env (MAX_RUN_SPEND_UNITS / MAX_RUN_TASKS /
+   * MAX_PLAN_DEPTH).
+   */
+  readonly caps?: Partial<RunCaps>;
+  /**
+   * Delegation depth this run executes at. A user-initiated UI run is 1
+   * (default). A future parent-as-worker re-entering the runner from a task
+   * envelope passes `envelope.parent.depth + 1` — and is refused once it
+   * exceeds `caps.maxDepth`. This is the recursion brake from ADR-0007.
+   */
+  readonly depth?: number;
+}
+
+/**
+ * ADR-0007 run-level guards (M12.0.3). `checkPlanCaps` bounds what a plan
+ * PROMISES at submission; this ledger bounds what a run actually DOES —
+ * evaluator steps, dispute-retry re-spawns and future dynamic tasks all draw
+ * from the same caps, so no path can spend past them. Checked BEFORE every
+ * createTask: a breach fails the plan without committing new escrow.
+ */
+export interface RunCaps {
+  /** Hard ceiling on total escrowed USDC base units per run. */
+  readonly maxRunSpendUnits: bigint;
+  /** Hard ceiling on createTask count per run (circuit breaker). */
+  readonly maxRunTasks: number;
+  /** Max delegation depth this runner may execute at (root UI run = 1). */
+  readonly maxDepth: number;
+}
+
+/** Sized against checkPlanCaps defaults (2 USDC/plan) + evaluator/retry headroom. */
+export const DEFAULT_RUN_CAPS: RunCaps = {
+  maxRunSpendUnits: 3_000_000n, // 3 USDC
+  maxRunTasks: 12,
+  maxDepth: 1,
+};
+
+/** Dispute-retry circuit breaker: re-spawn at most this many times per sub-task. */
+const MAX_DISPUTE_RETRIES = 2;
+
+interface RunLedger {
+  spentUnits: bigint;
+  tasksCreated: number;
 }
 
 /** Explicit polling interval. Do NOT lower below 10s — see GOTCHAS 2026-05-13. */
@@ -203,9 +247,21 @@ export async function runPlan(
   const startedAt = Date.now();
   const subtasks = plan.subtasks;
   const timeoutMs = options.subtaskTimeoutMs ?? DEFAULT_SUBTASK_TIMEOUT_MS;
+  const caps: RunCaps = { ...DEFAULT_RUN_CAPS, ...options.caps };
+  const depth = options.depth ?? 1;
+
+  // ADR-0007 recursion brake: refuse to execute past max delegation depth.
+  // Thrown (not failPlan'd) like validatePlan — nothing has been spawned yet,
+  // and executePlan's catch surfaces it as plan_failed.
+  if (depth > caps.maxDepth) {
+    throw new PlanError(
+      `run depth ${depth} exceeds maxDepth ${caps.maxDepth} — nested delegation refused (ADR-0007)`,
+    );
+  }
 
   validatePlan(plan);
   const order = topoSort(subtasks);
+  const ledger: RunLedger = { spentUnits: 0n, tasksCreated: 0 };
 
   channel.emit('plan_started', {
     runId: options.runId,
@@ -286,6 +342,9 @@ export async function runPlan(
           content: buildContent(currentSub, plan.brief, results),
           reviewMode: options.reviewMode ?? false,
           reviewTimeoutMs: options.reviewTimeoutMs ?? REVIEW_TIMEOUT_MS,
+          caps,
+          ledger,
+          depth,
           ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
           ...(options.capture ? { capture: options.capture } : {}),
           ...(options.wake ? { wake: options.wake } : {}),
@@ -335,6 +394,14 @@ export async function runPlan(
           }
           const decision = await awaitUserDecision(options.runId, sub.id, 'dispute-retry');
           if (decision.kind === 'retry') {
+            // Circuit breaker (ADR-0007): a sub-task that keeps getting
+            // disputed must not re-spawn escrows forever.
+            if (attempt > MAX_DISPUTE_RETRIES) {
+              const reason = `subtask #${sub.id} exhausted ${MAX_DISPUTE_RETRIES} dispute retries`;
+              options.capture?.('srv_plan_failed', { reason: 'retry_limit', failed_sub_id: sub.id });
+              failPlan({ failedSubId: sub.id, error: reason, reason: 'retry_limit' });
+              return;
+            }
             attempt += 1;
             const nextExecutor = decision.newExecutor ?? sub.executor_address;
             currentSub = nextExecutor
@@ -409,6 +476,32 @@ interface RunSubtaskArgs {
   readonly capture?: Capture;
   /** Wake-ping for scale-to-zero workers — see {@link RunPlanOptions.wake}. */
   readonly wake?: WakeFn;
+  /** Resolved run caps (ADR-0007 guards) — checked before every createTask. */
+  readonly caps: RunCaps;
+  /** Mutable per-run spend/count ledger shared across all spawns of this run. */
+  readonly ledger: RunLedger;
+  /** Delegation depth of this run — stamped into every sub-task envelope. */
+  readonly depth: number;
+}
+
+/**
+ * Charge an intended createTask against the run ledger, or throw PlanError
+ * BEFORE any escrow is committed. One door for every spawn path (sub-tasks
+ * today; evaluator steps and dispute re-spawns draw from the same caps).
+ */
+function chargeLedger(ledger: RunLedger, caps: RunCaps, amount: bigint, label: string): void {
+  if (ledger.tasksCreated + 1 > caps.maxRunTasks) {
+    throw new PlanError(
+      `${label} would exceed maxRunTasks ${caps.maxRunTasks} — run circuit breaker tripped (ADR-0007)`,
+    );
+  }
+  if (ledger.spentUnits + amount > caps.maxRunSpendUnits) {
+    throw new PlanError(
+      `${label} (${amount} units) would push run spend past ${caps.maxRunSpendUnits} base units — budget cap (ADR-0007)`,
+    );
+  }
+  ledger.tasksCreated += 1;
+  ledger.spentUnits += amount;
 }
 
 /**
@@ -500,7 +593,14 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
     throw new PlanError(`subtask #${sub.id} estimated_cost_units must be > 0`);
   }
 
-  const specUri = encodeParentId({ run: runId, sub: sub.id }, sub.spec, args.content);
+  // Run-level guards fire BEFORE the escrow tx — a tripped cap costs nothing.
+  chargeLedger(args.ledger, args.caps, sub.estimated_cost_units, `createTask#${sub.id}`);
+
+  const specUri = encodeParentId(
+    { run: runId, sub: sub.id, depth: args.depth },
+    sub.spec,
+    args.content,
+  );
   // Floor `deadline_offset_s` at MIN_DEADLINE_OFFSET_S so we don't trip
   // TaskEscrow's `deadline <= block.timestamp` check when the LLM
   // classifier emits a short value (60-90s observed). Arc testnet block
@@ -870,6 +970,8 @@ function sleep(ms: number): Promise<void> {
 
 export const __testing = {
   WAKE_REPING_MS,
+  MAX_DISPUTE_RETRIES,
+  chargeLedger,
   topoSort,
   validatePlan,
   decodeResult,

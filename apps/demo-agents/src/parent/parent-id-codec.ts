@@ -30,6 +30,16 @@ export interface ParentId {
   readonly run: string;
   /** Sub-task ordinal within the plan (matches `SubTask.id`, 1-indexed). */
   readonly sub: number;
+  /**
+   * Delegation depth of THIS task below the user-initiated run (ADR-0007
+   * guard, M12.0.3): tasks spawned directly by the orchestrator's plan-runner
+   * (workers and evaluators alike) are depth 1; a future parent-as-worker
+   * spawning a nested run from such a task would mint depth 2, and so on.
+   * Optional on the wire — legacy envelopes without it read as depth 1.
+   * The plan-runner refuses to execute beyond its max-depth, which is what
+   * breaks pathological delegate-forever recursion.
+   */
+  readonly depth?: number;
 }
 
 /** Optional content fields attached to a sub-task envelope (ADR-0018). */
@@ -78,7 +88,17 @@ export function encodeParentId(
   if (parent.run.length === 0) {
     throw new Error('encodeParentId: run must be a non-empty string');
   }
-  const payload: EncodedPayload = { parent: { run: parent.run, sub: parent.sub }, spec };
+  if (parent.depth !== undefined && (!Number.isInteger(parent.depth) || parent.depth < 1)) {
+    throw new Error(`encodeParentId: depth must be a positive integer, got ${parent.depth}`);
+  }
+  const payload: EncodedPayload = {
+    parent: {
+      run: parent.run,
+      sub: parent.sub,
+      ...(parent.depth !== undefined ? { depth: parent.depth } : {}),
+    },
+    spec,
+  };
   if (content?.source !== undefined) {
     payload.source = content.source;
   }
@@ -173,11 +193,18 @@ function decodePayload(specUri: string): EncodedPayload | null {
   if (!parsed || typeof parsed !== 'object') return null;
   const p = parsed as Partial<EncodedPayload>;
   if (!p.parent || typeof p.parent !== 'object') return null;
-  const { run, sub } = p.parent;
+  const { run, sub, depth } = p.parent;
   if (typeof run !== 'string' || run.length === 0) return null;
   if (typeof sub !== 'number' || !Number.isInteger(sub) || sub < 1) return null;
   if (typeof p.spec !== 'string') return null;
-  const result: EncodedPayload = { parent: { run, sub }, spec: p.spec };
+  // depth is optional; a malformed value degrades to "absent" (legacy = 1)
+  // rather than failing the whole decode — the guard consumer treats both
+  // the same and a hostile envelope gains nothing by omitting it.
+  const validDepth = typeof depth === 'number' && Number.isInteger(depth) && depth >= 1;
+  const result: EncodedPayload = {
+    parent: { run, sub, ...(validDepth ? { depth } : {}) },
+    spec: p.spec,
+  };
   if (typeof p.source === 'string') result.source = p.source;
   const inputs = parseInputs(p.inputs);
   if (inputs !== undefined) result.inputs = inputs;

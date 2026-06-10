@@ -509,6 +509,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
       const executeOpts = {
         chain: sageBundle.chainConfig.name,
         analyticsConsent,
+        // ADR-0007 run-level guards (M12.0.3) — actual-spend ledger caps,
+        // enforced in the plan-runner before every createTask.
+        caps: {
+          maxRunSpendUnits: env.maxRunSpendUnits,
+          maxRunTasks: env.maxRunTasks,
+          maxDepth: env.maxPlanDepth,
+        },
         ...(reviewMode
           ? {
               reviewMode: true,

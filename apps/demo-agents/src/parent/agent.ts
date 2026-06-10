@@ -28,7 +28,7 @@ import { demoRegistry } from '../shared/sse.js';
 import type { createSageFromConfig } from '../shared/config.js';
 import { classifyBrief, type ParentEnv } from './classify.js';
 import { makeStrandedResolver } from './dispute-flow.js';
-import { runPlan, type DisputeFlow } from './plan-runner.js';
+import { runPlan, type DisputeFlow, type RunCaps } from './plan-runner.js';
 import { createWaker, type WakeFn } from './wake.js';
 import { createCapture } from '../shared/analytics.js';
 
@@ -44,6 +44,8 @@ export interface ExecutePlanOptions {
   readonly chain?: string;
   /** Test seam — overrides the registry-backed waker (M12.0.2). */
   readonly wake?: WakeFn;
+  /** ADR-0007 run caps from orchestrator env (M12.0.3); runner defaults apply when absent. */
+  readonly caps?: Partial<RunCaps>;
 }
 
 /**
@@ -110,6 +112,7 @@ export function executePlan(
     ...(options.reviewMode ? { reviewMode: true } : {}),
     ...(options.disputeFlow ? { disputeFlow: options.disputeFlow } : {}),
     ...(wake ? { wake } : {}),
+    ...(options.caps ? { caps: options.caps } : {}),
   }).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[parent.agent] runPlan(${runId}) threw:`, err);

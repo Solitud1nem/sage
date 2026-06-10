@@ -30,6 +30,15 @@ export interface OrchestratorEnv {
   maxPlanSubtasks: number;
   maxPlanTotalUnits: bigint;
   /**
+   * ADR-0007 run-level guards (M12.0.3) — bound what a run actually DOES
+   * (evaluator steps + dispute retries included), where the three caps above
+   * bound what a submitted plan promises. Enforced inside the plan-runner
+   * before every createTask.
+   */
+  maxRunSpendUnits: bigint;
+  maxRunTasks: number;
+  maxPlanDepth: number;
+  /**
    * Shared secret for the gateway→orchestrator hop. When set, expensive
    * POST endpoints require the `x-sage-gateway` header to match — closing
    * the direct-to-Fly bypass of the gateway's rate limit. Optional so the
@@ -61,6 +70,11 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
     maxSubtaskUnits: BigInt(process.env.MAX_SUBTASK_UNITS ?? '500000'),
     maxPlanSubtasks: parseBoundedIntEnv('MAX_PLAN_SUBTASKS', 8, 1, 64),
     maxPlanTotalUnits: BigInt(process.env.MAX_PLAN_TOTAL_UNITS ?? '2000000'),
+    // 3 USDC actual-spend ceiling per run: plan cap (2 USDC) + headroom for
+    // evaluator steps and dispute-retry re-spawns.
+    maxRunSpendUnits: BigInt(process.env.MAX_RUN_SPEND_UNITS ?? '3000000'),
+    maxRunTasks: parseBoundedIntEnv('MAX_RUN_TASKS', 12, 1, 64),
+    maxPlanDepth: parseBoundedIntEnv('MAX_PLAN_DEPTH', 1, 1, 4),
     gatewayKey: process.env.DEMO_GATEWAY_KEY || undefined,
   };
 }
