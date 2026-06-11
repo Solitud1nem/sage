@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-06-11 — M12.1.4: QA-гейт судит приемлемость, fail-вердикт → автоматическая переделка — `release`
+
+Ответ на рамку Alex («не каждый промпт должен падать от мелочи» — live-ран зарубило `tel-non-breaking` при score 99, после чего council отписал «JSON вместо сайта» и refund). Пять изменений (`ce6fbab`):
+
+1. **Гейт инвертирован**: html-validate/Lighthouse — advisory-улики (findings + score), оплату детерминированно блокируют только объективные блокеры (нет/не парсится index.html; a11y < 50 — страница неюзабельна).
+2. **Решение — у платного LLM-судьи** с уликами на руках: «отказался бы разумный клиент платить?» (язык/тематика/заглушки/обрывы — да; стилистическая педантика — никогда). Keyless-мок сохраняет `[EVAL-FAIL]`-семантику.
+3. **Fail-вердикт → одна автоматическая переделка**: council возвращает эскроу, шаг переспавнивается с дефект-листом в инструкции (`REWORK (attempt 2)`, SSE `subtask_retrying {rework:true}`), повторный QA; второй fail → честный `plan_failed (dispute_refunded)`. Review-gate диспуты (ручные) остаются fail-fast. Капы M12.0.3 не тронуты.
+4. **Council artifact-aware**: конверт `{"artifact":…}` аннотируется как корректное протокольное использование — судья судит по findings из dispute reason, а не по «исполнитель прислал JSON».
+5. **Честный refund-экран в web**: `dispute_refunded` → «Work rejected — escrow refunded» с объяснением «протокол сработал, деньги вернулись» вместо generic «Common causes…».
+
+Гейты: 335/335 (rework-цикл покрыт: fail→rework→pass и fail→fail→refund), lint/typecheck/build чистые. Деплой: Fly orchestrator + sage-workers + Pages (`1aa20f2c`), смоук 200×3.
+
 ## 2026-06-11 — M12.1.3: website-режим в UI, verdict-серфейсинг, выдача zip — e2e на mainnet ×2 — `release`
 
 Website-пайплайн доступен из браузера (`21e216b`). Бэкенд: `POST /api/demo/composite/website-plan` — детерминированный 4-шаговый план (copywriter → builder → packager + qa-website `evaluates:2`) **без LLM-классификатора**; исполнители/цены из AgentRegistryV2 по точному имени capability (foreign-агент с дешёвым `build-website` выберется сам); classifier не тронут — легаси-composite в безопасности; роут в общем 3/IP/day-бакете. Фронт: переключатель **Composite plan / Website pipeline** на `/demo/composite`, бейдж «⚖ judges #N» на plan card (фикс-шаблон скрывает Edit), обработчик SSE `subtask_verdict` (его не было — событие эмитилось в пустоту), секция «Evaluator verdict» в drawer (pass/fail-бейдж, score, findings, **скриншот-превью из R2**), кнопка **Download site.zip** из artifact-конверта packager'а.
