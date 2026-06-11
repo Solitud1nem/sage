@@ -858,6 +858,7 @@ async function runEvaluatorStep(
       pass: verdict.pass,
       reasons: verdict.reasons,
       ...(verdict.score !== undefined ? { score: verdict.score } : {}),
+      ...(verdict.screenshot !== undefined ? { screenshot: verdict.screenshot } : {}),
     });
     args.capture?.('srv_subtask_verdict', {
       sub_id: judged.sub.id,

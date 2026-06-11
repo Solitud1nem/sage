@@ -40,6 +40,7 @@ export const IDENTITY_TABLE: readonly IdentityConfig[] = [
   { id: 'copywriter', capability: 'copywrite', priceUnits: 30_000n }, // 0.03 USDC
   { id: 'builder', capability: 'build-website', priceUnits: 80_000n }, // 0.08 USDC
   { id: 'packager', capability: 'package-archive', priceUnits: 10_000n }, // 0.01 USDC
+  { id: 'qa-website', capability: 'qa-website', priceUnits: 30_000n }, // 0.03 USDC (evaluator, M12.1.2)
 ];
 
 export interface LoadedIdentity extends IdentityConfig {

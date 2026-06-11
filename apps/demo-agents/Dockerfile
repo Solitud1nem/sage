@@ -30,7 +30,29 @@ RUN pnpm --filter @sage/core build \
 # Prune to production dependencies only; emit standalone /opt/app.
 RUN pnpm --filter @sage/demo-agents deploy --prod /opt/app
 
-# ── Stage 2: slim runtime ───────────────────────────────────────────
+# ── Stage 2a: worker runtime + headless chromium (M12.1.2 QA gate) ──
+# Built ONLY when targeted explicitly (fly.workers.toml build-target =
+# "workers"); sits BEFORE the default stage so `docker build` without
+# --target keeps producing the chromium-free image for the 3-mode demo app.
+FROM node:20-slim AS workers
+WORKDIR /opt/app
+ENV NODE_ENV=production
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium fonts-liberation \
+ && rm -rf /var/lib/apt/lists/*
+ENV CHROME_PATH=/usr/bin/chromium
+
+COPY --from=builder /opt/app ./
+
+RUN useradd -m -u 10001 sage && chown -R sage:sage /opt/app
+USER sage
+
+EXPOSE 3100
+
+CMD ["node", "dist/worker/server.js"]
+
+# ── Stage 2: slim runtime (default — stays last) ────────────────────
 FROM node:20-slim AS runtime
 WORKDIR /opt/app
 ENV NODE_ENV=production

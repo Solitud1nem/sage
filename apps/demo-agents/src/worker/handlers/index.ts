@@ -17,6 +17,7 @@ import { echoHandler } from './echo.js';
 import { copywriterHandler } from './copywriter.js';
 import { builderHandler } from './builder.js';
 import { packagerHandler } from './packager.js';
+import { qaWebsiteHandler } from './qa-website.js';
 
 export interface WorkerJob {
   /** The instruction — envelope `spec`, or the raw specUri on the legacy path. */
@@ -44,4 +45,5 @@ export const HANDLERS: Readonly<Record<string, CapabilityHandler>> = {
   copywrite: copywriterHandler,
   'build-website': builderHandler,
   'package-archive': packagerHandler,
+  'qa-website': qaWebsiteHandler,
 };

@@ -41,6 +41,9 @@ kill_timeout = 120
 
 [build]
   dockerfile = "Dockerfile"
+  # Chromium-bearing stage for the QA gate (M12.1.2); the default (last)
+  # stage stays chromium-free for the 3-mode demo app.
+  build-target = "workers"
 
 [env]
   NODE_ENV = "production"
@@ -75,7 +78,7 @@ kill_timeout = 120
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1024mb"  # Lighthouse + chromium OOM on 512MB (M12.1.2); scale-to-zero keeps idle cost at zero
   processes = ["worker"]
 
 [deploy]

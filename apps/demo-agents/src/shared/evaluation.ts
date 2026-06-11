@@ -33,6 +33,20 @@ export interface EvaluationCase {
   readonly result: string;
 }
 
+/**
+ * Optional evaluator-produced artifact reference (M12.1.2): the QA gate
+ * uploads a rendered screenshot to the R2 store and points at it here so the
+ * UI can preview the judged output. Structurally mirrors the worker's
+ * `ArtifactRef` — declared independently because `shared/` must not import
+ * from `worker/` (separate bundles, see header).
+ */
+export interface VerdictScreenshot {
+  readonly sha256: string;
+  readonly size: number;
+  readonly mime: string;
+  readonly url: string;
+}
+
 export interface EvaluationVerdict {
   /** true → release the evaluated step's payment; false → dispute hook. */
   readonly pass: boolean;
@@ -40,6 +54,8 @@ export interface EvaluationVerdict {
   readonly reasons: readonly string[];
   /** Optional 0..100 quality score for UI display. */
   readonly score?: number;
+  /** Optional rendered-output screenshot for UI preview (M12.1.2 QA gate). */
+  readonly screenshot?: VerdictScreenshot;
 }
 
 export function encodeEvaluationCase(c: EvaluationCase): string {
@@ -67,8 +83,23 @@ export function encodeVerdict(v: EvaluationVerdict): string {
       pass: v.pass,
       reasons: [...v.reasons],
       ...(v.score !== undefined ? { score: v.score } : {}),
+      ...(v.screenshot !== undefined ? { screenshot: v.screenshot } : {}),
     },
   });
+}
+
+/**
+ * Permissive screenshot decode: a malformed screenshot is dropped, never a
+ * reason to reject an otherwise valid verdict — the preview is a UI nicety,
+ * the pass/fail decision must survive without it.
+ */
+function decodeScreenshot(raw: unknown): VerdictScreenshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { sha256, size, mime, url } = raw as Record<string, unknown>;
+  if (typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+  if (typeof size !== 'number' || !Number.isInteger(size) || size < 0) return null;
+  if (typeof mime !== 'string' || typeof url !== 'string') return null;
+  return { sha256, size, mime, url };
 }
 
 export function decodeVerdict(text: string): EvaluationVerdict | null {
@@ -81,12 +112,23 @@ export function decodeVerdict(text: string): EvaluationVerdict | null {
   if (!parsed || typeof parsed !== 'object') return null;
   const v = (parsed as { verdict?: unknown }).verdict;
   if (!v || typeof v !== 'object') return null;
-  const { pass, reasons, score } = v as { pass?: unknown; reasons?: unknown; score?: unknown };
+  const { pass, reasons, score, screenshot } = v as {
+    pass?: unknown;
+    reasons?: unknown;
+    score?: unknown;
+    screenshot?: unknown;
+  };
   if (typeof pass !== 'boolean') return null;
   const reasonList = Array.isArray(reasons)
     ? reasons.filter((r): r is string => typeof r === 'string')
     : [];
   const validScore =
     typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 100;
-  return { pass, reasons: reasonList, ...(validScore ? { score } : {}) };
+  const shot = decodeScreenshot(screenshot);
+  return {
+    pass,
+    reasons: reasonList,
+    ...(validScore ? { score } : {}),
+    ...(shot ? { screenshot: shot } : {}),
+  };
 }
