@@ -27,6 +27,7 @@ import { TaskStatus, taskId, type TaskRecord } from '@sage/core';
 
 import { awaitTaskState } from '../shared/await-task-state.js';
 import { decodeCompositeEnvelope, materialFromEnvelope } from '../shared/composite-codec.js';
+import type { ArtifactStore } from './artifacts.js';
 import type { CapabilityHandler, WorkerJob } from './handlers/index.js';
 import type { IdentityRuntime } from './runtime.js';
 
@@ -65,6 +66,8 @@ export class ActivityTracker {
 export interface ExecutorOptions {
   readonly activity: ActivityTracker;
   readonly openaiApiKey: string | undefined;
+  /** R2 artifact store, when the env provides gateway access (M12.1.1). */
+  readonly artifacts?: ArtifactStore;
   /** Skip a Created task whose deadline is closer than this. Default 120s. */
   readonly minDeadlineMarginS?: number;
   /** Cap on envelope material size, chars. Default 100k. 0 disables. */
@@ -219,6 +222,7 @@ async function runWithRetry(
         identityId: rt.identity.id,
         capability: rt.identity.capability,
         openaiApiKey: opts.openaiApiKey,
+        ...(opts.artifacts ? { artifacts: opts.artifacts } : {}),
       });
     } catch (err) {
       lastErr = err;

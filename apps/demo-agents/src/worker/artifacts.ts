@@ -76,6 +76,51 @@ export async function uploadArtifact(
   return { sha256: sha, size: bytes.byteLength, mime, url: data.url ?? url };
 }
 
+/**
+ * Handler-facing artifact store (threaded through HandlerContext).
+ * `download` verifies the fetched bytes against the ref's sha256 BEFORE
+ * returning — a consumer (packager, future evaluators) only ever sees bytes
+ * that match what the producer committed on-chain.
+ */
+export interface ArtifactStore {
+  upload(bytes: Uint8Array, mime: string): Promise<ArtifactRef>;
+  download(ref: ArtifactRef): Promise<Uint8Array>;
+}
+
+export function makeArtifactStore(opts: ArtifactUploadOptions): ArtifactStore {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  return {
+    upload: (bytes, mime) => uploadArtifact(bytes, mime, opts),
+    async download(ref) {
+      const res = await fetchImpl(ref.url);
+      if (!res.ok) {
+        throw new Error(`artifact download failed (HTTP ${res.status}) for ${ref.sha256}`);
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const actual = sha256Hex(bytes);
+      if (actual !== ref.sha256) {
+        throw new Error(`artifact sha256 mismatch: expected ${ref.sha256}, got ${actual}`);
+      }
+      return bytes;
+    },
+  };
+}
+
+/**
+ * Derive the gateway origin from a proxied RPC_URL
+ * (https://gw.example/api/rpc → https://gw.example). Returns null when the
+ * RPC isn't gateway-shaped (direct node) — the caller then needs an explicit
+ * ARTIFACTS_GATEWAY_URL.
+ */
+export function gatewayOriginFromRpcUrl(rpcUrl: string): string | null {
+  try {
+    const url = new URL(rpcUrl);
+    return url.pathname.startsWith('/api/rpc') ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 export function encodeArtifactResult(ref: ArtifactRef): string {
   return JSON.stringify({ artifact: ref });
 }

@@ -31,6 +31,7 @@ import { buildWorkerRuntime, type WorkerRuntime } from './runtime.js';
 import { HANDLERS } from './handlers/index.js';
 import { ActivityTracker, executeTask } from './executor.js';
 import { createReconciler, type TaskReader } from './reconcile.js';
+import { makeArtifactStore, gatewayOriginFromRpcUrl, type ArtifactStore } from './artifacts.js';
 
 const log = (msg: string) => console.error(`[worker] ${msg}`);
 
@@ -106,6 +107,21 @@ function main(): void {
   let draining = false;
   let activePasses = 0;
 
+  // Artifact store (M12.1.1): needs the gateway origin + backend key. The
+  // origin usually falls out of the proxied RPC_URL; ARTIFACTS_GATEWAY_URL
+  // overrides for direct-node setups. Without both, handlers that produce
+  // artifacts fail honestly instead of silently inlining megabytes on-chain.
+  let artifacts: ArtifactStore | undefined;
+  const gatewayUrl =
+    process.env['ARTIFACTS_GATEWAY_URL'] ?? gatewayOriginFromRpcUrl(process.env['RPC_URL'] ?? '');
+  const backendKey = process.env['SAGE_BACKEND_KEY'];
+  if (gatewayUrl && backendKey) {
+    artifacts = makeArtifactStore({ gatewayUrl, backendKey });
+    log(`artifact store: ${gatewayUrl}/api/artifacts`);
+  } else {
+    log('artifact store DISABLED (no gateway url / backend key) — artifact-producing handlers will fail honestly');
+  }
+
   const reconciler = createReconciler({
     reader: buildReader(runtime),
     addresses: new Set(runtime.byAddress.keys()),
@@ -117,6 +133,7 @@ function main(): void {
       return executeTask(rt, HANDLERS[rt.identity.capability]!, id, task, {
         activity,
         openaiApiKey: runtime.openaiApiKey,
+        ...(artifacts ? { artifacts } : {}),
       }, resume);
     },
   });

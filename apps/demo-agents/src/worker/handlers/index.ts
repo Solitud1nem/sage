@@ -12,7 +12,11 @@
  * hosted identity's capability has no handler — see `server.ts`.
  */
 
+import type { ArtifactStore } from '../artifacts.js';
 import { echoHandler } from './echo.js';
+import { copywriterHandler } from './copywriter.js';
+import { builderHandler } from './builder.js';
+import { packagerHandler } from './packager.js';
 
 export interface WorkerJob {
   /** The instruction — envelope `spec`, or the raw specUri on the legacy path. */
@@ -25,10 +29,19 @@ export interface HandlerContext {
   readonly identityId: string;
   readonly capability: string;
   readonly openaiApiKey: string | undefined;
+  /**
+   * R2-backed artifact store (M12.0.3/M12.1.1). Absent when the worker env
+   * lacks a gateway URL or backend key — handlers that need it throw, which
+   * surfaces as an honest `Task failed` instead of a silent wrong path.
+   */
+  readonly artifacts?: ArtifactStore;
 }
 
 export type CapabilityHandler = (job: WorkerJob, ctx: HandlerContext) => Promise<string>;
 
 export const HANDLERS: Readonly<Record<string, CapabilityHandler>> = {
   echo: echoHandler,
+  copywrite: copywriterHandler,
+  'build-website': builderHandler,
+  'package-archive': packagerHandler,
 };

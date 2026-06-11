@@ -7,11 +7,11 @@
   "scripts": {
     "build": "tsup",
     "dev:orchestrator": "node --env-file-if-exists=.env.orchestrator --import tsx src/orchestrator/server.ts",
-    "dev:summarizer":   "node --env-file-if-exists=.env.summarizer   --import tsx src/summarizer/agent.ts",
-    "dev:translator":   "node --env-file-if-exists=.env.translator   --import tsx src/translator/agent.ts",
-    "dev:vision":       "node --env-file-if-exists=.env.vision       --import tsx src/vision/agent.ts",
-    "dev:sentiment":    "node --env-file-if-exists=.env.sentiment    --import tsx src/sentiment/agent.ts",
-    "dev:worker":       "node --env-file-if-exists=.env.worker       --import tsx src/worker/server.ts",
+    "dev:summarizer": "node --env-file-if-exists=.env.summarizer   --import tsx src/summarizer/agent.ts",
+    "dev:translator": "node --env-file-if-exists=.env.translator   --import tsx src/translator/agent.ts",
+    "dev:vision": "node --env-file-if-exists=.env.vision       --import tsx src/vision/agent.ts",
+    "dev:sentiment": "node --env-file-if-exists=.env.sentiment    --import tsx src/sentiment/agent.ts",
+    "dev:worker": "node --env-file-if-exists=.env.worker       --import tsx src/worker/server.ts",
     "bootstrap": "bash scripts/bootstrap-local.sh",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -20,6 +20,7 @@
   "dependencies": {
     "@sage/adapter-evm": "workspace:*",
     "@sage/core": "workspace:*",
+    "fflate": "^0.8.3",
     "viem": "^2.0.0"
   },
   "devDependencies": {

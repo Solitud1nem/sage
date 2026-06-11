@@ -35,6 +35,11 @@ export interface IdentityConfig {
  */
 export const IDENTITY_TABLE: readonly IdentityConfig[] = [
   { id: 'echo', capability: 'echo', priceUnits: 10_000n }, // 0.01 USDC
+  // Website pipeline (M12.1.1) — prices per docs/research/pipeline-economics.md §2;
+  // registry registration MUST use the same numbers (register-worker-identity.md).
+  { id: 'copywriter', capability: 'copywrite', priceUnits: 30_000n }, // 0.03 USDC
+  { id: 'builder', capability: 'build-website', priceUnits: 80_000n }, // 0.08 USDC
+  { id: 'packager', capability: 'package-archive', priceUnits: 10_000n }, // 0.01 USDC
 ];
 
 export interface LoadedIdentity extends IdentityConfig {
