@@ -20,7 +20,11 @@
 #   fly apps create sage-workers --org personal
 #   fly secrets set -c apps/demo-agents/fly.workers.toml --stage \
 #       CHAIN=mainnet WORKER_IDENTITIES=echo ECHO_PRIVATE_KEY=0x… \
-#       RPC_URL=https://sage-gateway.a-t-somnia.workers.dev/api/rpc SAGE_BACKEND_KEY=…
+#       RPC_URL=https://sage-gateway.a-t-somnia.workers.dev/api/rpc SAGE_BACKEND_KEY=… \
+#       OPENAI_API_KEY=…
+#     (OPENAI_API_KEY is REQUIRED for real pipeline output — without it the
+#      handlers fall back to deterministic keyless mocks; observed live on
+#      the M12.1.3 e2e run f960f3bf.)
 #     (CHAIN is REQUIRED — the worker refuses to boot without it; the shared
 #      loader's URL-sniffing once silently sent prod to Sepolia, see GOTCHAS.
 #      RPC_URL must be the gateway: the public mainnet.base.org node

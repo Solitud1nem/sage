@@ -35,7 +35,15 @@ import { MOCK_FAIL_MARKER } from './evaluator.js';
 import { runBrowserAudit, type QaAuditRunner } from './qa-browser.js';
 import type { CapabilityHandler, HandlerContext } from './index.js';
 
-export const PERFORMANCE_MIN = 70;
+/**
+ * Performance gates only CATASTROPHIC pages: Lighthouse's CPU-throttled
+ * emulation on the shared-cpu-1x worker VM is noisy — a perfectly fine
+ * static site scored 56 while the same machine idle scored 99 (observed on
+ * the M12.1.3 e2e, run 908e6718). Accessibility is deterministic markup
+ * analysis and stays the real quality gate; the raw scores still reach the
+ * UI via `score`.
+ */
+export const PERFORMANCE_MIN = 40;
 export const ACCESSIBILITY_MIN = 80;
 /** Cap findings so a pathological page can't balloon the on-chain result. */
 const MAX_HTML_FINDINGS = 8;

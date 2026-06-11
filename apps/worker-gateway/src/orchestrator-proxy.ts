@@ -22,6 +22,7 @@ const RATE_LIMITED_POSTS = new Set([
   '/api/demo/composite/classify',
   '/api/demo/composite/execute',
   '/api/demo/composite/retry-subtask',
+  '/api/demo/composite/website-plan',
 ]);
 
 export async function handleOrchestrator(

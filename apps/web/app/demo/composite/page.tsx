@@ -19,9 +19,13 @@ import { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
 import {
   useCompositeDemo,
   planFromClassification,
+  artifactFromResult,
   type CompositeChainId,
   type WirePlan,
 } from '@/hooks/use-composite-demo';
+
+/** Demo mode: LLM-classified composite vs deterministic website pipeline (M12.1.3). */
+type CompositeMode = 'composite' | 'website';
 
 /**
  * /demo/composite — observable-decomposition flow.
@@ -81,6 +85,7 @@ function CompositePageInner() {
   );
 
   const [brief, setBrief] = useState('');
+  const [mode, setMode] = useState<CompositeMode>('composite');
   const [editing, setEditing] = useState(false);
   const [editedPlan, setEditedPlan] = useState<WirePlan | null>(null);
   const [selectedSubId, setSelectedSubId] = useState<number | null>(null);
@@ -103,7 +108,7 @@ function CompositePageInner() {
     if (!brief.trim()) return;
     setEditedPlan(null);
     setEditing(false);
-    void demo.classify(brief.trim());
+    void demo.classify(brief.trim(), mode === 'website' ? 'website-plan' : 'classify');
   };
 
   const handleApprove = () => {
@@ -149,6 +154,34 @@ function CompositePageInner() {
             onChange={setChain}
             disabled={demo.status !== 'idle'}
           />
+          <div
+            className="inline-flex rounded-[10px] border border-border bg-surface p-1 font-mono text-[12px]"
+            role="tablist"
+            aria-label="Demo mode"
+          >
+            {(
+              [
+                ['composite', 'Composite plan'],
+                ['website', 'Website pipeline'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={mode === value}
+                onClick={() => setMode(value)}
+                disabled={demo.status !== 'idle'}
+                className={`h-8 px-4 rounded-[7px] transition-colors disabled:cursor-not-allowed ${
+                  mode === value
+                    ? 'bg-cyan text-[#0A0A0F] font-medium'
+                    : 'text-text-muted hover:text-text'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <form
             onSubmit={submitBrief}
             className="rounded-[14px] border border-border bg-surface p-6 md:p-8"
@@ -158,21 +191,29 @@ function CompositePageInner() {
                 01 · Brief
               </div>
               <p className="text-[13px] text-text-muted">
-                A sentence or two. The classifier handles any language.
+                {mode === 'website'
+                  ? 'Describe the business or project. A fixed pipeline — copywriter → builder → packager, with a paid QA evaluator gating the builder — turns it into a deploy-ready site archive.'
+                  : 'A sentence or two. The classifier handles any language.'}
               </p>
             </header>
             <textarea
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
               rows={4}
-              placeholder="e.g. research the top 3 stablecoin yield products on Base and write a comparative report"
+              placeholder={
+                mode === 'website'
+                  ? 'e.g. a specialty coffee shop by the sea in Lisbon — warm tone, English copy'
+                  : 'e.g. research the top 3 stablecoin yield products on Base and write a comparative report'
+              }
               className="w-full px-4 py-3 rounded-[10px] border border-border bg-[#0A0A0F] text-[14px] text-text leading-[1.55] focus:outline-none focus:border-cyan"
               disabled={demo.status === 'classifying'}
             />
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
                 {demo.status === 'classifying'
-                  ? 'classifying · ~5s'
+                  ? mode === 'website'
+                    ? 'building plan · ~2s'
+                    : 'classifying · ~5s'
                   : `${brief.trim().length} chars`}
               </div>
               <button
@@ -180,7 +221,13 @@ function CompositePageInner() {
                 disabled={!brief.trim() || demo.status === 'classifying'}
                 className="h-10 px-5 rounded-[8px] bg-cyan text-[#0A0A0F] font-mono text-[12px] font-medium hover:bg-[#7AEAF8] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {demo.status === 'classifying' ? 'Classifying…' : 'Classify brief →'}
+                {demo.status === 'classifying'
+                  ? mode === 'website'
+                    ? 'Building plan…'
+                    : 'Classifying…'
+                  : mode === 'website'
+                    ? 'Build plan →'
+                    : 'Classify brief →'}
               </button>
             </div>
           </form>
@@ -212,7 +259,9 @@ function CompositePageInner() {
             }}
             brief={brief}
             onApprove={handleApprove}
-            onEdit={() => setEditing(true)}
+            // Website pipeline is a fixed template — editing would break the
+            // evaluator wiring (qa-website judges the builder), so no Edit.
+            {...(mode === 'website' ? {} : { onEdit: () => setEditing(true) })}
             onCancel={handleReset}
           />
         </section>
@@ -332,7 +381,23 @@ function CompositePageInner() {
             return null;
           })()}
           {isDone && (
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {(() => {
+                // M12.1.3: the packager's result is an artifact envelope
+                // pointing at the deploy-ready zip in the R2 store.
+                const zip = Object.values(demo.runtimes)
+                  .map((r) => artifactFromResult(r.result))
+                  .find((a) => a?.mime === 'application/zip');
+                return zip ? (
+                  <a
+                    href={zip.url}
+                    download="site.zip"
+                    className="h-9 px-4 inline-flex items-center rounded-[8px] bg-cyan text-[#0A0A0F] font-mono text-[12px] font-medium hover:bg-[#7AEAF8] transition-colors"
+                  >
+                    Download site.zip ({Math.max(1, Math.round(zip.size / 1024))} KB)
+                  </a>
+                ) : null;
+              })()}
               <button
                 type="button"
                 onClick={handleReset}

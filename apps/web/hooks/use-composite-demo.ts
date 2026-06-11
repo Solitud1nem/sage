@@ -121,6 +121,27 @@ export interface WireSubTask {
   deadline_offset_s: number;
   depends_on?: number[];
   spec: string;
+  /** Sibling sub-task id this step judges as a paid evaluator (ADR-0020 п.5). */
+  evaluates?: number;
+}
+
+/** Rendered-output screenshot attached to an evaluator verdict (M12.1.2). */
+export interface QaScreenshot {
+  sha256: string;
+  size: number;
+  mime: string;
+  url: string;
+}
+
+/** Paid-evaluator verdict for a judged sub-task (`subtask_verdict`, M12.0.3). */
+export interface QaVerdict {
+  /** Absent when the evaluator degraded (no judgement was made). */
+  pass?: boolean;
+  reasons: string[];
+  score?: number;
+  degraded?: boolean;
+  evaluatorSubId?: number;
+  screenshot?: QaScreenshot;
 }
 
 export interface WireClassification {
@@ -157,6 +178,8 @@ export interface SubTaskRuntime {
   error?: string;
   /** Council verdict, set when a disputed sub-task is resolved (ADR-0019). */
   verdict?: SubTaskVerdict;
+  /** Paid-evaluator verdict for THIS (judged) sub-task (M12.0.3/M12.1.2). */
+  qaVerdict?: QaVerdict;
 }
 
 export interface CompositeEvent {
@@ -221,17 +244,24 @@ export function useCompositeDemo(chainId: number) {
   // once status !== 'idle' — this ref is a belt-and-braces backstop.
   const runChainRef = useRef<number>(chainId);
 
-  /** POST /classify. Status: idle → classifying → plan-ready | error. */
-  const classify = useCallback(async (brief: string): Promise<void> => {
+  /**
+   * POST /classify (LLM classification) or /website-plan (deterministic
+   * website-pipeline template, M12.1.3). Status: idle → classifying →
+   * plan-ready | error.
+   */
+  const classify = useCallback(async (
+    brief: string,
+    mode: 'classify' | 'website-plan' = 'classify',
+  ): Promise<void> => {
     closeStream(esRef);
     eventIdRef.current = 0;
     runChainRef.current = chainId;
     setState({ ...INITIAL_STATE, status: 'classifying' });
-    track('composite_classify_started', { brief_len: brief.length, chain_id: chainId });
+    track('composite_classify_started', { brief_len: brief.length, chain_id: chainId, mode });
     const startedAt = Date.now();
 
     try {
-      const res = await fetch(urlFor('/api/demo/composite/classify', chainId), {
+      const res = await fetch(urlFor(`/api/demo/composite/${mode}`, chainId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brief }),
@@ -585,6 +615,32 @@ function attachStream(
         awaitingReviewSubId: subId,
       }));
     },
+    subtask_verdict: (data) => {
+      // M12.0.3/M12.1.2: paid evaluator judged a sibling sub-task. `degraded`
+      // events carry no pass — the run fell back to the legacy approve path.
+      const subId = numberField(data, 'subId');
+      if (subId === null) return;
+      const pass = typeof data['pass'] === 'boolean' ? data['pass'] : undefined;
+      const reasons = Array.isArray(data['reasons'])
+        ? (data['reasons'] as unknown[]).filter((r): r is string => typeof r === 'string')
+        : [];
+      const score = numberField(data, 'score');
+      const degraded = data['degraded'] === true;
+      const evaluatorSubId = numberField(data, 'evaluatorSubId');
+      const screenshot = parseScreenshot(data['screenshot']);
+      track('composite_subtask_verdict', { subId, pass: pass ?? null, degraded });
+      setState((prev) => updateRuntime(prev, subId, (r) => ({
+        ...r,
+        qaVerdict: {
+          ...(pass !== undefined ? { pass } : {}),
+          reasons,
+          ...(score !== null ? { score } : {}),
+          ...(degraded ? { degraded } : {}),
+          ...(evaluatorSubId !== null ? { evaluatorSubId } : {}),
+          ...(screenshot ? { screenshot } : {}),
+        },
+      })));
+    },
     subtask_dispute_raised: (data) => {
       // M11.4: client raised a dispute on-chain; council is now judging.
       const subId = numberField(data, 'subId');
@@ -746,6 +802,25 @@ function pushEvent(
     ...prev,
     events: [...prev.events, { id, event, data, receivedAt: Date.now() }],
   }));
+}
+
+function parseScreenshot(raw: unknown): QaScreenshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { sha256, size, mime, url } = raw as Record<string, unknown>;
+  if (typeof sha256 !== 'string' || typeof mime !== 'string' || typeof url !== 'string') return null;
+  if (typeof size !== 'number' || !Number.isFinite(size)) return null;
+  return { sha256, size, mime, url };
+}
+
+/**
+ * Decode a worker artifact envelope `{"artifact":{sha256,size,mime,url}}`
+ * from a decoded sub-task result (M12.0.3). Returns null for plain-text
+ * results — text and artifact results coexist in the same pipelines.
+ */
+export function artifactFromResult(result: string | undefined): QaScreenshot | null {
+  if (!result) return null;
+  const parsed = safeParse(result);
+  return parseScreenshot((parsed as { artifact?: unknown }).artifact);
 }
 
 function decodeResultUri(uri: string): string {

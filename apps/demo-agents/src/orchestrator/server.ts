@@ -24,6 +24,7 @@ import { startDemoRun, type DemoMode } from './demo-run.js';
 import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
 import { makeDisputeFlow } from '../parent/dispute-flow.js';
 import { resolveExecutorFromRegistry } from '../parent/registry-resolver.js';
+import { buildWebsiteClassification } from '../parent/website-plan.js';
 import { listActiveAgentsV2 } from '@sage/adapter-evm';
 import type { AgentRecordV2, Plan, SubTask } from '@sage/core';
 
@@ -456,6 +457,45 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  // --- POST /api/demo/composite/website-plan (M12.1.3) ----------------
+  // Deterministic website-pipeline plan — no LLM classification; executors
+  // and prices resolved from AgentRegistryV2 by exact capability name. The
+  // registry is REQUIRED here (unlike classify's best-effort resolve): a
+  // website plan whose steps nobody executes must not reach the plan card.
+  if (url === '/api/demo/composite/website-plan' && method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? (JSON.parse(raw) as { brief?: unknown }) : {};
+      if (typeof body.brief !== 'string' || body.brief.length === 0) {
+        json(res, 400, { error: 'brief must be a non-empty string' });
+        return;
+      }
+
+      const registryV2Addr = sageBundle.chainConfig.contracts.agentRegistryV2;
+      if (!registryV2Addr) {
+        json(res, 503, { error: 'agent registry V2 is not configured on this chain' });
+        return;
+      }
+      let registryAgents: AgentRecordV2[];
+      try {
+        registryAgents = await listActiveAgentsV2(sageBundle.publicClient, registryV2Addr);
+      } catch (regErr) {
+        console.error('[Orchestrator] registry V2 lookup failed:', regErr);
+        json(res, 503, { error: 'agent registry lookup failed — try again' });
+        return;
+      }
+
+      const classification = buildWebsiteClassification(registryAgents);
+      jsonWithBigints(res, 200, { classification });
+    } catch (err) {
+      console.error('[Orchestrator] /api/demo/composite/website-plan error:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      // Missing capability = service state, not server bug.
+      json(res, message.includes('no active agent') ? 503 : 500, { error: message });
+    }
+    return;
+  }
+
   // --- POST /api/demo/composite/execute -------------------------------
   if (url === '/api/demo/composite/execute' && method === 'POST') {
     try {
@@ -522,14 +562,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
           maxRunTasks: env.maxRunTasks,
           maxDepth: env.maxPlanDepth,
         },
-        ...(reviewMode
-          ? {
-              reviewMode: true,
-              disputeFlow: makeDisputeFlow(sageBundle, {
-                ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
-              }),
-            }
-          : {}),
+        // Dispute resolution (council + arbiter) is wired UNCONDITIONALLY:
+        // both the opt-in review gate and evaluator fail-verdicts route
+        // through it. Wiring it only under reviewMode (the M12.0.3 seam)
+        // made an evaluator fail-verdict silently PAY the failed step —
+        // observed live on run 908e6718 (M12.1.3 e2e, 2026-06-11).
+        disputeFlow: makeDisputeFlow(sageBundle, {
+          ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
+        }),
+        ...(reviewMode ? { reviewMode: true } : {}),
       };
 
       const { runId, streamUrl } = executePlan(plan, sageBundle, executeOpts);

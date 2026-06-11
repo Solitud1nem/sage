@@ -23,7 +23,8 @@ interface PlanCardProps {
   classification: WireClassification;
   brief: string;
   onApprove: () => void;
-  onEdit: () => void;
+  /** Absent for fixed-template plans (website pipeline) — hides the Edit button. */
+  onEdit?: () => void;
   onCancel: () => void;
 }
 
@@ -130,13 +131,15 @@ export function PlanCard({
           >
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={onEdit}
-            className="h-9 px-4 rounded-[8px] border border-border font-mono text-[12px] text-text hover:border-purple transition-colors"
-          >
-            Edit
-          </button>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="h-9 px-4 rounded-[8px] border border-border font-mono text-[12px] text-text hover:border-purple transition-colors"
+            >
+              Edit
+            </button>
+          )}
           <button
             type="button"
             onClick={onApprove}
@@ -172,6 +175,15 @@ function SubTaskRow({ sub }: { sub: WireSubTask }) {
       <div>
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <span className="font-mono text-[13px] text-text">{sub.type}</span>
+          {sub.evaluates !== undefined && (
+            <span
+              className="font-mono text-[11px] px-2 py-[1px] rounded-full border"
+              style={{ borderColor: '#A78BFA', color: '#A78BFA' }}
+              title="Paid evaluator: its verdict releases or disputes the judged step's payment."
+            >
+              ⚖ judges #{sub.evaluates}
+            </span>
+          )}
           {sub.depends_on && sub.depends_on.length > 0 && (
             <span className="font-mono text-[11px] text-text-subtle">
               ← depends on{' '}

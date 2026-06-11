@@ -152,6 +152,61 @@ export function SubtaskDrawer({
             </Section>
           )}
 
+          {runtime?.qaVerdict && (
+            <Section title="Evaluator verdict">
+              {runtime.qaVerdict.degraded ? (
+                <p className="text-[13px] leading-[1.6] text-text-muted">
+                  Evaluator degraded — the step was approved on the legacy path without a
+                  verdict{runtime.qaVerdict.reasons[0] ? ` (${runtime.qaVerdict.reasons[0]})` : ''}.
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <span
+                      className="font-mono text-[11px] uppercase tracking-[0.08em] px-2 py-[1px] rounded-full border"
+                      style={
+                        runtime.qaVerdict.pass
+                          ? { borderColor: '#6EE7B7', color: '#6EE7B7' }
+                          : { borderColor: '#F472B6', color: '#F472B6' }
+                      }
+                    >
+                      {runtime.qaVerdict.pass ? 'pass · payment released' : 'fail · disputed'}
+                    </span>
+                    {runtime.qaVerdict.score !== undefined && (
+                      <span className="font-mono text-[12px] text-text-muted">
+                        score {runtime.qaVerdict.score}/100
+                      </span>
+                    )}
+                  </div>
+                  {runtime.qaVerdict.reasons.length > 0 && (
+                    <ul className="list-disc pl-4 space-y-1 text-[13px] leading-[1.6] text-text-muted">
+                      {runtime.qaVerdict.reasons.map((r) => (
+                        <li key={r} className="break-words">{r}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {runtime.qaVerdict.screenshot && (
+                    <a
+                      href={runtime.qaVerdict.screenshot.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block mt-3"
+                      title="Open full screenshot"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- R2-hosted runtime artifact; next/image needs static config */}
+                      <img
+                        src={runtime.qaVerdict.screenshot.url}
+                        alt="Rendered site screenshot from the QA evaluator"
+                        className="rounded-[8px] border border-border max-h-[260px] w-auto"
+                        loading="lazy"
+                      />
+                    </a>
+                  )}
+                </>
+              )}
+            </Section>
+          )}
+
           {verdict && (
             <Section title="Council verdict">
               <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-[#A78BFA] mb-1">
