@@ -6,13 +6,15 @@
 
 ## 1. EOA + секреты (можно заранее)
 
+**Кошельки создаёт оператор (Alex), ключи остаются в его кастоди** — приватники/сиды сохраняются у него до того, как адрес получит хоть копейку. Ключ, существующий только в Fly secrets, недопустим: потеря app'а/secrets не должна терять доступ к кошельку (решение Alex 2026-06-11, после ротации website-четвёрки).
+
 ```bash
-# Из корня репо. Печатает адреса + готовую команду fly secrets set --stage.
-pnpm --filter @sage/demo-agents exec tsx scripts/new-identity-wallets.ts copywriter builder packager qa-website
-# → выполнить напечатанную команду fly secrets set; почистить scrollback терминала.
+# Оператор, локально:
+cast wallet new            # на каждую identity; ключ/сид — в свой keystore
+fly secrets set <ID>_PRIVATE_KEY=0x… -a sage-workers   # имя: id identity, дефисы → подчёркивания
 ```
 
-Ключи живут ТОЛЬКО в Fly secrets (`<ID>_PRIVATE_KEY`, дефисы → подчёркивания). `--stage` применится следующим деплоем/рестартом.
+AI-ассистенту передаются **только адреса**. Приватные ключи никогда не вставляются в чат/сессию — даже внутри команды «для примера». `scripts/new-identity-wallets.ts` остаётся для локальных тестовых кошельков, для продовых identities не используется.
 
 ## 2. Газ
 
@@ -27,6 +29,8 @@ pnpm --filter @sage/demo-agents exec tsx scripts/new-identity-wallets.ts copywri
 - смоук: `GET https://sage-workers.fly.dev/health` показывает identity.
 
 ## 4. Регистрация (идемпотентна)
+
+Запускает **оператор в своём терминале** (подпись требует приватника, см. §1). В чат/сессию возвращается только вывод: адрес + tx-хэш.
 
 ```bash
 CHAIN=mainnet COPYWRITER_PRIVATE_KEY=0x… \
