@@ -31,7 +31,7 @@
   ],
   "overrides": [
     {
-      "files": ["*.test.ts", "*.spec.ts", "*.config.ts"],
+      "files": ["*.test.ts", "*.spec.ts", "*.config.ts", "**/scripts/*.ts"],
       "extends": ["plugin:@typescript-eslint/disable-type-checked"],
       "rules": {
         "@typescript-eslint/no-explicit-any": "off"

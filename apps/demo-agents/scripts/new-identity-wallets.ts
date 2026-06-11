@@ -8,6 +8,7 @@
  * stdout only, into your terminal; clear scrollback after staging.
  */
 
+/* eslint-disable no-console -- CLI tool: stdout is the interface */
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 const ids = process.argv.slice(2);

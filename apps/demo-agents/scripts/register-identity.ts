@@ -18,6 +18,7 @@
  * by capability name and nothing will ever accept the task.
  */
 
+/* eslint-disable no-console -- CLI tool: stdout is the interface */
 import { privateKeyToAccount } from 'viem/accounts';
 import { createPublicClient, createWalletClient, http, nonceManager } from 'viem';
 import { base as baseChainDef, baseSepolia as baseSepoliaChainDef } from 'viem/chains';
