@@ -412,7 +412,7 @@ function CompositePageInner() {
 
       {isError && demo.error && (
         <div className="mt-10">
-          <ErrorPanel message={demo.error} onReset={handleReset} />
+          <ErrorPanel message={demo.error} failReason={demo.failReason} onReset={handleReset} />
         </div>
       )}
 

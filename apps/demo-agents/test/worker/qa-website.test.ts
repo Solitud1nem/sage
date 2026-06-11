@@ -11,8 +11,7 @@ import {
   makeQaWebsiteHandler,
   validateHtmlFiles,
   visibleText,
-  PERFORMANCE_MIN,
-  ACCESSIBILITY_MIN,
+  ACCESSIBILITY_BLOCKER,
 } from '../../src/worker/handlers/qa-website.js';
 import { MOCK_FAIL_MARKER } from '../../src/worker/handlers/evaluator.js';
 import { builderHandler } from '../../src/worker/handlers/builder.js';
@@ -137,7 +136,7 @@ describe('qa-website verdict discipline', () => {
     expect(objects.get(verdict!.screenshot!.sha256)?.bytes).toEqual(PNG);
   });
 
-  it('fails on HTML validation errors with file:line findings', async () => {
+  it('HTML validation errors are ADVISORY — keyless verdict passes despite findings (M12.1.4)', async () => {
     const { store } = makeFakeStore();
     const broken =
       '<!DOCTYPE html><html lang="en"><head><title>T</title></head>' +
@@ -149,44 +148,52 @@ describe('qa-website verdict discipline', () => {
       ctx({ artifacts: store }),
     );
     const verdict = decodeVerdict(out);
-    expect(verdict?.pass).toBe(false);
-    expect(verdict?.reasons.some((r) => r.startsWith('index.html:'))).toBe(true);
-    // Screenshot still ships with a failing verdict — UI previews rejects too.
-    expect(verdict?.screenshot).toBeDefined();
+    expect(verdict?.pass).toBe(true);
+    expect(verdict?.reasons).toHaveLength(0);
   });
 
-  it('fails when lighthouse scores miss the thresholds', async () => {
+  it('low scores are advisory, but catastrophic accessibility is a BLOCKER', async () => {
     const { store } = makeFakeStore();
     const result = await manifestResult(store, {
       files: [{ path: 'index.html', content: VALID_HTML }],
     });
-    const handler = makeQaWebsiteHandler({
+    // Terrible-but-usable scores → advisory only → pass.
+    const lowOut = await makeQaWebsiteHandler({
       audit: cannedAudit({
-        lighthouse: { performance: PERFORMANCE_MIN - 1, accessibility: ACCESSIBILITY_MIN - 1, bestPractices: 90, seo: 90 },
+        lighthouse: { performance: 15, accessibility: ACCESSIBILITY_BLOCKER, bestPractices: 50, seo: 40 },
       }),
-    });
-    const out = await handler(
-      { spec: 'judge', material: evalMaterial('build', result) },
-      ctx({ artifacts: store }),
-    );
-    const verdict = decodeVerdict(out);
+    })({ spec: 'judge', material: evalMaterial('build', result) }, ctx({ artifacts: store }));
+    expect(decodeVerdict(lowOut)?.pass).toBe(true);
+
+    // Below the blocker line → deterministic fail with blocker + advisory trail.
+    const blockedOut = await makeQaWebsiteHandler({
+      audit: cannedAudit({
+        lighthouse: { performance: 90, accessibility: ACCESSIBILITY_BLOCKER - 1, bestPractices: 90, seo: 90 },
+      }),
+    })({ spec: 'judge', material: evalMaterial('build', result) }, ctx({ artifacts: store }));
+    const verdict = decodeVerdict(blockedOut);
     expect(verdict?.pass).toBe(false);
-    expect(verdict?.reasons.join(' ')).toMatch(/performance \d+ < /);
-    expect(verdict?.reasons.join(' ')).toMatch(/accessibility \d+ < /);
+    expect(verdict?.reasons.join(' ')).toMatch(/blocker: lighthouse accessibility \d+ </);
   });
 
-  it('throws when lighthouse comes back incomplete (breakage)', async () => {
+  it('missing performance score is tolerated; missing accessibility throws (breakage)', async () => {
     const { store } = makeFakeStore();
     const result = await manifestResult(store, {
       files: [{ path: 'index.html', content: VALID_HTML }],
     });
-    const handler = makeQaWebsiteHandler({
+    const okOut = await makeQaWebsiteHandler({
       audit: cannedAudit({
         lighthouse: { performance: null, accessibility: 95, bestPractices: 90, seo: 90 },
       }),
-    });
+    })({ spec: 'judge', material: evalMaterial('build', result) }, ctx({ artifacts: store }));
+    expect(decodeVerdict(okOut)?.pass).toBe(true);
+
     await expect(
-      handler({ spec: 'judge', material: evalMaterial('build', result) }, ctx({ artifacts: store })),
+      makeQaWebsiteHandler({
+        audit: cannedAudit({
+          lighthouse: { performance: 90, accessibility: null, bestPractices: 90, seo: 90 },
+        }),
+      })({ spec: 'judge', material: evalMaterial('build', result) }, ctx({ artifacts: store })),
     ).rejects.toThrow(/lighthouse audit incomplete/);
   });
 

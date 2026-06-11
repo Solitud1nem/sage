@@ -133,6 +133,16 @@ function validateVerdict(raw: unknown): CouncilVerdict {
  * section cannot close its own fence and smuggle instructions into the frame.
  */
 const FENCE = '=====';
+/** Loose artifact-envelope sniff — mirror of worker/artifacts.ts decode shape. */
+function isArtifactEnvelope(result: string): boolean {
+  try {
+    const parsed = JSON.parse(result) as { artifact?: { sha256?: unknown } };
+    return typeof parsed?.artifact?.sha256 === 'string';
+  } catch {
+    return false;
+  }
+}
+
 function fenceSection(label: string, body: string): string {
   const safe = body.split(FENCE).join('= = =');
   return `${FENCE} BEGIN ${label} (untrusted) ${FENCE}\n${safe}\n${FENCE} END ${label} ${FENCE}`;
@@ -143,11 +153,21 @@ async function callOpenAIOnce(
   apiKey: string,
   fetchImpl: typeof fetch,
 ): Promise<CouncilVerdict> {
-  const userContent = [
-    fenceSection('INSTRUCTION', c.spec),
-    fenceSection('RESULT', c.result),
-    fenceSection('DISPUTE REASON', c.reason),
-  ].join('\n\n');
+  // M12.1.4: artifact-envelope results are correct protocol usage, not a
+  // defect — without this note the judge reads `{"artifact":…}` as "executor
+  // returned JSON instead of the work" and reflexively rules for the client
+  // (observed live, run f960f3bf-era dispute). The bytes are content-addressed
+  // (sha256-verified off-chain); the judge must weigh the DISPUTE REASON
+  // (e.g. the paid evaluator's findings) against the instruction instead.
+  const artifactNote = isArtifactEnvelope(c.result)
+    ? '\n\nNOTE: the RESULT is a content-addressed artifact envelope — the actual deliverable bytes live off-chain and are verified against the sha256 in the envelope. This format is correct protocol usage, NOT a defect. Judge the dispute on the DISPUTE REASON findings versus the INSTRUCTION.'
+    : '';
+  const userContent =
+    [
+      fenceSection('INSTRUCTION', c.spec),
+      fenceSection('RESULT', c.result),
+      fenceSection('DISPUTE REASON', c.reason),
+    ].join('\n\n') + artifactNote;
   const res = await fetchImpl(OPENAI_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },

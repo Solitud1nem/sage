@@ -36,15 +36,18 @@ import { runBrowserAudit, type QaAuditRunner } from './qa-browser.js';
 import type { CapabilityHandler, HandlerContext } from './index.js';
 
 /**
- * Performance gates only CATASTROPHIC pages: Lighthouse's CPU-throttled
- * emulation on the shared-cpu-1x worker VM is noisy — a perfectly fine
- * static site scored 56 while the same machine idle scored 99 (observed on
- * the M12.1.3 e2e, run 908e6718). Accessibility is deterministic markup
- * analysis and stays the real quality gate; the raw scores still reach the
- * UI via `score`.
+ * Gate model (M12.1.4, рамка Alex 2026-06-11): findings are EVIDENCE, not
+ * verdicts. Deterministic checks (html-validate, Lighthouse) only collect
+ * advisory findings + scores; payment is blocked exclusively by
+ * (a) objective BLOCKERS — no parseable index.html, catastrophic
+ *     accessibility (< ACCESSIBILITY_BLOCKER: the page is effectively
+ *     unusable), or a failed render (audit throw = breakage path);
+ * (b) the paid LLM judgement: "would a reasonable client refuse to pay for
+ *     this deliverable, given the brief and this evidence?".
+ * A run must never die over `tel-non-breaking`-grade pedantry (observed
+ * live: run with score 99 disputed over spaces in a phone number).
  */
-export const PERFORMANCE_MIN = 40;
-export const ACCESSIBILITY_MIN = 80;
+export const ACCESSIBILITY_BLOCKER = 50;
 /** Cap findings so a pathological page can't balloon the on-chain result. */
 const MAX_HTML_FINDINGS = 8;
 const MAX_COPY_CHARS = 8_000;
@@ -98,41 +101,52 @@ export function visibleText(html: string): string {
     .slice(0, MAX_COPY_CHARS);
 }
 
-const COPY_JUDGE_SYSTEM =
-  'You are the QA evaluator of a website pipeline. The builder was given an instruction ' +
-  '(derived from a copy deck) and produced a static site; you receive the visible text of ' +
-  'its index.html. Judge ONLY whether the page content plausibly fulfills the instruction: ' +
-  'right language, on-topic copy, no placeholder/lorem text, no obvious truncation. ' +
-  'Ignore style preferences. Respond with a JSON object {"ok": boolean, "issues": string[]}.';
+const ACCEPTANCE_JUDGE_SYSTEM =
+  'You are the paid QA evaluator of a website pipeline. The builder was given an instruction ' +
+  'and produced a static site; you receive the visible text of its index.html plus EVIDENCE ' +
+  'collected by automated checks (HTML-validator findings, Lighthouse scores). Decide ONE ' +
+  'question: would a reasonable client refuse to PAY for this deliverable? Refuse only for ' +
+  'real defects: wrong language, off-topic or placeholder/lorem copy, obvious truncation, ' +
+  'broken structure. Automated findings are advisory evidence, NOT verdicts — stylistic ' +
+  'pedantry (formatting, non-breaking spaces, minor markup taste) must NEVER fail a ' +
+  'deliverable on its own. Respond with JSON {"acceptable": boolean, "issues": string[]} ' +
+  'where issues are concrete, actionable defects (empty when acceptable).';
 
-async function judgeCopy(
+async function judgeAcceptance(
   instruction: string,
   indexHtml: string,
+  evidence: { findings: readonly string[]; scores: string },
   ctx: HandlerContext,
-): Promise<{ ok: boolean; issues: string[] }> {
+): Promise<{ acceptable: boolean; issues: string[] }> {
   const text = visibleText(indexHtml);
   if (!ctx.openaiApiKey) {
     const fail = text.includes(MOCK_FAIL_MARKER);
     return {
-      ok: !fail,
-      issues: fail ? [`mock copy judge: page contains ${MOCK_FAIL_MARKER}`] : [],
+      acceptable: !fail,
+      issues: fail ? [`mock acceptance judge: page contains ${MOCK_FAIL_MARKER}`] : [],
     };
   }
   const raw = await chat({
     apiKey: ctx.openaiApiKey,
-    system: COPY_JUDGE_SYSTEM,
-    user: `INSTRUCTION GIVEN TO BUILDER:\n${instruction}\n\nVISIBLE TEXT OF index.html:\n${text}`,
+    system: ACCEPTANCE_JUDGE_SYSTEM,
+    user:
+      `INSTRUCTION GIVEN TO BUILDER:\n${instruction}\n\n` +
+      `VISIBLE TEXT OF index.html:\n${text}\n\n` +
+      `AUTOMATED EVIDENCE (advisory):\nLighthouse: ${evidence.scores}\n` +
+      (evidence.findings.length > 0
+        ? `Validator findings:\n${evidence.findings.map((f) => `- ${f}`).join('\n')}`
+        : 'Validator findings: none'),
     maxTokens: 500,
     json: true,
   });
-  const parsed = JSON.parse(raw) as { ok?: unknown; issues?: unknown };
-  if (typeof parsed.ok !== 'boolean') {
-    throw new Error('copy judge returned no boolean ok'); // breakage → executor retry
+  const parsed = JSON.parse(raw) as { acceptable?: unknown; issues?: unknown };
+  if (typeof parsed.acceptable !== 'boolean') {
+    throw new Error('acceptance judge returned no boolean acceptable'); // breakage → executor retry
   }
   const issues = Array.isArray(parsed.issues)
     ? parsed.issues.filter((i): i is string => typeof i === 'string')
     : [];
-  return { ok: parsed.ok, issues };
+  return { acceptable: parsed.acceptable, issues };
 }
 
 export interface QaWebsiteDeps {
@@ -170,28 +184,34 @@ export function makeQaWebsiteHandler(deps: QaWebsiteDeps = {}): CapabilityHandle
       return fail([`manifest rejected: ${err instanceof Error ? err.message : String(err)}`]);
     }
 
-    const reasons: string[] = [];
-
+    // Advisory evidence: validator findings + Lighthouse scores. None of
+    // these block payment by themselves (M12.1.4).
     const htmlFindings = await validateHtmlFiles(manifest);
-    reasons.push(...htmlFindings);
-
     const { lighthouse, screenshotPng } = await audit(manifest);
-    if (lighthouse.performance === null || lighthouse.accessibility === null) {
-      throw new Error('lighthouse audit incomplete (performance/accessibility missing)');
+    if (lighthouse.accessibility === null) {
+      throw new Error('lighthouse audit incomplete (accessibility missing)');
     }
-    if (lighthouse.performance < PERFORMANCE_MIN) {
-      reasons.push(`lighthouse performance ${lighthouse.performance} < ${PERFORMANCE_MIN}`);
-    }
-    if (lighthouse.accessibility < ACCESSIBILITY_MIN) {
-      reasons.push(`lighthouse accessibility ${lighthouse.accessibility} < ${ACCESSIBILITY_MIN}`);
+    const scoresLine =
+      `performance ${lighthouse.performance ?? 'n/a'}, accessibility ${lighthouse.accessibility}, ` +
+      `best-practices ${lighthouse.bestPractices ?? 'n/a'}, seo ${lighthouse.seo ?? 'n/a'}`;
+
+    // Objective blockers — the only deterministic payment stops.
+    const blockers: string[] = [];
+    if (lighthouse.accessibility < ACCESSIBILITY_BLOCKER) {
+      blockers.push(
+        `blocker: lighthouse accessibility ${lighthouse.accessibility} < ${ACCESSIBILITY_BLOCKER} — page is effectively unusable`,
+      );
     }
 
+    // Paid judgement: acceptability of the deliverable given the evidence.
     const indexHtml =
       manifest.files.find((f) => f.path.toLowerCase() === 'index.html')?.content ?? '';
-    const copy = await judgeCopy(evalCase.instruction, indexHtml, ctx);
-    if (!copy.ok) {
-      reasons.push(...(copy.issues.length > 0 ? copy.issues : ['copy does not match the instruction']));
-    }
+    const judgement = await judgeAcceptance(
+      evalCase.instruction,
+      indexHtml,
+      { findings: htmlFindings, scores: scoresLine },
+      ctx,
+    );
 
     const screenshot = await ctx.artifacts.upload(screenshotPng, 'image/png');
 
@@ -203,12 +223,21 @@ export function makeQaWebsiteHandler(deps: QaWebsiteDeps = {}): CapabilityHandle
     ].filter((s): s is number => s !== null);
     const score = Math.round(scoreParts.reduce((a, b) => a + b, 0) / scoreParts.length);
 
-    const verdict: EvaluationVerdict = {
-      pass: reasons.length === 0,
-      reasons,
-      score,
-      screenshot,
-    };
+    const pass = blockers.length === 0 && judgement.acceptable;
+    // On fail, reasons = actionable defects (blockers + judge issues) — they
+    // feed the rework instruction and, on a second fail, the dispute reason.
+    // Advisory findings only ride along on fail for transparency.
+    const reasons = pass
+      ? []
+      : [
+          ...blockers,
+          ...(judgement.acceptable ? [] : judgement.issues.length > 0
+            ? judgement.issues
+            : ['deliverable does not acceptably fulfill the instruction']),
+          ...htmlFindings.map((f) => `advisory: ${f}`),
+        ];
+
+    const verdict: EvaluationVerdict = { pass, reasons, score, screenshot };
     return encodeVerdict(verdict);
   };
 }

@@ -203,6 +203,8 @@ export interface CompositeState {
   chainName: string | null;
   explorerUrl: string | null;
   error: string | null;
+  /** Backend failure tag from plan_failed (e.g. 'dispute_refunded') — drives honest error copy. */
+  failReason: string | null;
   startedAt: number | null;
   completedAt: number | null;
   /**
@@ -229,6 +231,7 @@ const INITIAL_STATE: CompositeState = {
   chainName: null,
   explorerUrl: null,
   error: null,
+  failReason: null,
   startedAt: null,
   completedAt: null,
   disputedSubId: null,
@@ -738,6 +741,7 @@ function attachStream(
     plan_failed: (data) => {
       const error = stringField(data, 'error') ?? 'plan failed';
       const failedSubId = numberField(data, 'failedSubId');
+      const failReason = stringField(data, 'reason');
       track('composite_run_errored', {
         phase: 'execute',
         error,
@@ -750,6 +754,7 @@ function attachStream(
         ...prev,
         status: 'error',
         error,
+        failReason,
         completedAt: Date.now(),
       }));
     },

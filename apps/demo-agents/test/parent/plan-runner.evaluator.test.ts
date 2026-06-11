@@ -47,7 +47,7 @@ function plan(subtasks: SubTask[]): Plan {
  * Fake bundle: per-executor canned results. Tasks complete on first poll with
  * the result configured for their executor; createTask/approve recorded.
  */
-function makeHarness(resultByExecutor: Record<string, string>) {
+function makeHarness(resultByExecutor: Record<string, string | (() => string)>) {
   const events: Array<{ event: string; data: Record<string, unknown> }> = [];
   const channel = new SseChannel('eval-test');
   const origEmit = channel.emit.bind(channel);
@@ -59,7 +59,7 @@ function makeHarness(resultByExecutor: Record<string, string>) {
   let nextId = 500;
   const created: Array<{ id: string; executor: string; amount: bigint; specUri: string }> = [];
   const approved: string[] = [];
-  const byTask = new Map<string, { executor: string; specUri: string }>();
+  const byTask = new Map<string, { executor: string; specUri: string; result?: string }>();
   const disputes: Array<{ taskId: string; reason: string }> = [];
 
   const bundle = {
@@ -73,7 +73,13 @@ function makeHarness(resultByExecutor: Record<string, string>) {
         },
         getTask: async (tid: TaskId) => {
           const t = byTask.get(String(tid))!;
-          const result = resultByExecutor[t.executor.toLowerCase()] ?? 'default result';
+          // Stable per task: function-valued results are sampled ONCE (getTask
+          // is polled repeatedly for the same task).
+          if (t.result === undefined) {
+            const configured = resultByExecutor[t.executor.toLowerCase()];
+            t.result = typeof configured === 'function' ? configured() : configured ?? 'default result';
+          }
+          const result = t.result;
           const rec: TaskRecord = {
             id: tid,
             client: agentId('0xcccc000000000000000000000000000000000003'),
@@ -154,29 +160,67 @@ describe('evaluator pass path', () => {
   });
 });
 
-describe('evaluator fail path', () => {
-  it('pays the evaluator, disputes the judged task with the verdict reasons', async () => {
+describe('evaluator fail path (M12.1.4 rework loop)', () => {
+  it('first fail → automatic rework with defects in the spec; second fail → dispute ends the plan', async () => {
     const h = makeHarness({
       [WORKER]: 'broken output',
       [EVALUATOR]: verdict({ pass: false, reasons: ['citation does not resolve', 'tone off'] }),
     });
     await runPlan(
-      plan([sub({ id: 1 }), sub({ id: 2, evaluates: 1, executor_address: EVALUATOR })]),
+      plan([sub({ id: 1, spec: 'write the page' }), sub({ id: 2, evaluates: 1, executor_address: EVALUATOR })]),
       h.channel,
       h.bundle,
       { runId: 'run-fail', disputeFlow: h.disputeFlow as never },
     );
 
-    // Evaluator's task (created second) was paid; the WORKER task went to dispute.
-    expect(h.approved).toEqual([h.created[1]!.id]);
-    expect(h.disputes).toHaveLength(1);
+    // Two full attempts: worker+evaluator, rework worker+evaluator.
+    expect(h.created.map((c) => c.executor)).toEqual([WORKER, EVALUATOR, WORKER, EVALUATOR]);
+    // Both evaluator tasks paid (paid-for-verdict); the worker tasks went to dispute.
+    expect(h.approved).toEqual([h.created[1]!.id, h.created[3]!.id]);
+    expect(h.disputes).toHaveLength(2);
     expect(h.disputes[0]).toMatchObject({ taskId: h.created[0]!.id });
     expect(h.disputes[0]!.reason).toContain('citation does not resolve');
 
+    // The rework attempt carries the defect list in its spec.
+    const retrying = h.events.find((e) => e.event === 'subtask_retrying')!.data;
+    expect(retrying).toMatchObject({ subId: 1, attempt: 2, rework: true });
+    const reworkEnv = decodeEnvelope(h.created[2]!.specUri)!;
+    expect(reworkEnv.spec).toContain('REWORK (attempt 2)');
+    expect(reworkEnv.spec).toContain('citation does not resolve');
+
     const v = h.events.find((e) => e.event === 'subtask_verdict')!.data;
     expect(v).toMatchObject({ subId: 1, pass: false });
-    // Council refunded the client → plan fails (ADR-0019 v1 semantics).
-    expect(h.events.some((e) => e.event === 'plan_failed')).toBe(true);
+    // Second refund ends the plan honestly with the dispute_refunded tag.
+    const failed = h.events.find((e) => e.event === 'plan_failed')!.data;
+    expect(failed).toMatchObject({ reason: 'dispute_refunded' });
+  });
+
+  it('a rework that passes QA settles the plan (fail → rework → pass)', async () => {
+    let workerAttempt = 0;
+    let evalAttempt = 0;
+    const h = makeHarness({
+      [WORKER]: () => {
+        workerAttempt += 1;
+        return workerAttempt === 1 ? 'broken output' : 'fixed output';
+      },
+      [EVALUATOR]: () => {
+        evalAttempt += 1;
+        return evalAttempt === 1
+          ? verdict({ pass: false, reasons: ['tone off'] })
+          : verdict({ pass: true, reasons: [], score: 90 });
+      },
+    });
+    await runPlan(
+      plan([sub({ id: 1 }), sub({ id: 2, evaluates: 1, executor_address: EVALUATOR })]),
+      h.channel,
+      h.bundle,
+      { runId: 'run-rework-pass', disputeFlow: h.disputeFlow as never },
+    );
+
+    // Attempt 1 disputed; attempt 2 worker + both evaluators paid.
+    expect(h.disputes).toHaveLength(1);
+    expect(h.approved).toContain(h.created[2]!.id);
+    expect(h.events.some((e) => e.event === 'plan_completed')).toBe(true);
   });
 });
 

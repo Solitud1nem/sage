@@ -211,7 +211,18 @@ class PlanError extends Error {}
  * `DisputedError` (reactive retry path) and generic lifecycle errors.
  */
 class RefundedError extends Error {
-  constructor(public readonly subId: number, public readonly reasoning: string) {
+  constructor(
+    public readonly subId: number,
+    public readonly reasoning: string,
+    /**
+     * 'evaluator' when the dispute was raised by a fail-verdict (M12.1.4):
+     * the run loop answers the FIRST such refund with one automatic rework
+     * attempt (defect list folded into the spec) instead of killing the plan.
+     * 'review' (user-raised) keeps the existing fail-fast behavior.
+     */
+    public readonly origin: 'evaluator' | 'review' = 'review',
+    public readonly defects: readonly string[] = [],
+  ) {
     super(`subtask #${subId} refunded after dispute`);
   }
 }
@@ -383,6 +394,32 @@ export async function runPlan(
         break;
       } catch (err) {
         if (err instanceof RefundedError) {
+          // M12.1.4: a FIRST evaluator-raised refund gets one automatic
+          // rework — the defect list is folded into the spec and the step
+          // re-runs (new escrow; the rejected one was already refunded by
+          // the council). A second fail-verdict ends the plan honestly.
+          // User-raised (review-gate) refunds keep fail-fast behavior.
+          if (err.origin === 'evaluator' && attempt === 1) {
+            attempt += 1;
+            const defectList = (err.defects.length > 0 ? err.defects : [err.reasoning])
+              .map((d) => `- ${d}`)
+              .join('\n');
+            currentSub = {
+              ...currentSub,
+              spec:
+                `${sub.spec}\n\nREWORK (attempt 2): the previous result was rejected by the QA evaluator. ` +
+                `Fix these defects:\n${defectList}`,
+            };
+            channel.emit('subtask_retrying', {
+              subId: sub.id,
+              attempt,
+              executor: currentSub.executor_address,
+              rework: true,
+              defects: err.defects,
+            });
+            options.capture?.('srv_subtask_rework', { sub_id: sub.id, type: sub.type });
+            continue;
+          }
           // Council refunded the client — no usable result to continue with.
           const reason = `subtask #${sub.id} refunded after dispute: ${err.reasoning}`;
           options.capture?.('srv_plan_failed', { reason: 'dispute_refunded', failed_sub_id: sub.id });
@@ -691,7 +728,10 @@ async function runSubtask(args: RunSubtaskArgs): Promise<string> {
         verdict.reasons.length > 0
           ? `evaluator #${evaluator.id}: ${verdict.reasons.join('; ')}`
           : `evaluator #${evaluator.id} rejected the result`;
-      return runDisputeFlow(args, tid, result, reason);
+      return runDisputeFlow(args, tid, result, reason, {
+        origin: 'evaluator',
+        defects: verdict.reasons,
+      });
     }
   }
 
@@ -891,6 +931,7 @@ async function runDisputeFlow(
   tid: TaskId,
   result: string,
   reason: string,
+  raisedBy?: { origin: 'evaluator'; defects: readonly string[] },
 ): Promise<string> {
   const { sub, bundle, channel, txHashes, disputeFlow } = args;
 
@@ -951,7 +992,12 @@ async function runDisputeFlow(
     });
     channel.emit('subtask_status', { subId: sub.id, status: 'errored' satisfies SubTaskRunStatus });
     args.capture?.('srv_subtask_refunded', { sub_id: sub.id, type: sub.type });
-    throw new RefundedError(sub.id, resolution.verdict.reasoning);
+    throw new RefundedError(
+      sub.id,
+      resolution.verdict.reasoning,
+      raisedBy?.origin ?? 'review',
+      raisedBy?.defects ?? [],
+    );
   }
 
   // worker (Paid) or split (Split): executor received (some) funds, result usable.
