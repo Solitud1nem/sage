@@ -33,6 +33,16 @@ binding = "DB"
 database_name = "sage-rate-limits"
 database_id = "397f247f-e53a-495e-9c9e-3aee244a158f"
 
+# R2 — pipeline artifacts (M12.0.3, content-addressed by sha256; see
+# src/artifacts.ts). One-time setup before the next deploy:
+#   wrangler r2 bucket create sage-artifacts
+#   wrangler r2 bucket lifecycle add sage-artifacts --expire-days 30
+#     (demo artifacts are ephemeral; revisit the TTL before the M12.4
+#      narrative pages go public)
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "sage-artifacts"
+
 # Observability.
 [observability]
 enabled = true

@@ -5,6 +5,8 @@
  *   POST /api/rpc         → Alchemy proxy (hides ALCHEMY_KEY)
  *   POST /api/demo/start  → rate-limited passthrough to Fly.io orchestrator
  *   GET  /api/demo/stream/:id  → SSE passthrough (no rate limit)
+ *   PUT  /api/artifacts/:sha256 → R2 artifact upload (workers, backend key)
+ *   GET  /api/artifacts/:sha256 → R2 artifact download (public, immutable)
  *   GET  /health          → orchestrator /health passthrough
  *   *                     → 404
  *
@@ -13,10 +15,13 @@
 
 import { handleRpc } from './rpc-proxy';
 import { handleOrchestrator } from './orchestrator-proxy';
+import { handleArtifacts } from './artifacts';
 import { applyCors, corsPreflight } from './cors';
 
 export interface Env {
   DB: D1Database;
+  /** R2 bucket for pipeline artifacts (M12.0.3) — see artifacts.ts. */
+  ARTIFACTS: R2Bucket;
   ORCHESTRATOR_URL: string;
   /**
    * Arc-testnet orchestrator URL (per ADR-0015). Optional — empty/unset
@@ -57,6 +62,10 @@ export default {
 
     if (url.pathname === '/api/rpc') {
       return applyCors(await handleRpc(req, env), req, env);
+    }
+
+    if (url.pathname.startsWith('/api/artifacts/')) {
+      return applyCors(await handleArtifacts(req, env), req, env);
     }
 
     if (url.pathname === '/health' || url.pathname.startsWith('/api/demo/')) {
