@@ -8,6 +8,10 @@
 
 ---
 
+## 2026-06-11 — M12.0.4: экономика пайплайнов, EOA website-четвёрки, регистрационный инструментарий — `decision`
+
+Закрыт M12.0.4 (один сознательный перенос). Расчёт — **`docs/research/pipeline-economics.md`**: себестоимость шагов (gpt-4o-mini копейки; заметная статья — только second-reviewer на 4o ~$0.07; gas на Base пренебрежим), цены 11 identities с запасом ×3–10 (0.01–0.15 USDC за задачу), бюджеты ранов: website **0.15** / research **0.18** / review **0.27 USDC** escrow — при этом escrow циркулирует на наши же identity-кошельки, невозвратный кост рана $0.02–0.08 (LLM+SERP+gas). Против абуза: composite-эндпоинты уже в общем 3/IP/day-бакете (проверено), от множества IP — floor спонсора + run-caps M12.0.3; капы не меняются. Операционная нота: периодический USDC-sweep с identity-кошельков на спонсора. Инструментарий: `scripts/new-identity-wallets.ts` (EOA + готовая `fly secrets` команда), `scripts/register-identity.ts` (идемпотентная регистрация/resume в V2, endpoint по умолчанию `sage-workers.fly.dev` — включает wake-пинги), ранбук `docs/runbooks/register-worker-identity.md`. 4 EOA website-пайплайна сгенерированы, ключи застейджены в Fly secrets sage-workers (copywriter `0x4466…cFEB`, builder `0x2CdB…8d8b`, packager `0x5AdF…C0db`, qa-website `0x09aC…26AA`). **Перенос, зафиксирован в economics §5:** `registerAgent` — только вместе с handler'ом (конец M12.1.1), иначе classifier маршрутизирует живые эскроу в capability, которую никто не исполняет. Газ-фандинг: 4 × 0.0005 ETH (~$6–7) — ждёт Alex.
+
 ## 2026-06-10 — M12.0.3: composite-каркас — гарды ADR-0007, evaluator-роль, R2-артефакты — `release`
 
 Три куска каркаса полезных пайплайнов (ADR-0020), тремя коммитами:
