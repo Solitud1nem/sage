@@ -234,6 +234,18 @@ class RefundedError extends Error {
  * `plan_failed`. Distinct class so we don't conflate disputes with other
  * lifecycle failures.
  */
+/**
+ * Marker prefixing the defect-list appendix a rework attempt carries in its
+ * spec (M12.1.4/M12.1.5). The builder must see it; the EVALUATOR must not —
+ * `stripReworkAppendix` removes it before composing the EvaluationCase.
+ */
+const REWORK_MARKER = '\n\nREWORK (attempt 2):';
+
+function stripReworkAppendix(spec: string): string {
+  const idx = spec.indexOf(REWORK_MARKER);
+  return idx === -1 ? spec : spec.slice(0, idx);
+}
+
 class DisputedError extends Error {
   constructor(
     public readonly subId: number,
@@ -407,7 +419,7 @@ export async function runPlan(
             currentSub = {
               ...currentSub,
               spec:
-                `${sub.spec}\n\nREWORK (attempt 2): the previous result was rejected by the QA evaluator. ` +
+                `${sub.spec}${REWORK_MARKER} the previous result was rejected by the QA evaluator. ` +
                 `Fix these defects:\n${defectList}`,
             };
             channel.emit('subtask_retrying', {
@@ -843,7 +855,11 @@ async function runEvaluatorStep(
     const specUri = encodeParentId({ run: runId, sub: evalSub.id, depth: args.depth }, evalSub.spec, {
       inputs: {
         [judged.sub.id]: encodeEvaluationCase({
-          instruction: judged.sub.spec,
+          // The evaluator judges against the ORIGINAL requirement. Passing the
+          // rework appendix (old defect list) anchors the judge — observed
+          // live on run f16ad352: it re-reported "Small Plates missing" while
+          // the section was plainly present in the reworked page.
+          instruction: stripReworkAppendix(judged.sub.spec),
           result: judged.result,
         }),
       },

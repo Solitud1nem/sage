@@ -11,9 +11,9 @@
 | Шаг | Модель | Токены (in/out, оценка) | Себестоимость |
 |---|---|---|---|
 | copywriter | 4o-mini | 1.5k / 1.5k | ~$0.001 |
-| builder (multi-file сайт) | 4o-mini | 2.5k / 12k | ~$0.008 |
+| builder (multi-file сайт) | **4o** (M12.1.5: дизайн-качество — решение Alex 2026-06-12) | 2.5k / 8k | ~$0.05 |
 | packager (zip, без LLM) | — | — | ~$0 |
-| qa-website (evaluator: verdict + Lighthouse локально) | 4o-mini | 10k / 1k | ~$0.002 |
+| qa-website (evaluator: verdict + Lighthouse + vision-скриншот, M12.1.5) | 4o-mini | 10k+img / 1k | ~$0.003 |
 | searcher (5 SERP-запросов) | 4o-mini + SERP | 1k / 0.5k + API | ~$0.005–0.015* |
 | extractor (×5 источников) | 4o-mini | 3k / 0.5k each | ~$0.004 |
 | synthesizer | 4o-mini | 8k / 2k | ~$0.003 |
@@ -50,7 +50,7 @@ Summarizer (1_000 units, `summarize`) переезжает capability'ей в re
 
 | Пайплайн | Шаги | Escrow/ран | Чистый кост/ран (LLM+API+gas)** |
 |---|---|---|---|
-| Website | copywriter+builder+packager+qa | **0.15 USDC** | ~$0.02 |
+| Website | copywriter+builder+packager+qa | **0.15 USDC** | ~$0.07 (M12.1.5: builder на 4o; ×2 при rework-цикле) |
 | Research | searcher+extractor+synthesizer+fact-checker | **0.18 USDC** | ~$0.03 |
 | Review | splitter+reviewer+second-reviewer | **0.27 USDC** | ~$0.08 |
 

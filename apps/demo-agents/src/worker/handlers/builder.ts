@@ -73,15 +73,33 @@ export function validateManifest(raw: unknown): SiteManifest {
 }
 
 const SYSTEM_PROMPT =
-  'You are a front-end developer building a small static business-card website from a copy deck. ' +
+  'You are a senior front-end developer and designer building a small static business-card website ' +
+  'from a copy deck. The result must look like a polished, modern site a small business would proudly ' +
+  'publish — NOT a default unstyled page. ' +
   'Respond with a single JSON object: {"files": [{"path": "...", "content": "..."}]}.\n' +
-  'Rules:\n' +
-  `- vanilla static files only (.html/.css/.js/.svg), no build step, no external dependencies, no CDN links;\n` +
-  `- index.html at the root is mandatory; styles in styles.css; at most ${MAX_FILES} files;\n` +
+  'STACK RULES:\n' +
+  `- vanilla static files only (.html/.css/.js/.svg), no build step; index.html at the root is mandatory; styles in styles.css; at most ${MAX_FILES} files;\n` +
+  '- ONE external resource is allowed and encouraged: a single Google Fonts <link> (one display font for headings + one body font, e.g. "Playfair Display + Inter" — pick a pairing that fits the brief\'s mood). NO other CDNs, NO JS frameworks;\n' +
   '- relative paths only (e.g. "index.html", "styles.css", "assets/logo.svg");\n' +
-  '- semantic HTML with proper <title>, meta description, viewport meta, lang attribute matching the copy language;\n' +
-  '- responsive layout (mobile-first CSS), accessible contrast, no lorem ipsum — use the provided copy verbatim where it fits;\n' +
-  '- keep total output compact (well under 200KB). JSON object only, no commentary.';
+  '- semantic HTML with proper <title>, meta description, viewport meta, lang attribute matching the copy language.\n' +
+  'DESIGN PROGRAM (mandatory):\n' +
+  '- a full-width HERO: site title, tagline, and a clear visual identity (background color/gradient or a tasteful CSS pattern — no external images);\n' +
+  '- a color palette derived from the brief\'s mood, defined as CSS custom properties on :root (4-5 tokens: background, surface, text, accent, muted) with accessible contrast;\n' +
+  '- typographic scale: the Google display font for headings, the body font at 16-18px with line-height ≥1.6;\n' +
+  '- content sections EXACTLY as named in the copy deck, each visually distinct; lists rendered as styled cards or a responsive grid — NEVER bare bordered <li> rows or layout tables;\n' +
+  '- a content container with max-width (~1100px) centered, generous vertical rhythm (section padding ≥4rem desktop), mobile-first responsive;\n' +
+  '- a footer with the contact/hours details from the deck;\n' +
+  '- small touches that signal craft: hover states on links, subtle shadows or borders on cards, consistent border-radius.\n' +
+  'Use the provided copy verbatim where it fits — no lorem ipsum. Keep total output compact (well under 200KB). JSON object only, no commentary.';
+
+/**
+ * Builder runs on gpt-4o (M12.1.5, approved by Alex 2026-06-12): the design
+ * quality gap vs 4o-mini is decisive for the "поверка с чатом" — mini ships
+ * unstyled skeletons even with a detailed design program. Cost delta
+ * (~$0.04-0.05/site) is recorded in docs/research/pipeline-economics.md;
+ * the identity's registry price (0.08 USDC) is unchanged.
+ */
+const BUILDER_MODEL = 'gpt-4o';
 
 /** Keyless deterministic site — local dev / unit tests. */
 export function mockManifest(copy: string): SiteManifest {
@@ -114,6 +132,7 @@ export const builderHandler: CapabilityHandler = async (job, ctx) => {
   } else {
     const rawText = await chat({
       apiKey: ctx.openaiApiKey,
+      model: BUILDER_MODEL,
       system: SYSTEM_PROMPT,
       user: `COPY DECK:\n${copy}`,
       maxTokens: 12_000,

@@ -17,15 +17,20 @@ import type { CapabilityHandler } from './index.js';
 
 const SYSTEM_PROMPT =
   'You are a copywriter producing the complete copy deck for a small static business-card website (a "визитка"). ' +
-  'From the client brief, write structured markdown with EXACTLY these sections:\n' +
+  'Output structured markdown:\n' +
   '# <site title>\n' +
   '> <one-line tagline>\n' +
-  '## About — 2-3 sentences.\n' +
-  '## Services / Offering — 3-5 bullet points with one-line descriptions.\n' +
-  '## Why us — 2-3 short selling points.\n' +
-  '## Contact — placeholder contact lines (email, phone, city) consistent with the brief; invent plausible placeholders if absent.\n' +
-  'Optionally add: ## Style — one line suggesting tone/color mood ONLY if the brief implies one.\n' +
-  'The copy must be fully self-contained: a web developer who has never seen the brief must be able to build the site from your output alone. ' +
+  'Then the content sections. SECTION CHOICE IS DRIVEN BY THE BRIEF (M12.1.5): when the brief names ' +
+  'its sections (e.g. "story, wine list teaser, small plates, location and hours"), use EXACTLY those, ' +
+  'as `## <section name>` headings in the client\'s own wording — never substitute a generic ' +
+  'About/Services/Why-us skeleton. Only when the brief names no sections, default to: About, ' +
+  'Services / Offering (3-5 bullets), Why us, Contact.\n' +
+  'Always end with a `## Contact` section (or the brief\'s equivalent, e.g. "Location and hours"): ' +
+  'plausible placeholder details consistent with the brief if real ones are absent.\n' +
+  'Add `## Style` — one line on tone + color mood implied by the brief (helps the designer downstream).\n' +
+  'Every section must contain PUBLISH-READY copy — full sentences a visitor would actually read, ' +
+  'not scaffold phrases. The deck must be fully self-contained: a web developer who has never seen ' +
+  'the brief must be able to build the site from your output alone. ' +
   'Write in the language of the brief. No preamble, no commentary — markdown only.';
 
 export const copywriterHandler: CapabilityHandler = async (job, ctx) => {

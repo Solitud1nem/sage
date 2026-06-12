@@ -103,19 +103,29 @@ export function visibleText(html: string): string {
 
 const ACCEPTANCE_JUDGE_SYSTEM =
   'You are the paid QA evaluator of a website pipeline. The builder was given an instruction ' +
-  'and produced a static site; you receive the visible text of its index.html plus EVIDENCE ' +
-  'collected by automated checks (HTML-validator findings, Lighthouse scores). Decide ONE ' +
-  'question: would a reasonable client refuse to PAY for this deliverable? Refuse only for ' +
-  'real defects: wrong language, off-topic or placeholder/lorem copy, obvious truncation, ' +
-  'broken structure. Automated findings are advisory evidence, NOT verdicts — stylistic ' +
-  'pedantry (formatting, non-breaking spaces, minor markup taste) must NEVER fail a ' +
-  'deliverable on its own. Respond with JSON {"acceptable": boolean, "issues": string[]} ' +
-  'where issues are concrete, actionable defects (empty when acceptable).';
+  'and produced a static site; you receive the visible text of its index.html, a SCREENSHOT of ' +
+  'the rendered page, plus EVIDENCE collected by automated checks (HTML-validator findings, ' +
+  'Lighthouse scores). Decide ONE question: would a reasonable client refuse to PAY for this ' +
+  'deliverable? Refuse for real defects:\n' +
+  '- content: wrong language, off-topic or placeholder/lorem copy, obvious truncation, missing sections the instruction asked for;\n' +
+  '- visual (judge the SCREENSHOT, M12.1.5): the page looks like an unstyled browser-default document ' +
+  '(system font, bare lists, no layout), broken/overlapping layout, unreadable contrast, an empty or ' +
+  'degenerate page. A small business should be able to publish this proudly — "works but looks like ' +
+  'a 1998 table" is a defect.\n' +
+  'Verify every claim against the materials you were given: before reporting a section as missing, ' +
+  'check the visible text for its heading or an obvious equivalent. ' +
+  'Claim a visual defect ONLY if the screenshot clearly shows it — when the screenshot shows a ' +
+  'designed page (distinct colors, a hero block, styled headings), visual defects do not apply. ' +
+  'Do NOT refuse over taste-level nitpicks (exact colors, font choice, minor spacing) when the page ' +
+  'is coherent and styled. Automated findings are advisory evidence, NOT verdicts — stylistic ' +
+  'pedantry (formatting, non-breaking spaces, minor markup taste) must NEVER fail a deliverable on ' +
+  'its own. Respond with JSON {"acceptable": boolean, "issues": string[]} where issues are concrete, ' +
+  'actionable defects a developer can fix (empty when acceptable).';
 
 async function judgeAcceptance(
   instruction: string,
   indexHtml: string,
-  evidence: { findings: readonly string[]; scores: string },
+  evidence: { findings: readonly string[]; scores: string; screenshotPng: Uint8Array },
   ctx: HandlerContext,
 ): Promise<{ acceptable: boolean; issues: string[] }> {
   const text = visibleText(indexHtml);
@@ -135,7 +145,9 @@ async function judgeAcceptance(
       `AUTOMATED EVIDENCE (advisory):\nLighthouse: ${evidence.scores}\n` +
       (evidence.findings.length > 0
         ? `Validator findings:\n${evidence.findings.map((f) => `- ${f}`).join('\n')}`
-        : 'Validator findings: none'),
+        : 'Validator findings: none') +
+      '\n\nThe attached image is the rendered page screenshot (1280×800).',
+    imagePngB64: Buffer.from(evidence.screenshotPng).toString('base64'),
     maxTokens: 500,
     json: true,
   });
@@ -209,7 +221,7 @@ export function makeQaWebsiteHandler(deps: QaWebsiteDeps = {}): CapabilityHandle
     const judgement = await judgeAcceptance(
       evalCase.instruction,
       indexHtml,
-      { findings: htmlFindings, scores: scoresLine },
+      { findings: htmlFindings, scores: scoresLine, screenshotPng },
       ctx,
     );
 

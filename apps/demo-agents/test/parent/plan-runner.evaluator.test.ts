@@ -188,6 +188,14 @@ describe('evaluator fail path (M12.1.4 rework loop)', () => {
     expect(reworkEnv.spec).toContain('REWORK (attempt 2)');
     expect(reworkEnv.spec).toContain('citation does not resolve');
 
+    // The attempt-2 EVALUATOR judges against the ORIGINAL instruction — the
+    // rework appendix must be stripped (anchoring: live run f16ad352 saw the
+    // judge re-report an already-fixed defect straight from the appendix).
+    const evalEnv2 = decodeEnvelope(h.created[3]!.specUri)!;
+    const evalCase2 = decodeEvaluationCase(evalEnv2.inputs![1]!)!;
+    expect(evalCase2.instruction).toBe('write the page');
+    expect(evalCase2.instruction).not.toContain('REWORK');
+
     const v = h.events.find((e) => e.event === 'subtask_verdict')!.data;
     expect(v).toMatchObject({ subId: 1, pass: false });
     // Second refund ends the plan honestly with the dispute_refunded tag.
