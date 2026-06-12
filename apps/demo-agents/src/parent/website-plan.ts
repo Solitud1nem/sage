@@ -59,6 +59,36 @@ const STEPS: readonly StepTemplate[] = [
 const ESTIMATED_DURATION_MS = 150_000;
 
 /**
+ * Site-author variant (M12.1.6): the frontier builder authors copy AND
+ * design in ONE pass — the creative act stays whole (no copywriter seam,
+ * see docs/research/frontier-models-in-pipelines.md «налог на декомпозицию»).
+ * The builder is the root step, so the envelope hands it the raw brief as
+ * `source`; QA still judges it, packager still ships it. Same identity and
+ * capability — no new wallet/registration needed.
+ */
+const SITE_AUTHOR_STEPS: readonly StepTemplate[] = [
+  {
+    capability: 'build-website',
+    spec: 'Author and build a small static business-card website directly from the client brief: write publish-ready copy (invent plausible specifics consistent with the brief) and design/implement the site in one pass. Multi-file: index.html, styles.css. Sections exactly as the brief names them.',
+    deadline_offset_s: 900,
+  },
+  {
+    capability: 'qa-website',
+    spec: 'QA the built website: HTML validity, Lighthouse audit, rendered screenshot, copy fidelity against the build instruction.',
+    deadline_offset_s: 900,
+    evaluates: 1,
+  },
+  {
+    capability: 'package-archive',
+    spec: 'Package the website into a deploy-ready zip with a README describing deployment options.',
+    deadline_offset_s: 600,
+    depends_on: [1],
+  },
+];
+
+export type WebsitePlanVariant = 'pipeline' | 'site-author';
+
+/**
  * Build the website-pipeline classification from live registry agents.
  * Throws when any required capability has no active agent — the endpoint
  * surfaces that as an honest 503 instead of a plan that can never run.
@@ -67,8 +97,10 @@ const ESTIMATED_DURATION_MS = 150_000;
  */
 export function buildWebsiteClassification(
   agents: readonly AgentRecordV2[],
+  variant: WebsitePlanVariant = 'pipeline',
 ): ClassificationResult {
-  const subtasks: SubTask[] = STEPS.map((step, i) => {
+  const steps = variant === 'site-author' ? SITE_AUTHOR_STEPS : STEPS;
+  const subtasks: SubTask[] = steps.map((step, i) => {
     const pick = pickAgentForCapability(step.capability, agents);
     if (!pick) {
       throw new Error(`no active agent in the registry for capability "${step.capability}"`);

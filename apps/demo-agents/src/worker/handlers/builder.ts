@@ -16,6 +16,7 @@
  */
 
 import { chat } from '../llm.js';
+import { anthropicChat, ANTHROPIC_MODELS } from '../../shared/anthropic.js';
 import { encodeArtifactResult } from '../artifacts.js';
 import type { CapabilityHandler } from './index.js';
 
@@ -93,13 +94,54 @@ const SYSTEM_PROMPT =
   'Use the provided copy verbatim where it fits — no lorem ipsum. Keep total output compact (well under 200KB). JSON object only, no commentary.';
 
 /**
- * Builder runs on gpt-4o (M12.1.5, approved by Alex 2026-06-12): the design
- * quality gap vs 4o-mini is decisive for the "поверка с чатом" — mini ships
- * unstyled skeletons even with a detailed design program. Cost delta
- * (~$0.04-0.05/site) is recorded in docs/research/pipeline-economics.md;
- * the identity's registry price (0.08 USDC) is unchanged.
+ * Builder model ladder (M12.1.6, approved by Alex 2026-06-12):
+ * ANTHROPIC_API_KEY present → Claude Opus 4.8 — the frontier design+code
+ * pass that closes the "поверка с чатом" gap (the chat artifact Alex compared
+ * against IS this model). Otherwise → gpt-4o (M12.1.5 behavior). Costs in
+ * docs/research/frontier-models-in-pipelines.md (~$0.27/site on Opus).
  */
-const BUILDER_MODEL = 'gpt-4o';
+const BUILDER_MODEL_OPENAI = 'gpt-4o';
+
+/**
+ * Frontier prompt is deliberately LESS prescriptive than the gpt-4o design
+ * program below — over-prescription reduces frontier output quality. Goal +
+ * stack rules + a short anti-generic nudge; the model owns art direction.
+ * Accepts either a copy deck (4-step plan) or a raw client brief
+ * (site-author variant, M12.1.6) as input.
+ */
+const FRONTIER_SYSTEM_PROMPT =
+  'You are a senior designer-developer building a small static website that a real ' +
+  'business would proudly publish. You own the art direction: visual identity, palette, ' +
+  'typography, layout — make them distinctive and fitting for THIS brief, never a generic ' +
+  'AI-default look (no overused font stacks, no cliched gradients, no cookie-cutter layouts).\n' +
+  'Your input is either a COPY DECK (use its copy verbatim where it fits) or a raw CLIENT ' +
+  'BRIEF — in the latter case, author publish-ready copy yourself, inventing plausible ' +
+  'specifics consistent with the brief (names, menu items, prices, hours).\n' +
+  'STACK RULES (hard):\n' +
+  `- vanilla static files only (.html/.css/.js/.svg), no build step; index.html at the root; styles in styles.css; at most ${MAX_FILES} files, well under 200KB total;\n` +
+  '- ONE external resource allowed: a single Google Fonts <link>; NO other CDNs, NO JS frameworks (vanilla progressive-enhancement JS is fine);\n' +
+  '- relative paths only; semantic HTML; proper <title>, meta description, viewport; lang matching the copy language; accessible contrast;\n' +
+  '- sections exactly as the brief/deck names them.';
+
+const MANIFEST_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    files: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' },
+        },
+        required: ['path', 'content'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['files'],
+  additionalProperties: false,
+};
 
 /** Keyless deterministic site — local dev / unit tests. */
 export function mockManifest(copy: string): SiteManifest {
@@ -121,24 +163,37 @@ export const builderHandler: CapabilityHandler = async (job, ctx) => {
   if (!ctx.artifacts) {
     throw new Error('artifact store unavailable — builder cannot deliver a multi-file site inline');
   }
+  // 4-step plan: material = copywriter's deck (inputs chaining).
+  // Site-author variant (M12.1.6): builder is the root step — material = the
+  // raw client brief (envelope `source`).
   const copy = job.material;
   if (!copy) {
-    throw new Error('builder needs the copywriter output as material (inputs chaining)');
+    throw new Error('builder needs material: a copy deck (inputs) or the client brief (source)');
   }
 
   let manifest: SiteManifest;
-  if (!ctx.openaiApiKey) {
-    manifest = mockManifest(copy);
-  } else {
+  if (ctx.anthropicApiKey) {
+    const rawText = await anthropicChat({
+      apiKey: ctx.anthropicApiKey,
+      model: ANTHROPIC_MODELS.opus,
+      system: FRONTIER_SYSTEM_PROMPT,
+      user: `INPUT (copy deck or client brief):\n${copy}`,
+      maxTokens: 16_000,
+      jsonSchema: MANIFEST_SCHEMA,
+    });
+    manifest = validateManifest(JSON.parse(rawText));
+  } else if (ctx.openaiApiKey) {
     const rawText = await chat({
       apiKey: ctx.openaiApiKey,
-      model: BUILDER_MODEL,
+      model: BUILDER_MODEL_OPENAI,
       system: SYSTEM_PROMPT,
       user: `COPY DECK:\n${copy}`,
       maxTokens: 12_000,
       json: true,
     });
     manifest = validateManifest(JSON.parse(rawText));
+  } else {
+    manifest = mockManifest(copy);
   }
 
   const bytes = new TextEncoder().encode(JSON.stringify(manifest));

@@ -101,7 +101,7 @@ describe('builder', () => {
   it('throws without upstream copy material', async () => {
     const { store } = makeFakeStore();
     await expect(builderHandler({ spec: 'build', material: null }, ctx({ artifacts: store }))).rejects.toThrow(
-      /copywriter output/,
+      /needs material/,
     );
   });
 

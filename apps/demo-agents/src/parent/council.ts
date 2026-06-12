@@ -19,6 +19,8 @@
  * executor when the judge cannot decide.
  */
 
+import { anthropicChat, ANTHROPIC_MODELS } from '../shared/anthropic.js';
+
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = 'gpt-4o-mini';
 
@@ -42,6 +44,11 @@ export interface DisputeCase {
 
 export interface CouncilEnv {
   readonly openaiApiKey?: string;
+  /**
+   * M12.1.6 judge-class rule: with frontier executors the arbiter runs on
+   * Sonnet 4.6 when this key is present; 4o-mini otherwise.
+   */
+  readonly anthropicApiKey?: string;
   readonly useMock?: boolean;
   readonly fetchImpl?: typeof fetch;
 }
@@ -148,26 +155,84 @@ function fenceSection(label: string, body: string): string {
   return `${FENCE} BEGIN ${label} (untrusted) ${FENCE}\n${safe}\n${FENCE} END ${label} ${FENCE}`;
 }
 
+/**
+ * M12.1.4: artifact-envelope results are correct protocol usage, not a
+ * defect — without this note the judge reads `{"artifact":…}` as "executor
+ * returned JSON instead of the work" and reflexively rules for the client
+ * (observed live, run f960f3bf-era dispute). The bytes are content-addressed
+ * (sha256-verified off-chain); the judge must weigh the DISPUTE REASON
+ * (e.g. the paid evaluator's findings) against the instruction instead.
+ */
+function buildJudgeUserContent(c: DisputeCase): string {
+  const artifactNote = isArtifactEnvelope(c.result)
+    ? '\n\nNOTE: the RESULT is a content-addressed artifact envelope — the actual deliverable bytes live off-chain and are verified against the sha256 in the envelope. This format is correct protocol usage, NOT a defect. Judge the dispute on the DISPUTE REASON findings versus the INSTRUCTION.'
+    : '';
+  return (
+    [
+      fenceSection('INSTRUCTION', c.spec),
+      fenceSection('RESULT', c.result),
+      fenceSection('DISPUTE REASON', c.reason),
+    ].join('\n\n') + artifactNote
+  );
+}
+
+/**
+ * Sonnet 4.6 arbiter (M12.1.6 judge-class rule). Same schema as the OpenAI
+ * tool, minus `minimum`/`maximum` (unsupported by Anthropic structured
+ * outputs; `validateVerdict` clamps the share anyway). The instruction to
+ * answer via submit_verdict in SYSTEM_PROMPT reads naturally as "produce the
+ * verdict object" under structured outputs.
+ */
+const ANTHROPIC_VERDICT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    outcome: { type: 'string', enum: ['worker', 'client', 'split'] },
+    executor_share_pct: {
+      type: 'integer',
+      description: 'Executor share 1-99; required only when outcome is "split".',
+    },
+    reasoning: { type: 'string' },
+  },
+  required: ['outcome', 'reasoning'],
+  additionalProperties: false,
+};
+
+async function callAnthropicOnce(
+  c: DisputeCase,
+  apiKey: string,
+  fetchImpl: typeof fetch,
+): Promise<CouncilVerdict> {
+  let raw: string;
+  try {
+    raw = await anthropicChat({
+      apiKey,
+      model: ANTHROPIC_MODELS.sonnet,
+      system: SYSTEM_PROMPT,
+      user: buildJudgeUserContent(c),
+      maxTokens: 600,
+      jsonSchema: ANTHROPIC_VERDICT_SCHEMA,
+      fetchImpl,
+    });
+  } catch (err) {
+    // anthropicChat throws plain Errors; council semantics want transience —
+    // default to transient so the retry-once path gets its chance.
+    throw new CouncilError(err instanceof Error ? err.message : String(err), true);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new CouncilError(`anthropic verdict not valid JSON: ${(err as Error).message}`);
+  }
+  return validateVerdict(parsed);
+}
+
 async function callOpenAIOnce(
   c: DisputeCase,
   apiKey: string,
   fetchImpl: typeof fetch,
 ): Promise<CouncilVerdict> {
-  // M12.1.4: artifact-envelope results are correct protocol usage, not a
-  // defect — without this note the judge reads `{"artifact":…}` as "executor
-  // returned JSON instead of the work" and reflexively rules for the client
-  // (observed live, run f960f3bf-era dispute). The bytes are content-addressed
-  // (sha256-verified off-chain); the judge must weigh the DISPUTE REASON
-  // (e.g. the paid evaluator's findings) against the instruction instead.
-  const artifactNote = isArtifactEnvelope(c.result)
-    ? '\n\nNOTE: the RESULT is a content-addressed artifact envelope — the actual deliverable bytes live off-chain and are verified against the sha256 in the envelope. This format is correct protocol usage, NOT a defect. Judge the dispute on the DISPUTE REASON findings versus the INSTRUCTION.'
-    : '';
-  const userContent =
-    [
-      fenceSection('INSTRUCTION', c.spec),
-      fenceSection('RESULT', c.result),
-      fenceSection('DISPUTE REASON', c.reason),
-    ].join('\n\n') + artifactNote;
+  const userContent = buildJudgeUserContent(c);
   const res = await fetchImpl(OPENAI_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -244,8 +309,12 @@ function mockVerdict(c: DisputeCase): CouncilVerdict {
  * mock otherwise.
  */
 export async function judgeDispute(c: DisputeCase, env: CouncilEnv): Promise<CouncilVerdict> {
-  const useReal = !!env.openaiApiKey && env.useMock !== true;
-  trace('council.judge.started', { mode: useReal ? 'llm' : 'mock', reason_len: c.reason.length, result_len: c.result.length });
+  // M12.1.6: prefer the Sonnet arbiter (judge-class rule), 4o-mini fallback.
+  const anthropic = env.useMock !== true ? env.anthropicApiKey : undefined;
+  const openai = env.useMock !== true ? env.openaiApiKey : undefined;
+  const useReal = !!(anthropic || openai);
+  const mode = anthropic ? 'llm-sonnet' : openai ? 'llm-mini' : 'mock';
+  trace('council.judge.started', { mode, reason_len: c.reason.length, result_len: c.result.length });
 
   if (!useReal) {
     const v = mockVerdict(c);
@@ -253,11 +322,13 @@ export async function judgeDispute(c: DisputeCase, env: CouncilEnv): Promise<Cou
     return v;
   }
 
-  const apiKey = env.openaiApiKey;
+  const callOnce = anthropic
+    ? (cc: DisputeCase, f: typeof fetch) => callAnthropicOnce(cc, anthropic, f)
+    : (cc: DisputeCase, f: typeof fetch) => callOpenAIOnce(cc, openai!, f);
   const fetchImpl = env.fetchImpl ?? fetch;
   try {
-    const v = await callOpenAIOnce(c, apiKey, fetchImpl);
-    trace('council.judge.completed', { mode: 'llm', attempt: 1, outcome: v.outcome, share: v.executorSharePct ?? null });
+    const v = await callOnce(c, fetchImpl);
+    trace('council.judge.completed', { mode, attempt: 1, outcome: v.outcome, share: v.executorSharePct ?? null });
     return v;
   } catch (err1) {
     const reason1 = err1 instanceof Error ? err1.message : String(err1);
@@ -269,8 +340,8 @@ export async function judgeDispute(c: DisputeCase, env: CouncilEnv): Promise<Cou
       return v;
     }
     try {
-      const v = await callOpenAIOnce(c, apiKey, fetchImpl);
-      trace('council.judge.completed', { mode: 'llm', attempt: 2, outcome: v.outcome, share: v.executorSharePct ?? null });
+      const v = await callOnce(c, fetchImpl);
+      trace('council.judge.completed', { mode, attempt: 2, outcome: v.outcome, share: v.executorSharePct ?? null });
       return v;
     } catch (err2) {
       const reason2 = err2 instanceof Error ? err2.message : String(err2);

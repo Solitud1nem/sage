@@ -35,6 +35,7 @@ export interface WorkerRuntime {
   readonly escrowAddress: Address;
   readonly chain: ChainKey;
   readonly openaiApiKey: string | undefined;
+  readonly anthropicApiKey: string | undefined;
 }
 
 /** Explicit-only chain resolution; throws instead of sniffing. */
@@ -65,6 +66,8 @@ export function buildWorkerRuntime(
   env: Record<string, string | undefined> = process.env,
 ): WorkerRuntime {
   const chain = resolveChainStrict(env);
+  // Not part of AgentConfig (protected shared/config.ts) — worker-only knob.
+  const anthropicApiKey = env['ANTHROPIC_API_KEY'];
   const baseConfig: Omit<AgentConfig, 'privateKey'> = {
     rpcUrl: env['RPC_URL'] ?? DEFAULT_RPC[chain],
     openaiApiKey: env['OPENAI_API_KEY'],
@@ -99,5 +102,6 @@ export function buildWorkerRuntime(
     escrowAddress: first.bundle.chainConfig.contracts.taskEscrow,
     chain,
     openaiApiKey: baseConfig.openaiApiKey,
+    anthropicApiKey,
   };
 }

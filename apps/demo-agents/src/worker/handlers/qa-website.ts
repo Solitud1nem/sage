@@ -28,6 +28,7 @@ import {
   encodeVerdict,
   type EvaluationVerdict,
 } from '../../shared/evaluation.js';
+import { anthropicChat, ANTHROPIC_MODELS } from '../../shared/anthropic.js';
 import { decodeArtifactResult } from '../artifacts.js';
 import { chat } from '../llm.js';
 import { validateManifest, type SiteManifest } from './builder.js';
@@ -129,28 +130,51 @@ async function judgeAcceptance(
   ctx: HandlerContext,
 ): Promise<{ acceptable: boolean; issues: string[] }> {
   const text = visibleText(indexHtml);
-  if (!ctx.openaiApiKey) {
+  if (!ctx.openaiApiKey && !ctx.anthropicApiKey) {
     const fail = text.includes(MOCK_FAIL_MARKER);
     return {
       acceptable: !fail,
       issues: fail ? [`mock acceptance judge: page contains ${MOCK_FAIL_MARKER}`] : [],
     };
   }
-  const raw = await chat({
-    apiKey: ctx.openaiApiKey,
-    system: ACCEPTANCE_JUDGE_SYSTEM,
-    user:
-      `INSTRUCTION GIVEN TO BUILDER:\n${instruction}\n\n` +
-      `VISIBLE TEXT OF index.html:\n${text}\n\n` +
-      `AUTOMATED EVIDENCE (advisory):\nLighthouse: ${evidence.scores}\n` +
-      (evidence.findings.length > 0
-        ? `Validator findings:\n${evidence.findings.map((f) => `- ${f}`).join('\n')}`
-        : 'Validator findings: none') +
-      '\n\nThe attached image is the rendered page screenshot (1280×800).',
-    imagePngB64: Buffer.from(evidence.screenshotPng).toString('base64'),
-    maxTokens: 500,
-    json: true,
-  });
+  const userContent =
+    `INSTRUCTION GIVEN TO BUILDER:\n${instruction}\n\n` +
+    `VISIBLE TEXT OF index.html:\n${text}\n\n` +
+    `AUTOMATED EVIDENCE (advisory):\nLighthouse: ${evidence.scores}\n` +
+    (evidence.findings.length > 0
+      ? `Validator findings:\n${evidence.findings.map((f) => `- ${f}`).join('\n')}`
+      : 'Validator findings: none') +
+    '\n\nThe attached image is the rendered page screenshot (1280×800).';
+  const imagePngB64 = Buffer.from(evidence.screenshotPng).toString('base64');
+
+  // M12.1.6 judge-class rule: with an Opus builder the judge must be ≥ Sonnet
+  // (two live mini false-fails motivated this). Mini stays as the fallback.
+  const raw = ctx.anthropicApiKey
+    ? await anthropicChat({
+        apiKey: ctx.anthropicApiKey,
+        model: ANTHROPIC_MODELS.sonnet,
+        system: ACCEPTANCE_JUDGE_SYSTEM,
+        user: userContent,
+        imagePngB64,
+        maxTokens: 800,
+        jsonSchema: {
+          type: 'object',
+          properties: {
+            acceptable: { type: 'boolean' },
+            issues: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['acceptable', 'issues'],
+          additionalProperties: false,
+        },
+      })
+    : await chat({
+        apiKey: ctx.openaiApiKey!,
+        system: ACCEPTANCE_JUDGE_SYSTEM,
+        user: userContent,
+        imagePngB64,
+        maxTokens: 500,
+        json: true,
+      });
   const parsed = JSON.parse(raw) as { acceptable?: unknown; issues?: unknown };
   if (typeof parsed.acceptable !== 'boolean') {
     throw new Error('acceptance judge returned no boolean acceptable'); // breakage → executor retry

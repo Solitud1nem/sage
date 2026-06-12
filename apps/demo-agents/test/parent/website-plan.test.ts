@@ -57,6 +57,19 @@ describe('buildWebsiteClassification', () => {
     expect(c.proposed_plan[1]!.estimated_cost_units).toBe(50_000n);
   });
 
+  it('site-author variant (M12.1.6): builder is the root creative step, no copywriter', () => {
+    const c = buildWebsiteClassification(FULL_REGISTRY, 'site-author');
+    const subs = c.proposed_plan;
+    expect(subs.map((s) => s.type)).toEqual(['build-website', 'qa-website', 'package-archive']);
+    // Builder is root (gets the brief as envelope `source`), QA judges it,
+    // packager chains off its artifact.
+    expect(subs[0]!.depends_on).toBeUndefined();
+    expect(subs[1]!.evaluates).toBe(1);
+    expect(subs[1]!.depends_on).toBeUndefined();
+    expect(subs[2]!.depends_on).toEqual([1]);
+    expect(c.estimated_total_cost_units).toBe(120_000n); // 0.08 + 0.03 + 0.01
+  });
+
   it('ignores inactive agents and throws an honest error on a missing capability', () => {
     const withoutQa = FULL_REGISTRY.filter((a) => a.capabilities[0]!.name !== 'qa-website');
     expect(() => buildWebsiteClassification(withoutQa)).toThrow(/no active agent .*qa-website/);

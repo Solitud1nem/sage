@@ -13,6 +13,7 @@
  */
 
 import { chat } from '../llm.js';
+import { anthropicChat, ANTHROPIC_MODELS } from '../../shared/anthropic.js';
 import type { CapabilityHandler } from './index.js';
 
 const SYSTEM_PROMPT =
@@ -29,7 +30,10 @@ const SYSTEM_PROMPT =
   'plausible placeholder details consistent with the brief if real ones are absent.\n' +
   'Add `## Style` — one line on tone + color mood implied by the brief (helps the designer downstream).\n' +
   'Every section must contain PUBLISH-READY copy — full sentences a visitor would actually read, ' +
-  'not scaffold phrases. The deck must be fully self-contained: a web developer who has never seen ' +
+  'not scaffold phrases. INVENT plausible, vivid specifics consistent with the brief (M12.1.6): ' +
+  'a fitting business name, concrete menu/offer items with prices, opening hours, a short origin ' +
+  'story, a voice. Generic filler ("Service one", "quality you can trust") is a defect. ' +
+  'The deck must be fully self-contained: a web developer who has never seen ' +
   'the brief must be able to build the site from your output alone. ' +
   'Write in the language of the brief. No preamble, no commentary — markdown only.';
 
@@ -53,6 +57,17 @@ export const copywriterHandler: CapabilityHandler = async (job, ctx) => {
     ].join('\n');
   }
 
+  // M12.1.6: Sonnet 4.6 when the Anthropic key is present — richer invented
+  // detail and brand voice; 4o-mini fallback otherwise.
+  if (ctx.anthropicApiKey) {
+    return anthropicChat({
+      apiKey: ctx.anthropicApiKey,
+      model: ANTHROPIC_MODELS.sonnet,
+      system: SYSTEM_PROMPT,
+      user: `CLIENT BRIEF:\n${brief}`,
+      maxTokens: 2000,
+    });
+  }
   return chat({
     apiKey: ctx.openaiApiKey,
     system: SYSTEM_PROMPT,

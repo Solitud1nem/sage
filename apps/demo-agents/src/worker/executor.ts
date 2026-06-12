@@ -66,6 +66,8 @@ export class ActivityTracker {
 export interface ExecutorOptions {
   readonly activity: ActivityTracker;
   readonly openaiApiKey: string | undefined;
+  /** Anthropic key — frontier handlers (M12.1.6); absent → OpenAI fallback. */
+  readonly anthropicApiKey?: string | undefined;
   /** R2 artifact store, when the env provides gateway access (M12.1.1). */
   readonly artifacts?: ArtifactStore;
   /** Skip a Created task whose deadline is closer than this. Default 120s. */
@@ -222,6 +224,7 @@ async function runWithRetry(
         identityId: rt.identity.id,
         capability: rt.identity.capability,
         openaiApiKey: opts.openaiApiKey,
+        anthropicApiKey: opts.anthropicApiKey,
         ...(opts.artifacts ? { artifacts: opts.artifacts } : {}),
       });
     } catch (err) {

@@ -31,6 +31,11 @@ export interface HandlerContext {
   readonly capability: string;
   readonly openaiApiKey: string | undefined;
   /**
+   * Anthropic key (M12.1.6): frontier handlers (builder → Opus, copywriter /
+   * qa-judge → Sonnet) prefer it; absent → graceful OpenAI fallback.
+   */
+  readonly anthropicApiKey?: string | undefined;
+  /**
    * R2-backed artifact store (M12.0.3/M12.1.1). Absent when the worker env
    * lacks a gateway URL or backend key — handlers that need it throw, which
    * surfaces as an honest `Task failed` instead of a silent wrong path.

@@ -133,6 +133,7 @@ function main(): void {
       return executeTask(rt, HANDLERS[rt.identity.capability]!, id, task, {
         activity,
         openaiApiKey: runtime.openaiApiKey,
+        anthropicApiKey: runtime.anthropicApiKey,
         ...(artifacts ? { artifacts } : {}),
       }, resume);
     },

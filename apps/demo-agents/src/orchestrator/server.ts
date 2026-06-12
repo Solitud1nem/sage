@@ -465,11 +465,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
   if (url === '/api/demo/composite/website-plan' && method === 'POST') {
     try {
       const raw = await readBody(req);
-      const body = raw ? (JSON.parse(raw) as { brief?: unknown }) : {};
+      const body = raw ? (JSON.parse(raw) as { brief?: unknown; variant?: unknown }) : {};
       if (typeof body.brief !== 'string' || body.brief.length === 0) {
         json(res, 400, { error: 'brief must be a non-empty string' });
         return;
       }
+      // M12.1.6: 'site-author' = frontier builder authors copy+design in one
+      // pass (no copywriter step). Default stays the 4-step pipeline.
+      const variant = body.variant === 'site-author' ? 'site-author' : 'pipeline';
 
       const registryV2Addr = sageBundle.chainConfig.contracts.agentRegistryV2;
       if (!registryV2Addr) {
@@ -485,7 +488,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
         return;
       }
 
-      const classification = buildWebsiteClassification(registryAgents);
+      const classification = buildWebsiteClassification(registryAgents, variant);
       jsonWithBigints(res, 200, { classification });
     } catch (err) {
       console.error('[Orchestrator] /api/demo/composite/website-plan error:', err);
@@ -569,6 +572,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
         // observed live on run 908e6718 (M12.1.3 e2e, 2026-06-11).
         disputeFlow: makeDisputeFlow(sageBundle, {
           ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
+          // M12.1.6 judge-class rule: Sonnet arbiter when the key is present.
+          ...(process.env['ANTHROPIC_API_KEY']
+            ? { anthropicApiKey: process.env['ANTHROPIC_API_KEY'] }
+            : {}),
         }),
         ...(reviewMode ? { reviewMode: true } : {}),
       };
