@@ -380,33 +380,80 @@ function CompositePageInner() {
             }
             return null;
           })()}
-          {isDone && (
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              {(() => {
-                // M12.1.3: the packager's result is an artifact envelope
-                // pointing at the deploy-ready zip in the R2 store.
-                const zip = Object.values(demo.runtimes)
-                  .map((r) => artifactFromResult(r.result))
-                  .find((a) => a?.mime === 'application/zip');
-                return zip ? (
-                  <a
-                    href={zip.url}
-                    download="site.zip"
-                    className="h-9 px-4 inline-flex items-center rounded-[8px] bg-cyan text-[#0A0A0F] font-mono text-[12px] font-medium hover:bg-[#7AEAF8] transition-colors"
-                  >
-                    Download site.zip ({Math.max(1, Math.round(zip.size / 1024))} KB)
-                  </a>
-                ) : null;
-              })()}
-              <button
-                type="button"
-                onClick={handleReset}
-                className="h-9 px-4 rounded-[8px] border border-border font-mono text-[12px] text-text hover:border-cyan transition-colors"
-              >
-                Start new plan
-              </button>
-            </div>
-          )}
+          {isDone &&
+            (() => {
+              // M12.1.3: the packager's result is an artifact envelope
+              // pointing at the deploy-ready zip in the R2 store.
+              const results = Object.values(demo.runtimes);
+              const zip = results
+                .map((r) => artifactFromResult(r.result))
+                .find((a) => a?.mime === 'application/zip');
+              // M12.1.7: hosted preview — explicit previewUrl from the
+              // packager result, with a derive-from-manifest fallback.
+              const explicit = results
+                .map((r) => {
+                  try {
+                    return (JSON.parse(r.result ?? '') as { previewUrl?: unknown }).previewUrl;
+                  } catch {
+                    return undefined;
+                  }
+                })
+                .find((p): p is string => typeof p === 'string');
+              const manifestRef = results
+                .map((r) => artifactFromResult(r.result))
+                .find((a) => a?.mime === 'application/json');
+              const preview =
+                explicit ??
+                (manifestRef?.url.includes('/api/artifacts/')
+                  ? `${manifestRef.url.replace('/api/artifacts/', '/preview/')}/`
+                  : undefined);
+              return (
+                <div className="space-y-4">
+                  {preview && (
+                    <div className="rounded-[14px] border border-border bg-surface overflow-hidden">
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+                        <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
+                          Live preview · expires with the artifact (~30 days)
+                        </span>
+                        <a
+                          href={preview}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-[12px] text-cyan hover:underline underline-offset-4"
+                        >
+                          Open in new tab ↗
+                        </a>
+                      </div>
+                      <iframe
+                        src={preview}
+                        title="Site preview"
+                        sandbox="allow-scripts"
+                        loading="lazy"
+                        className="w-full h-[480px] bg-white"
+                      />
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    {zip && (
+                      <a
+                        href={zip.url}
+                        download="site.zip"
+                        className="h-9 px-4 inline-flex items-center rounded-[8px] bg-cyan text-[#0A0A0F] font-mono text-[12px] font-medium hover:bg-[#7AEAF8] transition-colors"
+                      >
+                        Download site.zip ({Math.max(1, Math.round(zip.size / 1024))} KB)
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleReset}
+                      className="h-9 px-4 rounded-[8px] border border-border font-mono text-[12px] text-text hover:border-cyan transition-colors"
+                    >
+                      Start new plan
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
         </section>
       )}
 

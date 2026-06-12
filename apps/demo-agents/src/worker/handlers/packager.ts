@@ -22,50 +22,33 @@ import type { CapabilityHandler } from './index.js';
 
 export { unzipSync }; // re-export for tests (round-trip the produced zip)
 
-export function buildReadme(manifest: SiteManifest, siteTitle: string): string {
-  const fileList = manifest.files.map((f) => `- \`${f.path}\``).join('\n');
+/**
+ * Laconic-but-deep README (M12.1.7 feedback): preview link first, ONE honest
+ * publish path (registration steps not hidden — the old text oversold
+ * Netlify Drop as registration-free), alternatives one line each.
+ */
+export function buildReadme(manifest: SiteManifest, siteTitle: string, previewUrl?: string): string {
+  const fileList = manifest.files.map((f) => `\`${f.path}\``).join(', ');
   return [
-    `# ${siteTitle} — your website, ready to publish`,
+    `# ${siteTitle}`,
     '',
-    'Built by the Sage website pipeline (copywriter → builder → QA → packager), each step paid and verified on Base.',
+    `Static site, no build step — these files (${fileList}) are the whole thing.`,
+    'Built and QA-verified by the Sage pipeline, settled per-step on Base.',
     '',
-    'This is a plain static site: **no build step, no dependencies, nothing to install.** The files below are the whole site.',
+    ...(previewUrl
+      ? [`**Live preview (already online, expires in ~30 days):** <${previewUrl}>`, '']
+      : []),
+    '**See it locally:** unzip and double-click `index.html`.',
     '',
-    fileList,
+    '## Publish (Netlify, free, ~5 min)',
     '',
-    '## See it right now (10 seconds)',
+    '1. Create a free account at netlify.com (email is enough).',
+    '2. Open <https://app.netlify.com/drop> and drag the unzipped folder onto the page.',
+    '3. Your site is live at `https://<name>.netlify.app`. Custom domain: Site settings → Domain management.',
     '',
-    'Unzip this archive and double-click `index.html` — it opens in your browser exactly as visitors will see it.',
+    'Alternatives: **Cloudflare Pages** — `npx wrangler pages deploy .` (needs Node.js + free account); **GitHub Pages** — push files to a repo, Settings → Pages → deploy from branch.',
     '',
-    '## Put it online — pick ONE option',
-    '',
-    '### Option A — Netlify Drop (easiest, ~2 minutes, free, no terminal)',
-    '',
-    '1. Unzip this archive into a folder.',
-    '2. Open <https://app.netlify.com/drop> in your browser (sign up free if asked — email is enough).',
-    '3. Drag the unzipped FOLDER onto the page.',
-    '4. Done — Netlify shows your live URL (like `https://your-site.netlify.app`). Share it.',
-    '',
-    '### Option B — Cloudflare Pages (free, ~5 minutes, needs Node.js installed)',
-    '',
-    '1. Unzip the archive and open a terminal in that folder.',
-    '2. Run: `npx wrangler pages deploy . --project-name my-site`',
-    '3. First run asks you to log in to a free Cloudflare account — follow the browser prompt.',
-    '4. The command prints your live URL when it finishes.',
-    '',
-    '### Option C — GitHub Pages (free, good if you already use GitHub)',
-    '',
-    '1. Create a new repository on github.com and upload these files to its root.',
-    '2. Repository → Settings → Pages → "Deploy from a branch" → branch `main`, folder `/ (root)` → Save.',
-    '3. After ~1 minute your site is live at `https://<your-username>.github.io/<repo-name>/`.',
-    '',
-    '## Want your own domain?',
-    '',
-    'All three hosts above let you attach a custom domain (like `yourbar.com`) for free in their dashboard — buy the domain at any registrar, then follow the host\'s "custom domain" guide.',
-    '',
-    '## Editing the site later',
-    '',
-    `Text lives in \`index.html\`, colors and fonts in \`styles.css\` — both are plain files you can open in any editor. Re-upload after changes (same steps as above).`,
+    '**Edit later:** text lives in `index.html`, colors/fonts in `styles.css` — plain files, any editor; re-upload after changes.',
     '',
   ].join('\n');
 }
@@ -94,8 +77,13 @@ export const packagerHandler: CapabilityHandler = async (job, ctx) => {
   const manifest = validateManifest(JSON.parse(new TextDecoder().decode(manifestBytes)));
 
   const title = siteTitleFromManifest(manifest);
+  // M12.1.7: the manifest artifact doubles as the hosted preview — derive the
+  // preview URL from the artifact URL shape (same gateway origin).
+  const previewUrl = ref.url.includes('/api/artifacts/')
+    ? `${ref.url.replace('/api/artifacts/', '/preview/')}/`
+    : undefined;
   const entries: Record<string, Uint8Array> = {
-    'README.md': strToU8(buildReadme(manifest, title)),
+    'README.md': strToU8(buildReadme(manifest, title, previewUrl)),
   };
   for (const f of manifest.files) {
     entries[f.path] = strToU8(f.content);
@@ -105,6 +93,7 @@ export const packagerHandler: CapabilityHandler = async (job, ctx) => {
   const zipRef = await ctx.artifacts.upload(zipBytes, 'application/zip');
   return JSON.stringify({
     artifact: zipRef,
+    ...(previewUrl ? { previewUrl } : {}),
     manifest: {
       title,
       files: manifest.files.map((f) => ({

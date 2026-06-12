@@ -147,8 +147,10 @@ describe('packager', () => {
     const unzipped = unzipSync(zipBytes);
     expect(Object.keys(unzipped).sort()).toEqual(['README.md', 'index.html', 'styles.css']);
     const readme = new TextDecoder().decode(unzipped['README.md']);
-    expect(readme).toContain('Deploy');
+    expect(readme).toContain('Publish');
     expect(readme).toContain('index.html');
+    // M12.1.7: preview URL derived from the manifest artifact location.
+    expect(readme).toMatch(/Live preview.*\/preview\/[0-9a-f]{64}\//);
   });
 
   it('rejects material that is not an artifact envelope', async () => {
@@ -173,10 +175,12 @@ describe('packager', () => {
     ).rejects.toThrow(/sha256 mismatch/);
   });
 
-  it('README template lists files and deploy targets', () => {
-    const readme = buildReadme(okManifest, 'T');
+  it('README template lists files and publish targets; preview line only when given a URL', () => {
+    const readme = buildReadme(okManifest, 'T', 'https://gw.example/preview/abc/');
     expect(readme).toContain('`index.html`');
     expect(readme).toContain('Cloudflare Pages');
+    expect(readme).toContain('https://gw.example/preview/abc/');
+    expect(buildReadme(okManifest, 'T')).not.toContain('Live preview');
   });
 });
 

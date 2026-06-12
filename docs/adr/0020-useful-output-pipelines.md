@@ -68,6 +68,10 @@
 
 **Risks:** wake-on-HTTP — потерянный пинг = зависшая задача → boot-reconciliation + escrow-reclaim (CR.3) как страховка; «провальный ран» в демо может быть прочитан как нестабильность → копирайт должен явно маркировать его как фичу; чат-продукты отращивают agent-mode → website-преимущество временное, долгосрочный слой — верификация + settlement (фиксируем это ожидание здесь).
 
+## Amendment 2026-06-12 — hosted preview (одобрено Alex)
+
+Пункт 1 откладывал live-deploy в фазу 2 (модерация, lifetime, credentials). Принята облегчённая форма: **hosted-превью** `GET /preview/:sha256/*` на gateway — отдаёт файлы QA-прошедшего сайта из R2-манифеста. Содержание рисков: hash-URL (не vanity), TTL артефакта (30 дней), `X-Robots-Tag: noindex`, CSP `sandbox allow-scripts` (без cookies/storage на origin gateway), существует только для контента, прошедшего пайплайн (QA-судья видел рендер). Полный live-deploy на поддомен с credentials остаётся фазой 2. Контекст: M12.1.7, фидбек «нечего показать без скачивания и распаковки».
+
 ## Implementation notes
 
 Разбивка — TASKS.md, Milestone 12. Порядок реализации: каркас → website → research → review → снос → нарратив. Контракты не меняются.
