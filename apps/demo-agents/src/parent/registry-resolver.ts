@@ -49,6 +49,15 @@ const STEM_BUCKETS: ReadonlyArray<{
     stems: ['sentiment', 'classif', 'emotion', 'tone', 'mood'],
     capability: 'sentiment-classify',
   },
+  // Website pipeline (M12.1.5 — isolation from M12.1.1 lifted now that the
+  // pipeline passed e2e): classifier-emitted content/site types route to the
+  // live website identities. MUST sit before the summarizer catch-all —
+  // 'copywrite' contains 'write'. qa-website is deliberately NOT stem-mapped:
+  // its handler expects an EvaluationCase and only the plan-runner's
+  // evaluator path provides one.
+  { stems: ['copywrit', 'content'], capability: 'copywrite' },
+  { stems: ['website', 'web-', 'site', 'landing', 'html'], capability: 'build-website' },
+  { stems: ['packag', 'zip'], capability: 'package-archive' },
   // Summarizer is the broad catch — research / write / analyze /
   // compare / summarize / etc. — because the registered Summarizer agent
   // claims `summarize` but in practice its prompt is a generalist

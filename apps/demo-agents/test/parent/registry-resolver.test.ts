@@ -56,6 +56,19 @@ describe('capabilityNameForType (stem buckets)', () => {
     expect(capabilityNameForType('plan-itinerary')).toBe('summarize');
   });
 
+  it('maps website-pipeline variants to live capabilities (M12.1.5)', () => {
+    expect(capabilityNameForType('content_creation')).toBe('copywrite'); // observed live, 2026-06-12
+    expect(capabilityNameForType('copywriting')).toBe('copywrite');
+    expect(capabilityNameForType('build-website')).toBe('build-website');
+    expect(capabilityNameForType('site-development')).toBe('build-website');
+    expect(capabilityNameForType('landing-page')).toBe('build-website');
+    expect(capabilityNameForType('package-archive')).toBe('package-archive');
+    // copywrite contains 'write' — the copywrite bucket must win over summarize.
+    expect(capabilityNameForType('copywrite')).toBe('copywrite');
+    // qa-types deliberately unmapped (handler needs an EvaluationCase).
+    expect(capabilityNameForType('quality-assurance')).toBeNull();
+  });
+
   it('returns null for unmatched types', () => {
     expect(capabilityNameForType('crypto-transaction')).toBeNull();
     expect(capabilityNameForType('book-flight')).toBeNull();
