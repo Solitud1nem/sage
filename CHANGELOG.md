@@ -8,6 +8,21 @@
 
 ---
 
+## 2026-06-13 — M12.2.3: research UI-режим + управляемый провальный ран + e2e на mainnet — секция 12.2 закрыта — `release`
+
+Закрыт research-пайплайн целиком (флагман нарратива «протухшая память»). Оба сценария — честный и провальный — подтверждены живыми ранами на Base mainnet.
+
+- **Управляемый провальный ран** (ADR-0020 п.1/п.2, «показ судьбы денег при провале как фича»): вариант `failure-demo` в research-plan вешает маркер на спек синтезатора → `synthesizer` шлёт РЕАЛЬНЫЕ URL с ФАБРИКОВАННЫМИ квотами (свой же парафраз — дефект «careless chat»). `fabricateStaleCitations` gated на маркер (в норме не срабатывает). Fact-checker рефетчит на живом вебе → каждая квота mismatch → блокер «не резолвится ни одна» → fail → одна переделка синтеза → снова fail → dispute → council → клиенту рефанд.
+- **Gateway `GET /report/:sha256`**: рендерит ResearchReportDoc в безопасный self-contained HTML (markdown + цитаты, экранирование LLM-контента, нейтрализация non-http ссылок, noindex, CSP sandbox без скриптов — зеркало /preview M12.1.7). Зарегистрирован в роутере, вне rate-limit-бакета.
+- **Web**: режим «Research report» на `/demo/composite` (детерминированный 7-шаговый план через `/research-plan`) + тоггл «Stage a failed run» (только research) + iframe-отчёт через /report; fact-check verdict (pass/fail/score/reasons) рендерится существующим evaluator-drawer'ом; провал показывает «fail · disputed» + рефанд.
+- **Тесты**: demo-agents **393** (+3: failure-demo вариант, `fabricateStaleCitations`, e2e fabricate→factcheck-reject), gateway **19** (+4: /report рендер, XSS-экранирование, non-report 404). Все typecheck/lint/web-build чистые. Попутно type-фикс `parseResearchReportDoc` (local-const narrowing — tsup не тайпчекал, gate краснел после M12.2.2).
+- **Деплои (Base mainnet)**: gateway (`/report`, version `e2cf56c3`), orchestrator sage-demo-agents (research-plan endpoint; рестарт прод 3-mode), Pages (Production, commit `fac9789`), sage-workers (synthesizer failure-ветка — **передеплоен отдельно после того, как первый failure-ран ошибочно прошёл: fabrication живёт в воркере, а я забыл его в первом списке деплоев; урок в GOTCHAS**).
+- **E2e на mainnet (оба зелёные):**
+  - **Success** (run `1d586856`): полный 7-шаговый lifecycle, живой Serper + живой фетч страниц, fact-check **pass score=100** (все цитаты независимо реверифицированы на живом вебе), синтезатор оплачен ТОЛЬКО после pass-вердикта (sub 6 оплачен после вердикта sub 7). `plan_completed`, ~10 мин, 0.22 USDC.
+  - **Failure-demo** (run `74d04dff`): фабрикованные квоты → fact-check **fail score=0** «not one citation resolves» → rework → снова fail → **dispute → council → `plan_failed reason=dispute_refunded`**. On-chain сверено: synthesizer получил 0 за провальные попытки (escrow рефанднут спонсору), fact-checker оплачен за оба вердикта (evaluator платится за работу, не за исход).
+- **Стоимость**: success-ран ровно 0.22 USDC циркуляции на identity-кошельки; failure-ран нетто ~0.20 (escrow синтеза рефандится). Один ран потерян (0.22) на ошибочно-прошедшем первом failure из-за пропуска sage-workers в деплое.
+- **Коммиты**: `fac9789` (код M12.2.3). **Секция 12.2 (research-флагман) закрыта целиком.** Дальше по Milestone 12: **12.4** — снос translator/sentiment/vision + нарратив «три боли чата» + возврат `DAILY_LIMIT="3"` (сейчас тестовый "30"). Опционально 12.3 (structured review).
+
 ## 2026-06-13 — M12.2.2: fact-checker evaluator — цитаты резолвятся по живому URL — `release`
 
 Закрыт гейт флагманского пайплайна (ADR-0020 п.1/п.5) — то, ради чего «протухшая память» вообще флагман: платный evaluator, который **независимо рефетчит каждую цитату синтезатора по живому URL** и проверяет, что цитата всё ещё на странице. Чат за такое привлечь нельзя; шаг, чей вердикт двигает деньги, — можно.
