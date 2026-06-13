@@ -21,6 +21,7 @@ import { qaWebsiteHandler } from './qa-website.js';
 import { searcherHandler } from './searcher.js';
 import { extractorHandler } from './extractor.js';
 import { synthesizerHandler } from './synthesizer.js';
+import { factCheckerHandler } from './fact-checker.js';
 
 export interface WorkerJob {
   /** The instruction — envelope `spec`, or the raw specUri on the legacy path. */
@@ -62,4 +63,5 @@ export const HANDLERS: Readonly<Record<string, CapabilityHandler>> = {
   'web-search': searcherHandler,
   'extract-content': extractorHandler,
   'synthesize-report': synthesizerHandler,
+  'fact-check': factCheckerHandler,
 };

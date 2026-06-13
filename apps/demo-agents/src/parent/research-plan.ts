@@ -32,6 +32,7 @@ interface StepTemplate {
   readonly spec: string;
   readonly deadline_offset_s: number;
   readonly depends_on?: readonly number[];
+  readonly evaluates?: number;
 }
 
 /** ids are 1-based positions in this array. */
@@ -65,12 +66,27 @@ function buildSteps(): StepTemplate[] {
     // The searcher (question) + every extract (evidence).
     depends_on: [1, ...extracts.map((_, i) => i + 2)],
   };
-  return [searcher, ...extracts, synthesizer];
+  // Evaluator: independently re-resolves every citation against the live web
+  // (M12.2.2). Like every evaluator it carries NO depends_on — it implicitly
+  // follows its target (plan-runner rule); fail-verdict → rework → dispute →
+  // council → money never leaves. Its id is one past the synthesizer.
+  const synthId = 1 + extracts.length + 1;
+  const factChecker: StepTemplate = {
+    capability: 'fact-check',
+    spec:
+      'Fact-check the research report: independently re-fetch every cited URL and verify the ' +
+      'quote still appears on the live page; decide whether a reasonable reader would trust the ' +
+      'report. Unresolved citations on load-bearing claims → reject.',
+    deadline_offset_s: 900,
+    evaluates: synthId,
+  };
+  return [searcher, ...extracts, synthesizer, factChecker];
 }
 
 /** Rough demo estimate: sequential sub-task lifecycles dominate (plan-runner
- * executes one at a time); LLM steps are seconds each. */
-const ESTIMATED_DURATION_MS = 300_000;
+ * executes one at a time); LLM steps are seconds each. Includes the
+ * fact-check evaluator's own lifecycle after the synthesizer. */
+const ESTIMATED_DURATION_MS = 360_000;
 
 /**
  * Build the research-pipeline classification from live registry agents.
@@ -93,6 +109,7 @@ export function buildResearchClassification(
       executor_address: pick.address,
       estimated_cost_units: pick.price,
       ...(step.depends_on ? { depends_on: [...step.depends_on] } : {}),
+      ...(step.evaluates !== undefined ? { evaluates: step.evaluates } : {}),
     };
   });
 
@@ -106,12 +123,13 @@ export function buildResearchClassification(
     estimated_total_cost_units: total,
     estimated_duration_ms: ESTIMATED_DURATION_MS,
     reasoning:
-      `Deterministic research-pipeline template (M12.2.1): web-search → extract-content ×${RESEARCH_SOURCE_COUNT} ` +
-      '(one per source) → synthesize-report. Executors resolved from AgentRegistryV2 by capability.',
+      `Deterministic research-pipeline template (M12.2): web-search → extract-content ×${RESEARCH_SOURCE_COUNT} ` +
+      '(one per source) → synthesize-report, with the fact-check evaluator gating the synthesizer ' +
+      'payment. Executors resolved from AgentRegistryV2 by capability.',
     signal_trace: {
       lexical: ['research-pipeline template (no LLM classification)'],
       semantic: [
-        `fixed ${RESEARCH_SOURCE_COUNT + 2}-step DAG: web-search → extract-content ×${RESEARCH_SOURCE_COUNT} → synthesize-report`,
+        `fixed ${RESEARCH_SOURCE_COUNT + 2}-step DAG: web-search → extract-content ×${RESEARCH_SOURCE_COUNT} → synthesize-report + fact-check evaluator`,
       ],
       stakes: ['fixed demo pipeline, registry-priced steps'],
     },

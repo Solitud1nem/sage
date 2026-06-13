@@ -25,15 +25,17 @@ const FULL_REGISTRY = [
   agent('0x' + '1'.repeat(40), 'web-search', 40_000n),
   agent('0x' + '2'.repeat(40), 'extract-content', 10_000n),
   agent('0x' + '3'.repeat(40), 'synthesize-report', 80_000n),
+  agent('0x' + '4'.repeat(40), 'fact-check', 60_000n),
 ];
 
 describe('buildResearchClassification', () => {
-  it('builds searcher → extract×N → synthesizer with correct dependencies', () => {
+  it('builds searcher → extract×N → synthesizer + fact-check evaluator', () => {
     const c = buildResearchClassification(FULL_REGISTRY);
 
     expect(c.decomposability).toBe('composite');
     const subs = c.proposed_plan;
-    expect(subs).toHaveLength(RESEARCH_SOURCE_COUNT + 2);
+    // searcher + N extracts + synthesizer + fact-check evaluator.
+    expect(subs).toHaveLength(RESEARCH_SOURCE_COUNT + 3);
     expect(subs[0]!.type).toBe('web-search');
     expect(subs[0]!.depends_on).toBeUndefined(); // root — gets the question as `source`
 
@@ -45,16 +47,23 @@ describe('buildResearchClassification', () => {
       expect(sourceIndexFromSpec(e.spec)).toBe(i + 1);
     }
 
-    const synth = subs[subs.length - 1]!;
+    const synthId = 1 + RESEARCH_SOURCE_COUNT + 1;
+    const synth = subs[synthId - 1]!;
     expect(synth.type).toBe('synthesize-report');
     // Searcher (the question) + every extract (the evidence).
     expect(synth.depends_on).toEqual([1, ...extracts.map((_, i) => i + 2)]);
+
+    const factCheck = subs[subs.length - 1]!;
+    expect(factCheck.type).toBe('fact-check');
+    expect(factCheck.evaluates).toBe(synthId);
+    // Evaluator must not declare depends_on (plan-runner rule).
+    expect(factCheck.depends_on).toBeUndefined();
   });
 
-  it('prices the run from the registry: 0.04 + N×0.01 + 0.08', () => {
+  it('prices the run from the registry: 0.04 + N×0.01 + 0.08 + 0.06', () => {
     const c = buildResearchClassification(FULL_REGISTRY);
     expect(c.estimated_total_cost_units).toBe(
-      40_000n + BigInt(RESEARCH_SOURCE_COUNT) * 10_000n + 80_000n,
+      40_000n + BigInt(RESEARCH_SOURCE_COUNT) * 10_000n + 80_000n + 60_000n,
     );
   });
 
@@ -68,14 +77,10 @@ describe('buildResearchClassification', () => {
   });
 
   it('throws an honest error on a missing or inactive capability', () => {
-    const withoutSynth = FULL_REGISTRY.filter(
-      (a) => a.capabilities[0]!.name !== 'synthesize-report',
-    );
-    expect(() => buildResearchClassification(withoutSynth)).toThrow(
-      /no active agent .*synthesize-report/,
-    );
+    const withoutFc = FULL_REGISTRY.filter((a) => a.capabilities[0]!.name !== 'fact-check');
+    expect(() => buildResearchClassification(withoutFc)).toThrow(/no active agent .*fact-check/);
 
-    const inactive = [...withoutSynth, agent('0x' + '3'.repeat(40), 'synthesize-report', 80_000n, false)];
-    expect(() => buildResearchClassification(inactive)).toThrow(/synthesize-report/);
+    const inactive = [...withoutFc, agent('0x' + '4'.repeat(40), 'fact-check', 60_000n, false)];
+    expect(() => buildResearchClassification(inactive)).toThrow(/fact-check/);
   });
 });

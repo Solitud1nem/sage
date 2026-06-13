@@ -47,6 +47,7 @@ export const IDENTITY_TABLE: readonly IdentityConfig[] = [
   { id: 'searcher', capability: 'web-search', priceUnits: 40_000n }, // 0.04 USDC (5 SERP queries inside)
   { id: 'extractor', capability: 'extract-content', priceUnits: 10_000n }, // 0.01 USDC per source
   { id: 'synthesizer', capability: 'synthesize-report', priceUnits: 80_000n }, // 0.08 USDC (Sonnet 4.6)
+  { id: 'fact-checker', capability: 'fact-check', priceUnits: 60_000n }, // 0.06 USDC (evaluator, Sonnet 4.6; M12.2.2)
 ];
 
 export interface LoadedIdentity extends IdentityConfig {

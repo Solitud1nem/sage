@@ -51,7 +51,7 @@ Summarizer (1_000 units, `summarize`) НЕ переезжает: synthesizer п�
 | Пайплайн | Шаги | Escrow/ран | Чистый кост/ран (LLM+API+gas)** |
 |---|---|---|---|
 | Website | copywriter+builder+packager+qa | **0.15 USDC** | ~$0.36 (M12.1.6: фронтир; ~$0.70 при rework). Site-author вариант (3 шага, builder=root) — 0.12 USDC / ~$0.33 |
-| Research | searcher + extract×4 (per-source) + synthesizer (+fact-checker в M12.2.2) | **0.16 USDC** (M12.2.1) → **0.22 USDC** (с fact-checker) | ~$0.10–0.13 (Sonnet-synthesizer + Serper; +Sonnet-fact-check в 12.2.2) |
+| Research | searcher + extract×4 (per-source) + synthesizer + fact-checker (evaluator) | **0.22 USDC** (M12.2.2 — штатный путь с fact-check'ом; ~0.30 при одной переделке синтеза) | ~$0.14–0.17 (Sonnet-synthesizer + Sonnet-fact-check + Serper) |
 | Review | splitter+reviewer+second-reviewer | **0.27 USDC** | ~$0.08 |
 
 \** Escrow уходит на НАШИ identity-кошельки — это циркуляция, не расход. Невозвратный кост рана = LLM + SERP + gas. Классификатор (~$0.002/classify) — поверх.

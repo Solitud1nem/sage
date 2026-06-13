@@ -133,6 +133,44 @@ export interface ResearchReportDoc {
   readonly generated_at: string;
 }
 
+export function parseResearchReportDoc(raw: unknown): ResearchReportDoc | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r['question'] !== 'string' || typeof r['report_markdown'] !== 'string') return null;
+  if (!Array.isArray(r['citations'])) return null;
+  const citations: ResearchCitation[] = [];
+  for (const c of r['citations'] as Array<Record<string, unknown>>) {
+    if (
+      typeof c?.['id'] !== 'number' ||
+      typeof c?.['claim'] !== 'string' ||
+      typeof c?.['url'] !== 'string' ||
+      typeof c?.['quote'] !== 'string'
+    ) {
+      return null;
+    }
+    citations.push({ id: c['id'], claim: c['claim'], url: c['url'], quote: c['quote'] });
+  }
+  const sources = Array.isArray(r['sources'])
+    ? (r['sources'] as Array<Record<string, unknown>>)
+        .filter((s) => typeof s?.['url'] === 'string' && typeof s?.['title'] === 'string')
+        .map((s) => ({
+          url: s['url'] as string,
+          title: s['title'] as string,
+          status:
+            s['status'] === 'ok' || s['status'] === 'unreachable' || s['status'] === 'missing'
+              ? s['status']
+              : 'ok',
+        }))
+    : [];
+  return {
+    question: r['question'],
+    report_markdown: r['report_markdown'],
+    citations,
+    sources,
+    generated_at: typeof r['generated_at'] === 'string' ? r['generated_at'] : '',
+  };
+}
+
 /**
  * Whitespace-insensitive quote matching, shared by the extractor (verify
  * before upload) and the fact-checker (re-verify against the LIVE page,
