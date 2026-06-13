@@ -8,6 +8,20 @@
 
 ---
 
+## 2026-06-13 — M12.2.2: fact-checker evaluator — цитаты резолвятся по живому URL — `release`
+
+Закрыт гейт флагманского пайплайна (ADR-0020 п.1/п.5) — то, ради чего «протухшая память» вообще флагман: платный evaluator, который **независимо рефетчит каждую цитату синтезатора по живому URL** и проверяет, что цитата всё ещё на странице. Чат за такое привлечь нельзя; шаг, чей вердикт двигает деньги, — можно.
+
+- **`handlers/fact-checker.ts`** — судит synthesizer (EvaluationCase.result = его артефакт-конверт): sha-сверенный `ResearchReportDoc` → для каждой citation рефетч URL через extractor-fetch (те же SSRF-гарды) + `quoteAppearsIn` против ЖИВОЙ страницы. Статусы: `resolved` / `dead_url` / `quote_mismatch`.
+- **Резолюция = advisory-улики, не автовердикт** (рамка M12.1.4, память «evaluators judge acceptability»): единственный детерминированный блокер — «не резолвится НИ одна цитата» (отчёт стоит на пустоте, fail без LLM); иначе платный **Sonnet-судья** (правило класса судьи: synthesizer Sonnet → fact-checker Sonnet) решает «доверится ли разумный читатель отчёту настолько, чтобы заплатить». Дохлая ссылка на неключевом утверждении сама по себе не валит — валят дохлые цитаты под несущими claim'ами.
+- **Verdict-дисциплина как qa-website:** input-quality (не артефакт / невалидный отчёт / цитаты не резолвятся) → `pass:false` (это суждение, synthesizer платит); поломка харнесса (нет стора, sha/download-фейл, судья down) → throw → executor-retry → degrade в legacy-approve. Сломанный судья не оправдывает и не осуждает.
+- **dispute-механика — бесплатно:** `pass:false` поднимает generic evaluator-hook plan-runner'а (`runEvaluatorStep` уже generic с M12.0.3/M12.1.4 — keyed на `origin==='evaluator'`, не на website): первый fail → одна переделка синтеза с дефект-листом (failed-цитаты) в spec, второй fail → dispute → council → клиенту рефанд (деньги не уходят). **plan-runner не тронут.**
+- research-plan: 7-й шаг — evaluator `evaluates`=synthesizer (без depends_on, правило plan-runner). План research теперь **7 задач**: searcher + extract×4 + synthesizer + fact-check. identity `fact-check@60_000`; `parseResearchReportDoc` добавлен в `shared/research.ts`.
+- **Тесты:** demo-agents **390/390** (+7: резолв-классификация с кап-лимитом, all-resolve pass, zero-resolve блокер без LLM, mock-судья fail, input-quality fails, skip/throw-семантика, sha-mismatch breakage). lint 0, typecheck чистый.
+- **Деплой + регистрация (Base mainnet):** sage-workers передеплоен (fact-check handler; identity захостилась после добавления Alex'ом в `WORKER_IDENTITIES`). fact-checker `0xc3EAeaf0db0E24Ae822c226bc6a2fA40b3a146cC` зарегистрирован в AgentRegistryV2 (tx `0x330e71ec…`), `getAgent` сверен — `fact-check@60000`, `active=true`. `/health` показывает **9 identities**. Кошелёк/ключ у Alex.
+- **Экономика:** escrow research-рана **0.22 USDC** (штатный путь с fact-check'ом; ~0.30 при одной переделке синтеза), невозвратный кост ~$0.14–0.17 (Sonnet ×2 + Serper). **Секция contracts/гарды без изменений** (7 задач < `MAX_RUN_TASKS` 12).
+- **Коммиты:** `2b5b0c3` (M12.2.2). Осталось по секции 12.2: **M12.2.3** — orchestrator research-plan endpoint deploy + UI-режим + управляемый «провальный ран» (показ судьбы денег при провале как фича) + e2e (первый живой Serper + полный пайплайн на mainnet).
+
 ## 2026-06-13 — M12.2.1: research-пайплайн (searcher → extractor → synthesizer) — capabilities, деплой, регистрация — `release`
 
 Открыта секция 12.2 — **флагман нарратива «протухшая память»** (ADR-0020 п.1). Первый кирпич: три capability research-пайплайна живут в generic worker, задеплоены и зарегистрированы on-chain на Base mainnet.
