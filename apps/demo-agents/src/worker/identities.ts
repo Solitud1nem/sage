@@ -41,6 +41,12 @@ export const IDENTITY_TABLE: readonly IdentityConfig[] = [
   { id: 'builder', capability: 'build-website', priceUnits: 80_000n }, // 0.08 USDC
   { id: 'packager', capability: 'package-archive', priceUnits: 10_000n }, // 0.01 USDC
   { id: 'qa-website', capability: 'qa-website', priceUnits: 30_000n }, // 0.03 USDC (evaluator, M12.1.2)
+  // Research pipeline (M12.2.1) — per-source extract pricing; fact-checker
+  // identity arrives with its handler in M12.2.2 (an identity without a
+  // handler must not exist — boot fail-fast + economics §5 lesson).
+  { id: 'searcher', capability: 'web-search', priceUnits: 40_000n }, // 0.04 USDC (5 SERP queries inside)
+  { id: 'extractor', capability: 'extract-content', priceUnits: 10_000n }, // 0.01 USDC per source
+  { id: 'synthesizer', capability: 'synthesize-report', priceUnits: 80_000n }, // 0.08 USDC (Sonnet 4.6)
 ];
 
 export interface LoadedIdentity extends IdentityConfig {

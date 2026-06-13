@@ -25,6 +25,7 @@ import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index
 import { makeDisputeFlow } from '../parent/dispute-flow.js';
 import { resolveExecutorFromRegistry } from '../parent/registry-resolver.js';
 import { buildWebsiteClassification } from '../parent/website-plan.js';
+import { buildResearchClassification } from '../parent/research-plan.js';
 import { listActiveAgentsV2 } from '@sage/adapter-evm';
 import type { AgentRecordV2, Plan, SubTask } from '@sage/core';
 
@@ -492,6 +493,45 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
       jsonWithBigints(res, 200, { classification });
     } catch (err) {
       console.error('[Orchestrator] /api/demo/composite/website-plan error:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      // Missing capability = service state, not server bug.
+      json(res, message.includes('no active agent') ? 503 : 500, { error: message });
+    }
+    return;
+  }
+
+  // --- POST /api/demo/composite/research-plan (M12.2.1) ---------------
+  // Deterministic research-pipeline plan — same registry-required template
+  // discipline as website-plan above. Accepts `question` (canonical) or
+  // `brief` (the execute path's generic name for the root material).
+  if (url === '/api/demo/composite/research-plan' && method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const body = raw ? (JSON.parse(raw) as { question?: unknown; brief?: unknown }) : {};
+      const question = typeof body.question === 'string' ? body.question : body.brief;
+      if (typeof question !== 'string' || question.length === 0) {
+        json(res, 400, { error: 'question must be a non-empty string' });
+        return;
+      }
+
+      const registryV2Addr = sageBundle.chainConfig.contracts.agentRegistryV2;
+      if (!registryV2Addr) {
+        json(res, 503, { error: 'agent registry V2 is not configured on this chain' });
+        return;
+      }
+      let registryAgents: AgentRecordV2[];
+      try {
+        registryAgents = await listActiveAgentsV2(sageBundle.publicClient, registryV2Addr);
+      } catch (regErr) {
+        console.error('[Orchestrator] registry V2 lookup failed:', regErr);
+        json(res, 503, { error: 'agent registry lookup failed — try again' });
+        return;
+      }
+
+      const classification = buildResearchClassification(registryAgents);
+      jsonWithBigints(res, 200, { classification });
+    } catch (err) {
+      console.error('[Orchestrator] /api/demo/composite/research-plan error:', err);
       const message = err instanceof Error ? err.message : String(err);
       // Missing capability = service state, not server bug.
       json(res, message.includes('no active agent') ? 503 : 500, { error: message });

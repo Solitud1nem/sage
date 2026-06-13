@@ -14,15 +14,15 @@
 | builder (multi-file сайт) | **Opus 4.8** (M12.1.6: фронтир; fallback 4o без ключа) | 3k / 10–12k | ~$0.27 |
 | packager (zip, без LLM) | — | — | ~$0 |
 | qa-website (evaluator: verdict + Lighthouse + vision, M12.1.6 — правило класса судьи) | Sonnet 4.6 | 12k+img / 0.5k | ~$0.05 |
-| searcher (5 SERP-запросов) | 4o-mini + SERP | 1k / 0.5k + API | ~$0.005–0.015* |
-| extractor (×5 источников) | 4o-mini | 3k / 0.5k each | ~$0.004 |
-| synthesizer | 4o-mini | 8k / 2k | ~$0.003 |
-| fact-checker (URL-фетчи + verdict) | 4o-mini | 6k / 1k | ~$0.002 |
+| searcher (3–5 SERP-запросов внутри) | 4o-mini + Serper | 1k / 0.5k + API | ~$0.005–0.01* |
+| extractor (M12.2.1: **per-source подзадача**, фетч + verbatim-цитаты) | 4o-mini | 10k / 1k each | ~$0.003/источник |
+| synthesizer (флагманский отчёт) | **Sonnet 4.6** (M12.2.1, решение Alex 2026-06-12; fallback 4o) | 10k / 3k | ~$0.075 |
+| fact-checker (URL-фетчи + verdict; M12.2.2) | **Sonnet 4.6** (правило класса судьи: судит Sonnet-исполнителя) | 8k / 1k | ~$0.04 |
 | module-splitter | 4o-mini | 5k / 1k | ~$0.001 |
 | reviewer | 4o-mini | 15k / 3k | ~$0.004 |
 | second-reviewer (**другая модель** — 4o) | 4o | 15k / 3k | ~$0.07 |
 
-\* SERP: Serper.dev ≈ $1/1k запросов на стартовом пакете; Brave/Tavily сопоставимы. Выбор провайдера — M12.2.1.
+\* SERP: **Serper.dev — зафиксирован (Alex, 2026-06-12, M12.2.1)**: настоящая Google-выдача ≈ $1/1k запросов (до $0.30/1k на объёме), 2 500 бесплатных кредитов на старт. Сравнение на момент выбора: Brave $5/1k + обязательная атрибуция (free tier убит 2026-02), Tavily $8/1k PAYG (но 1k кредитов/мес free) и размывает роль extractor'а. Ключ — `SERPER_API_KEY` в secrets sage-workers.
 
 **Gas (Base, ~0.01–0.05 gwei):** полный lifecycle задачи (createTask+permit / accept / complete / approve) ≈ 500–600k gas ≈ **<$0.01 даже при всплеске**; регистрация identity ≈ 250k gas — копейки. Gas платят: спонсор (create/approve) и identity-кошелёк (accept/complete) — отсюда требование ETH на identity-EOA.
 
@@ -37,21 +37,21 @@
 | packager | `package-archive` | 10_000 | 0.01 |
 | qa-website | `qa-website` (evaluator) | 30_000 | 0.03 |
 | searcher | `web-search` | 40_000 | 0.04 |
-| extractor | `extract-content` | 30_000 | 0.03 |
-| synthesizer | `synthesize-report` | 50_000 | 0.05 |
-| fact-checker | `fact-check` (evaluator) | 60_000 | 0.06 |
+| extractor | `extract-content` (цена **за источник** — per-source подзадачи, M12.2.1) | 10_000 | 0.01 |
+| synthesizer | `synthesize-report` (Sonnet 4.6 — поднято с 50k, M12.2.1) | 80_000 | 0.08 |
+| fact-checker | `fact-check` (evaluator, Sonnet 4.6; identity создаётся в M12.2.2) | 60_000 | 0.06 |
 | module-splitter | `split-modules` | 20_000 | 0.02 |
 | reviewer | `structured-review` | 100_000 | 0.10 |
 | second-reviewer | `structured-review-alt` (evaluator, 4o) | 150_000 | 0.15 |
 
-Summarizer (1_000 units, `summarize`) переезжает capability'ей в research как synthesizer — его цена пересматривается при сносе (M12.4.1).
+Summarizer (1_000 units, `summarize`) НЕ переезжает: synthesizer получает свежий кошелёк (решение Alex 2026-06-12 — кастоди старой четвёрки не подтверждено, она целиком под снос M12.4.1 со sweep'ом остатков).
 
 ## 3. Бюджет полного рана (escrow со спонсора)
 
 | Пайплайн | Шаги | Escrow/ран | Чистый кост/ран (LLM+API+gas)** |
 |---|---|---|---|
 | Website | copywriter+builder+packager+qa | **0.15 USDC** | ~$0.36 (M12.1.6: фронтир; ~$0.70 при rework). Site-author вариант (3 шага, builder=root) — 0.12 USDC / ~$0.33 |
-| Research | searcher+extractor+synthesizer+fact-checker | **0.18 USDC** | ~$0.03 |
+| Research | searcher + extract×4 (per-source) + synthesizer (+fact-checker в M12.2.2) | **0.16 USDC** (M12.2.1) → **0.22 USDC** (с fact-checker) | ~$0.10–0.13 (Sonnet-synthesizer + Serper; +Sonnet-fact-check в 12.2.2) |
 | Review | splitter+reviewer+second-reviewer | **0.27 USDC** | ~$0.08 |
 
 \** Escrow уходит на НАШИ identity-кошельки — это циркуляция, не расход. Невозвратный кост рана = LLM + SERP + gas. Классификатор (~$0.002/classify) — поверх.
@@ -69,7 +69,7 @@ Summarizer (1_000 units, `summarize`) переезжает capability'ей в re
 
 ## 5. EOA + газ + регистрация
 
-- По EOA на identity (identity = кошелёк + capability + цена). Ключи — только Fly secrets (`<ID>_PRIVATE_KEY`), генерация — `scripts/new-identity-wallets.ts`.
+- По EOA на identity (identity = кошелёк + capability + цена). **Кастоди-правило (Alex 2026-06-11):** кошельки создаёт оператор, приватники остаются у него; в Fly secrets ключ попадает копией (`<ID>_PRIVATE_KEY`), «ключ только в Fly secrets» недопустим. `scripts/new-identity-wallets.ts` — только для одноразовых dev-EOA, не для операционных identities.
 - Газ на identity: 0.0005 ETH покрывает регистрацию + сотни accept/complete. На 4 website-identity: **0.002 ETH (~$6–7) — запрос фандинга Alex'у**; спонсорские 0.0042 ETH не трогаем (нужны самому спонсору).
 - Endpoint при регистрации: `https://sage-workers.fly.dev` — это включает wake-пинги orchestrator'а (M12.0.2: пингуются только http(s)-endpoints; легаси `on-chain://task-events` не пингуется by design).
 - **Порядок (отклонение от буквы M12.0.4, фиксируется здесь):** регистрация identity выполняется ТОЛЬКО вместе с её handler'ом (M12.1.1+) — зарегистрированная capability без handler'а маршрутизирует живые эскроу в никуда (classifier выберет её как cheapest). Поэтому M12.0.4 готовит EOAs + скрипт + цены, а `registerAgent` для website-четвёрки запускается в конце M12.1.1. Ранбук: `docs/runbooks/register-worker-identity.md`.

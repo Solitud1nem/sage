@@ -134,6 +134,7 @@ function main(): void {
         activity,
         openaiApiKey: runtime.openaiApiKey,
         anthropicApiKey: runtime.anthropicApiKey,
+        serperApiKey: runtime.serperApiKey,
         ...(artifacts ? { artifacts } : {}),
       }, resume);
     },

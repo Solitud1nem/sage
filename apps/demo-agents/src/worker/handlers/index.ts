@@ -18,6 +18,9 @@ import { copywriterHandler } from './copywriter.js';
 import { builderHandler } from './builder.js';
 import { packagerHandler } from './packager.js';
 import { qaWebsiteHandler } from './qa-website.js';
+import { searcherHandler } from './searcher.js';
+import { extractorHandler } from './extractor.js';
+import { synthesizerHandler } from './synthesizer.js';
 
 export interface WorkerJob {
   /** The instruction — envelope `spec`, or the raw specUri on the legacy path. */
@@ -41,6 +44,11 @@ export interface HandlerContext {
    * surfaces as an honest `Task failed` instead of a silent wrong path.
    */
   readonly artifacts?: ArtifactStore;
+  /**
+   * Serper.dev key (M12.2.1): the searcher's live SERP. Absent → the
+   * searcher falls back to deterministic mock sources (keyless dev path).
+   */
+  readonly serperApiKey?: string | undefined;
 }
 
 export type CapabilityHandler = (job: WorkerJob, ctx: HandlerContext) => Promise<string>;
@@ -51,4 +59,7 @@ export const HANDLERS: Readonly<Record<string, CapabilityHandler>> = {
   'build-website': builderHandler,
   'package-archive': packagerHandler,
   'qa-website': qaWebsiteHandler,
+  'web-search': searcherHandler,
+  'extract-content': extractorHandler,
+  'synthesize-report': synthesizerHandler,
 };
