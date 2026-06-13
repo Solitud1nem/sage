@@ -254,7 +254,8 @@ export function useCompositeDemo(chainId: number) {
    */
   const classify = useCallback(async (
     brief: string,
-    mode: 'classify' | 'website-plan' = 'classify',
+    mode: 'classify' | 'website-plan' | 'research-plan' = 'classify',
+    variant?: string,
   ): Promise<void> => {
     closeStream(esRef);
     eventIdRef.current = 0;
@@ -267,7 +268,7 @@ export function useCompositeDemo(chainId: number) {
       const res = await fetch(urlFor(`/api/demo/composite/${mode}`, chainId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brief }),
+        body: JSON.stringify({ brief, ...(variant ? { variant } : {}) }),
       });
       if (!res.ok) {
         const body = (await safeJson(res)) as { error?: string };

@@ -21,6 +21,24 @@
  * changing it means changing the deterministic plan, not just a handler. */
 export const RESEARCH_SOURCE_COUNT = 4;
 
+/**
+ * Marker the `failure-demo` plan variant appends to the synthesizer's spec
+ * (M12.2.3, ADR-0020 п.1/п.2 — "управляемый провальный ран, маркирован как
+ * фича"). The synthesizer then ships a report whose citations point at the
+ * REAL source URLs but carry FABRICATED quotes — exactly the «протухшая
+ * память» defect a careless chat produces. The fact-checker re-fetches the
+ * live pages, the fabricated quotes aren't there → quote_mismatch on every
+ * citation → its deterministic "nothing resolves" blocker fires → dispute →
+ * council → the client is refunded. The verification is 100% real; only the
+ * defect is staged. Lives here so the parent plan (which sets it) and the
+ * worker synthesizer (which acts on it) share one constant.
+ */
+export const RESEARCH_FAILURE_DEMO_MARKER = '[DEMO:STALE-CITATIONS]';
+
+export function isResearchFailureDemo(spec: string): boolean {
+  return spec.includes(RESEARCH_FAILURE_DEMO_MARKER);
+}
+
 export interface SearchSource {
   readonly url: string;
   readonly title: string;
@@ -153,14 +171,15 @@ export function parseResearchReportDoc(raw: unknown): ResearchReportDoc | null {
   const sources = Array.isArray(r['sources'])
     ? (r['sources'] as Array<Record<string, unknown>>)
         .filter((s) => typeof s?.['url'] === 'string' && typeof s?.['title'] === 'string')
-        .map((s) => ({
-          url: s['url'] as string,
-          title: s['title'] as string,
-          status:
-            s['status'] === 'ok' || s['status'] === 'unreachable' || s['status'] === 'missing'
-              ? s['status']
-              : 'ok',
-        }))
+        .map((s) => {
+          // Narrow via a local const — TS doesn't carry the `||` narrowing
+          // across repeated `s['status']` index accesses (and the cast the
+          // inline form needs would trip no-unnecessary-type-assertion).
+          const st = s['status'];
+          const status: SourceExtract['status'] =
+            st === 'ok' || st === 'unreachable' || st === 'missing' ? st : 'ok';
+          return { url: s['url'] as string, title: s['title'] as string, status };
+        })
     : [];
   return {
     question: r['question'],

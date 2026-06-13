@@ -21,6 +21,7 @@ import { chat } from '../llm.js';
 import { anthropicChat, ANTHROPIC_MODELS } from '../../shared/anthropic.js';
 import { decodeArtifactResult, encodeArtifactResult } from '../artifacts.js';
 import {
+  isResearchFailureDemo,
   parseSearcherResult,
   parseSourceExtract,
   quoteAppearsIn,
@@ -215,6 +216,21 @@ function mockReport(dossier: ResearchDossier): { reportMarkdown: string; citatio
   return { reportMarkdown: lines.join('\n'), citations };
 }
 
+/**
+ * Failure-demo corruption (M12.2.3): keep each citation's real URL but replace
+ * its verbatim quote with the report's own PARAPHRASE of the claim — exactly
+ * what a careless chat does when it "quotes" from memory. A paraphrase is, by
+ * construction, not a verbatim substring of the source page, so the
+ * fact-checker's live re-resolution returns quote_mismatch for every one. The
+ * `(per the source)` framing makes the fabrication look like a real citation
+ * in the UI while guaranteeing the mismatch.
+ */
+export function fabricateStaleCitations(
+  citations: readonly ResearchCitation[],
+): ResearchCitation[] {
+  return citations.map((c) => ({ ...c, quote: `${c.claim} (per the source).` }));
+}
+
 export const synthesizerHandler: CapabilityHandler = async (job, ctx) => {
   if (!ctx.artifacts) {
     throw new Error('artifact store unavailable — synthesizer cannot read extracts or deliver the report');
@@ -258,10 +274,18 @@ export const synthesizerHandler: CapabilityHandler = async (job, ctx) => {
     );
   }
 
+  // Failure-demo (M12.2.3): ship the real report but with FABRICATED quotes —
+  // the careless-chat defect. Real URLs, quotes that were never on the page;
+  // the fact-checker re-fetches live and catches every one (quote_mismatch),
+  // its "nothing resolves" blocker fires, the client is refunded. The check
+  // is real; only the defect is staged. Verified citations are intact up to
+  // here, so a demo run still does the genuine work before corrupting.
+  const shipped = isResearchFailureDemo(job.spec) ? fabricateStaleCitations(valid) : valid;
+
   const doc: ResearchReportDoc = {
     question: dossier.search.question,
     report_markdown: reportMarkdown,
-    citations: valid,
+    citations: shipped,
     sources: dossier.extracts.map((e) => ({ url: e.url, title: e.title, status: e.status })),
     generated_at: new Date().toISOString(),
   };

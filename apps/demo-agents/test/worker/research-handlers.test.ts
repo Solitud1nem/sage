@@ -20,10 +20,15 @@ import {
   splitMaterialParts,
   collectDossier,
   checkCitations,
+  fabricateStaleCitations,
   MIN_VALID_CITATIONS,
 } from '../../src/worker/handlers/synthesizer.js';
+import { makeFactCheckerHandler } from '../../src/worker/handlers/fact-checker.js';
+import { decodeVerdict } from '../../src/shared/evaluation.js';
 import {
   RESEARCH_SOURCE_COUNT,
+  RESEARCH_FAILURE_DEMO_MARKER,
+  parseResearchReportDoc,
   parseSearcherResult,
   parseSourceExtract,
   quoteAppearsIn,
@@ -31,6 +36,7 @@ import {
   type ResearchReportDoc,
   type SourceExtract,
 } from '../../src/shared/research.js';
+import { encodeEvaluationCase } from '../../src/shared/evaluation.js';
 import {
   sha256Hex,
   decodeArtifactResult,
@@ -357,5 +363,72 @@ describe('full chain (question → search → extract×N → report) through ADR
     expect(sourceIndexFromSpec('Fetch and extract source_index=3 of the search results')).toBe(3);
     expect(sourceIndexFromSpec('no token here')).toBeNull();
     expect(sourceIndexFromSpec('source_index=0')).toBeNull();
+  });
+});
+
+describe('failure-demo (M12.2.3): synthesizer fabricates, fact-checker catches it live', () => {
+  it('fabricateStaleCitations keeps URLs but replaces quotes with non-verbatim paraphrase', () => {
+    const fab = fabricateStaleCitations([
+      { id: 1, claim: 'escrow releases after approval', url: 'https://a.example/', quote: 'real verbatim' },
+    ]);
+    expect(fab[0]!.url).toBe('https://a.example/');
+    expect(fab[0]!.quote).not.toBe('real verbatim');
+    expect(fab[0]!.quote).toContain('escrow releases after approval');
+  });
+
+  it('end-to-end: a failure-demo report is rejected by the fact-checker on the live web', async () => {
+    const { store, objects } = makeFakeStore();
+
+    // Build a real dossier keylessly: each extract's verbatim quote is the
+    // source's snippet (mockExtract uses source.snippet).
+    const searchOut = await searcherHandler(
+      { spec: 'search', material: 'What is task escrow?' },
+      ctx({ identityId: 'searcher', capability: 'web-search' }),
+    );
+    const extractOuts: string[] = [];
+    for (let i = 1; i <= RESEARCH_SOURCE_COUNT; i++) {
+      extractOuts.push(
+        await extractorHandler(
+          { spec: `extract source_index=${i}`, material: searchOut },
+          ctx({ identityId: 'extractor', capability: 'extract-content', artifacts: store }),
+        ),
+      );
+    }
+
+    // Synthesize in FAILURE-DEMO mode: spec carries the marker.
+    const synthOut = await synthesizerHandler(
+      {
+        spec: `synthesize the report ${RESEARCH_FAILURE_DEMO_MARKER}`,
+        material: [searchOut, ...extractOuts].join('\n\n'),
+      },
+      ctx({ identityId: 'synthesizer', capability: 'synthesize-report', artifacts: store }),
+    );
+    const ref = decodeArtifactResult(synthOut)!;
+    const doc = parseResearchReportDoc(JSON.parse(new TextDecoder().decode(objects.get(ref.sha256)!.bytes)))!;
+    // Fabricated: quotes are NOT the verbatim extract snippets anymore.
+    expect(doc.citations.length).toBeGreaterThanOrEqual(MIN_VALID_CITATIONS);
+
+    // Fact-checker re-resolves against a LIVE page that contains the REAL
+    // extract quote (the snippet) but not the fabricated paraphrase.
+    const liveBody: Record<string, string> = {};
+    const search = parseSearcherResult(searchOut)!;
+    for (const s of search.sources) liveBody[s.url] = `<p>${s.snippet}</p>`;
+    const fetchPage = async (u: string): Promise<string> => {
+      const b = liveBody[u];
+      if (b === undefined) throw new Error('HTTP 404');
+      return b;
+    };
+
+    const material = encodeEvaluationCase({ instruction: 'synthesize', result: synthOut });
+    const verdictText = await makeFactCheckerHandler({ fetchPage })(
+      { spec: 'fact-check', material },
+      ctx({ identityId: 'fact-checker', capability: 'fact-check', artifacts: store }),
+    );
+    const verdict = decodeVerdict(verdictText)!;
+    // Every fabricated quote mismatches the live page → nothing resolves →
+    // deterministic blocker → fail. This is the controlled failed run.
+    expect(verdict.pass).toBe(false);
+    expect(verdict.score).toBe(0);
+    expect(verdict.reasons.join(' ')).toMatch(/not one citation resolves/);
   });
 });

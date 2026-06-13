@@ -9,7 +9,11 @@ import { describe, it, expect } from 'vitest';
 import type { AgentRecordV2 } from '@sage/core';
 
 import { buildResearchClassification } from '../../src/parent/research-plan.js';
-import { RESEARCH_SOURCE_COUNT, sourceIndexFromSpec } from '../../src/shared/research.js';
+import {
+  RESEARCH_SOURCE_COUNT,
+  RESEARCH_FAILURE_DEMO_MARKER,
+  sourceIndexFromSpec,
+} from '../../src/shared/research.js';
 
 const agent = (addr: string, capability: string, price: bigint, active = true): AgentRecordV2 =>
   ({
@@ -74,6 +78,20 @@ describe('buildResearchClassification', () => {
       expect(e.executor_address).toBe('0x' + 'f'.repeat(40));
       expect(e.estimated_cost_units).toBe(5_000n);
     }
+  });
+
+  it('failure-demo variant marks the synthesizer spec; pipeline does not', () => {
+    const synthIdx = 1 + RESEARCH_SOURCE_COUNT; // 0-based index of synthesizer
+    const demo = buildResearchClassification(FULL_REGISTRY, 'failure-demo');
+    expect(demo.proposed_plan[synthIdx]!.type).toBe('synthesize-report');
+    expect(demo.proposed_plan[synthIdx]!.spec).toContain(RESEARCH_FAILURE_DEMO_MARKER);
+    // Only the synthesizer carries it — not the fact-checker or extracts.
+    expect(demo.proposed_plan[synthIdx + 1]!.spec).not.toContain(RESEARCH_FAILURE_DEMO_MARKER);
+
+    const honest = buildResearchClassification(FULL_REGISTRY);
+    expect(honest.proposed_plan[synthIdx]!.spec).not.toContain(RESEARCH_FAILURE_DEMO_MARKER);
+    // Same shape/cost either way — the failure is staged in execution, not the plan.
+    expect(demo.estimated_total_cost_units).toBe(honest.estimated_total_cost_units);
   });
 
   it('throws an honest error on a missing or inactive capability', () => {

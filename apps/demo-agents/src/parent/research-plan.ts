@@ -24,8 +24,10 @@
 
 import type { AgentRecordV2, ClassificationResult, SubTask } from '@sage/core';
 
-import { RESEARCH_SOURCE_COUNT } from '../shared/research.js';
+import { RESEARCH_SOURCE_COUNT, RESEARCH_FAILURE_DEMO_MARKER } from '../shared/research.js';
 import { pickAgentForCapability } from './registry-resolver.js';
+
+export type ResearchPlanVariant = 'pipeline' | 'failure-demo';
 
 interface StepTemplate {
   readonly capability: string;
@@ -36,7 +38,7 @@ interface StepTemplate {
 }
 
 /** ids are 1-based positions in this array. */
-function buildSteps(): StepTemplate[] {
+function buildSteps(variant: ResearchPlanVariant): StepTemplate[] {
   const searcher: StepTemplate = {
     capability: 'web-search',
     spec:
@@ -61,7 +63,10 @@ function buildSteps(): StepTemplate[] {
       'Synthesize a fact-checked research report (markdown) from the extracted sources: ' +
       'executive summary, findings answering the question, limitations. Every factual claim ' +
       'cites [n] → {url, verbatim quote from a verified extract}; unsupported claims go to ' +
-      'limitations. Deliver as a JSON artifact {report_markdown, citations, sources}.',
+      'limitations. Deliver as a JSON artifact {report_markdown, citations, sources}.' +
+      // Failure-demo (M12.2.3): the marker makes the synthesizer ship REAL
+      // urls with FABRICATED quotes — the fact-checker catches it live.
+      (variant === 'failure-demo' ? ` ${RESEARCH_FAILURE_DEMO_MARKER}` : ''),
     deadline_offset_s: 900,
     // The searcher (question) + every extract (evidence).
     depends_on: [1, ...extracts.map((_, i) => i + 2)],
@@ -95,8 +100,9 @@ const ESTIMATED_DURATION_MS = 360_000;
  */
 export function buildResearchClassification(
   agents: readonly AgentRecordV2[],
+  variant: ResearchPlanVariant = 'pipeline',
 ): ClassificationResult {
-  const subtasks: SubTask[] = buildSteps().map((step, i) => {
+  const subtasks: SubTask[] = buildSteps(variant).map((step, i) => {
     const pick = pickAgentForCapability(step.capability, agents);
     if (!pick) {
       throw new Error(`no active agent in the registry for capability "${step.capability}"`);

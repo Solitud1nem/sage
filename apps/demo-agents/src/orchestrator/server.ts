@@ -507,12 +507,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
   if (url === '/api/demo/composite/research-plan' && method === 'POST') {
     try {
       const raw = await readBody(req);
-      const body = raw ? (JSON.parse(raw) as { question?: unknown; brief?: unknown }) : {};
+      const body = raw
+        ? (JSON.parse(raw) as { question?: unknown; brief?: unknown; variant?: unknown })
+        : {};
       const question = typeof body.question === 'string' ? body.question : body.brief;
       if (typeof question !== 'string' || question.length === 0) {
         json(res, 400, { error: 'question must be a non-empty string' });
         return;
       }
+      // M12.2.3: 'failure-demo' stages a controlled failed run — the
+      // synthesizer ships real URLs with fabricated quotes, the fact-checker
+      // catches them live → dispute → refund. Default is the honest pipeline.
+      const variant = body.variant === 'failure-demo' ? 'failure-demo' : 'pipeline';
 
       const registryV2Addr = sageBundle.chainConfig.contracts.agentRegistryV2;
       if (!registryV2Addr) {
@@ -528,7 +534,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
         return;
       }
 
-      const classification = buildResearchClassification(registryAgents);
+      const classification = buildResearchClassification(registryAgents, variant);
       jsonWithBigints(res, 200, { classification });
     } catch (err) {
       console.error('[Orchestrator] /api/demo/composite/research-plan error:', err);

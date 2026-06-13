@@ -24,8 +24,12 @@ import {
   type WirePlan,
 } from '@/hooks/use-composite-demo';
 
-/** Demo mode: LLM-classified composite vs deterministic website pipeline (M12.1.3). */
-type CompositeMode = 'composite' | 'website';
+/**
+ * Demo mode: LLM-classified composite, deterministic website pipeline
+ * (M12.1.3), or deterministic research pipeline with a fact-check evaluator
+ * (M12.2.3).
+ */
+type CompositeMode = 'composite' | 'website' | 'research';
 
 /**
  * /demo/composite — observable-decomposition flow.
@@ -92,6 +96,10 @@ function CompositePageInner() {
   // Opt-in review gate (ADR-0019): pause each completed sub-task for an
   // approve/dispute decision before payment.
   const [reviewMode, setReviewMode] = useState(false);
+  // Research mode only (M12.2.3): stage a controlled failed run — the
+  // synthesizer ships fabricated quotes, the fact-checker catches them live
+  // and the escrow is refunded. Shows the fate of money on failure.
+  const [failureDemo, setFailureDemo] = useState(false);
 
   const isInputPhase = demo.status === 'idle' || demo.status === 'classifying';
   const isPlanPhase = demo.status === 'plan-ready';
@@ -108,7 +116,13 @@ function CompositePageInner() {
     if (!brief.trim()) return;
     setEditedPlan(null);
     setEditing(false);
-    void demo.classify(brief.trim(), mode === 'website' ? 'website-plan' : 'classify');
+    const planMode =
+      mode === 'website' ? 'website-plan' : mode === 'research' ? 'research-plan' : 'classify';
+    void demo.classify(
+      brief.trim(),
+      planMode,
+      mode === 'research' && failureDemo ? 'failure-demo' : undefined,
+    );
   };
 
   const handleApprove = () => {
@@ -163,6 +177,7 @@ function CompositePageInner() {
               [
                 ['composite', 'Composite plan'],
                 ['website', 'Website pipeline'],
+                ['research', 'Research report'],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -182,6 +197,26 @@ function CompositePageInner() {
               </button>
             ))}
           </div>
+          {mode === 'research' && (
+            <label className="flex items-start gap-3 rounded-[12px] border border-border bg-surface px-5 py-4 cursor-pointer max-w-[640px]">
+              <input
+                type="checkbox"
+                checked={failureDemo}
+                onChange={(e) => setFailureDemo(e.target.checked)}
+                disabled={demo.status !== 'idle'}
+                className="mt-[3px] accent-[#A78BFA]"
+              />
+              <span>
+                <span className="font-mono text-[12px] text-text">Stage a failed run</span>
+                <span className="block text-[12px] text-text-muted mt-0.5">
+                  The synthesizer ships a report whose citations point at real sources but carry
+                  fabricated quotes — the «stale memory» defect. The paid fact-checker re-resolves
+                  every citation on the live web, catches them, and the escrow is refunded instead of
+                  paid. Shows the fate of the money when work fails verification.
+                </span>
+              </span>
+            </label>
+          )}
           <form
             onSubmit={submitBrief}
             className="rounded-[14px] border border-border bg-surface p-6 md:p-8"
@@ -193,7 +228,9 @@ function CompositePageInner() {
               <p className="text-[13px] text-text-muted">
                 {mode === 'website'
                   ? 'Describe the business or project. A fixed pipeline — copywriter → builder → packager, with a paid QA evaluator gating the builder — turns it into a deploy-ready site archive.'
-                  : 'A sentence or two. The classifier handles any language.'}
+                  : mode === 'research'
+                    ? 'Ask a research question. A fixed pipeline — searcher (live web) → 4 extractors → synthesizer — writes a cited report, then a paid fact-checker re-resolves every citation on the live web before the synthesizer is paid.'
+                    : 'A sentence or two. The classifier handles any language.'}
               </p>
             </header>
             <textarea
@@ -203,7 +240,9 @@ function CompositePageInner() {
               placeholder={
                 mode === 'website'
                   ? 'e.g. a specialty coffee shop by the sea in Lisbon — warm tone, English copy'
-                  : 'e.g. research the top 3 stablecoin yield products on Base and write a comparative report'
+                  : mode === 'research'
+                    ? 'e.g. what changed in EIP-7702 account abstraction in 2026?'
+                    : 'e.g. research the top 3 stablecoin yield products on Base and write a comparative report'
               }
               className="w-full px-4 py-3 rounded-[10px] border border-border bg-[#0A0A0F] text-[14px] text-text leading-[1.55] focus:outline-none focus:border-cyan"
               disabled={demo.status === 'classifying'}
@@ -211,7 +250,7 @@ function CompositePageInner() {
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
                 {demo.status === 'classifying'
-                  ? mode === 'website'
+                  ? mode !== 'composite'
                     ? 'building plan · ~2s'
                     : 'classifying · ~5s'
                   : `${brief.trim().length} chars`}
@@ -222,10 +261,10 @@ function CompositePageInner() {
                 className="h-10 px-5 rounded-[8px] bg-cyan text-[#0A0A0F] font-mono text-[12px] font-medium hover:bg-[#7AEAF8] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {demo.status === 'classifying'
-                  ? mode === 'website'
+                  ? mode !== 'composite'
                     ? 'Building plan…'
                     : 'Classifying…'
-                  : mode === 'website'
+                  : mode !== 'composite'
                     ? 'Build plan →'
                     : 'Classify brief →'}
               </button>
@@ -259,9 +298,9 @@ function CompositePageInner() {
             }}
             brief={brief}
             onApprove={handleApprove}
-            // Website pipeline is a fixed template — editing would break the
-            // evaluator wiring (qa-website judges the builder), so no Edit.
-            {...(mode === 'website' ? {} : { onEdit: () => setEditing(true) })}
+            // Website & research are fixed templates — editing would break the
+            // evaluator wiring (qa-website / fact-checker), so no Edit.
+            {...(mode === 'composite' ? { onEdit: () => setEditing(true) } : {})}
             onCancel={handleReset}
           />
         </section>
@@ -380,7 +419,58 @@ function CompositePageInner() {
             }
             return null;
           })()}
-          {isDone &&
+          {isDone && mode === 'research' &&
+            (() => {
+              // M12.2.3: the synthesizer's result is an artifact envelope
+              // pointing at the ResearchReportDoc; the gateway /report/<sha>
+              // endpoint renders it as readable HTML (iframe, no CORS).
+              const synthId = planForDisplay?.subtasks.find(
+                (s) => s.type === 'synthesize-report',
+              )?.id;
+              const reportRef =
+                synthId !== undefined ? artifactFromResult(demo.runtimes[synthId]?.result) : null;
+              const reportUrl = reportRef?.url.includes('/api/artifacts/')
+                ? reportRef.url.replace('/api/artifacts/', '/report/')
+                : null;
+              return (
+                <div className="space-y-4">
+                  {reportUrl && (
+                    <div className="rounded-[14px] border border-border bg-surface overflow-hidden">
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+                        <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
+                          Research report · citations re-resolved by the fact-checker
+                        </span>
+                        <a
+                          href={reportUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-[12px] text-cyan hover:underline underline-offset-4"
+                        >
+                          Open in new tab ↗
+                        </a>
+                      </div>
+                      <iframe
+                        src={reportUrl}
+                        title="Research report"
+                        sandbox=""
+                        loading="lazy"
+                        className="w-full h-[520px] bg-white"
+                      />
+                    </div>
+                  )}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleReset}
+                      className="h-9 px-4 rounded-[8px] border border-border font-mono text-[12px] text-text hover:border-cyan transition-colors"
+                    >
+                      Start new plan
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          {isDone && mode !== 'research' &&
             (() => {
               // M12.1.3: the packager's result is an artifact envelope
               // pointing at the deploy-ready zip in the R2 store.

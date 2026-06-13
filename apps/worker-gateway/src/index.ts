@@ -18,6 +18,7 @@ import { handleRpc } from './rpc-proxy';
 import { handleOrchestrator } from './orchestrator-proxy';
 import { handleArtifacts } from './artifacts';
 import { handlePreview } from './preview';
+import { handleReport } from './report';
 import { applyCors, corsPreflight } from './cors';
 
 export interface Env {
@@ -75,6 +76,12 @@ export default {
     // reads of QA-passed content).
     if (url.pathname.startsWith('/preview/')) {
       return handlePreview(req, env);
+    }
+
+    // M12.2.3: hosted research report — same posture as /preview (public GET,
+    // iframe-rendered deliverable, noindex, outside the rate-limit bucket).
+    if (url.pathname.startsWith('/report/')) {
+      return handleReport(req, env);
     }
 
     if (url.pathname === '/health' || url.pathname.startsWith('/api/demo/')) {
