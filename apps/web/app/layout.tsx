@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 
+import { GalaxyBackground } from '@/components/backgrounds/galaxy-background';
 import { ChunkReloadGuard } from '@/components/chunk-reload-guard';
 import { CookieConsent } from '@/components/cookie-consent';
 import { Nav } from '@/components/nav';
@@ -52,7 +53,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-canvas text-text antialiased">
         <Providers>
           <ChunkReloadGuard />
-          <div className="min-h-screen flex flex-col">
+          <GalaxyBackground />
+          <div className="relative z-10 min-h-screen flex flex-col">
             <Nav />
             <main className="flex-1">{children}</main>
             <Footer />

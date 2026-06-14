@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 // Galaxy touches `window`/WebGL — load it client-only. A server-rendered
 // import would break the static export (`output: export`), same reason the
@@ -9,23 +9,20 @@ import { useEffect, useRef, useState } from 'react';
 const Galaxy = dynamic(() => import('./Galaxy'), { ssr: false });
 
 /**
- * Hero background: the reactbits Galaxy starfield tuned to Sage's palette,
- * with the safety rails the raw component doesn't carry:
+ * Site-wide background: the reactbits Galaxy starfield tuned to Sage's
+ * palette, mounted once in the root layout as a fixed full-viewport layer
+ * behind all content. Safety rails the raw component doesn't carry:
  *   - prefers-reduced-motion → frozen frame (no time advancement)
- *   - off-screen → animation paused (IntersectionObserver)
  *   - mobile → lower star density
  *   - WebGL-less → a static radial-gradient tint shows underneath
  *
- * Decorative only: `pointer-events-none` so it never intercepts clicks, and
- * the canvas is transparent so the area outside the hero box blends into the
- * page background with no visible seam. A left-darken + bottom-fade overlay
- * keeps the hero copy legible.
+ * Decorative only: `pointer-events-none` so it never intercepts clicks. A
+ * uniform dark scrim sits on top so the starfield reads as a subtle backdrop
+ * on every page (incl. text-heavy docs/composite) without hurting legibility.
  */
 export function GalaxyBackground() {
-  const ref = useRef<HTMLDivElement>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [inView, setInView] = useState(true);
 
   useEffect(() => {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -43,22 +40,10 @@ export function GalaxyBackground() {
     };
   }, []);
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const obs = new IntersectionObserver(
-      (entries) => setInView(entries[0]?.isIntersecting ?? true),
-      { threshold: 0 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
   return (
     <div
-      ref={ref}
       aria-hidden
-      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+      className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
     >
       {/* No-WebGL fallback + base tint (matches the .canvas-noise glow). */}
       <div
@@ -71,7 +56,7 @@ export function GalaxyBackground() {
       <Galaxy
         hueShift={250}
         density={isMobile ? 0.7 : 1.1}
-        glowIntensity={0.45}
+        glowIntensity={0.4}
         saturation={0.5}
         starSpeed={0.4}
         rotationSpeed={0.08}
@@ -79,22 +64,11 @@ export function GalaxyBackground() {
         mouseInteraction={false}
         mouseRepulsion={false}
         transparent
-        disableAnimation={reducedMotion || !inView}
+        disableAnimation={reducedMotion}
       />
-      {/* Left-darken for copy legibility — kept light enough that the
-          starfield still reads across the right half of the hero. */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            'linear-gradient(90deg, rgba(10,10,15,0.85) 0%, rgba(10,10,15,0.45) 50%, rgba(10,10,15,0) 100%)',
-        }}
-      />
-      {/* Bottom fade into the page background. */}
-      <div
-        className="absolute inset-x-0 bottom-0 h-32"
-        style={{ background: 'linear-gradient(to bottom, transparent, #0A0A0F)' }}
-      />
+      {/* Uniform dark scrim so the starfield stays a subtle backdrop and page
+          copy (docs/composite included) keeps its contrast. */}
+      <div className="absolute inset-0" style={{ background: 'rgba(10,10,15,0.66)' }} />
     </div>
   );
 }

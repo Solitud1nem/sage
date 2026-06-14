@@ -1,7 +1,6 @@
 import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
-import { GalaxyBackground } from '@/components/backgrounds/galaxy-background';
 import { GradientText } from '@/components/gradient-text';
 import { StatusPill } from '@/components/status-pill';
 
@@ -30,8 +29,7 @@ const chainInfoRow = [
 
 export function Hero() {
   return (
-    <section className="relative isolate mx-auto max-w-[1200px] px-6 md:px-10 pt-16 pb-24">
-      <GalaxyBackground />
+    <section className="relative mx-auto max-w-[1200px] px-6 md:px-10 pt-16 pb-24">
       <StatusPill>Live on Base mainnet</StatusPill>
 
       <h1 className="mt-7 text-[clamp(48px,6.4vw,84px)] font-medium leading-[1.04] tracking-[-0.025em] max-w-[900px]">
