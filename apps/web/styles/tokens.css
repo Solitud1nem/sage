@@ -13,8 +13,8 @@
   --border-hover:  rgba(255,255,255,0.14);
 
   --text:          #EDEDF5;
-  --text-muted:    #8787A5;
-  --text-subtle:   #6E6E85;
+  --text-muted:    #A0A0B4;
+  --text-subtle:   #8A8AA0;
 
   --cyan:          #5EE3F5;
   --purple:        #A78BFA;
@@ -89,24 +89,31 @@
   --nav-h:        64px;
 }
 
-/* ---------- Reset / base ---------- */
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-html { color-scheme: dark; }
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: var(--fs-body);
-  line-height: var(--lh-normal);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "ss01", "cv11";
-  font-variant-ligatures: common-ligatures;
+/* ---------- Reset / base ----------
+   Scoped to @layer base so Tailwind utilities (which live in the later
+   `utilities` layer) win over these element resets. Without the layer, the
+   un-layered `button { background:none; color:inherit; border:0 }` reset
+   beats `.bg-cyan` / `.text-*` / `.border-*` on every <button>, silently
+   killing active-state styling across the demo. */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { color-scheme: dark; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--fs-body);
+    line-height: var(--lh-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
+    font-variant-ligatures: common-ligatures;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  ::selection { background: rgba(167,139,250,0.35); color: var(--text); }
 }
-a { color: inherit; text-decoration: none; }
-button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
-::selection { background: rgba(167,139,250,0.35); color: var(--text); }
 
 /* ---------- Utility ---------- */
 .container {
