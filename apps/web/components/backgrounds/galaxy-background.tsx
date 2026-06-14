@@ -81,12 +81,13 @@ export function GalaxyBackground() {
         transparent
         disableAnimation={reducedMotion || !inView}
       />
-      {/* Left-darken for copy legibility. */}
+      {/* Left-darken for copy legibility — kept light enough that the
+          starfield still reads across the right half of the hero. */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            'linear-gradient(90deg, rgba(10,10,15,0.92) 0%, rgba(10,10,15,0.55) 45%, rgba(10,10,15,0.12) 100%)',
+            'linear-gradient(90deg, rgba(10,10,15,0.85) 0%, rgba(10,10,15,0.45) 50%, rgba(10,10,15,0) 100%)',
         }}
       />
       {/* Bottom fade into the page background. */}

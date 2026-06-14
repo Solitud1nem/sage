@@ -30,7 +30,7 @@ const chainInfoRow = [
 
 export function Hero() {
   return (
-    <section className="relative mx-auto max-w-[1200px] px-6 md:px-10 pt-16 pb-24">
+    <section className="relative isolate mx-auto max-w-[1200px] px-6 md:px-10 pt-16 pb-24">
       <GalaxyBackground />
       <StatusPill>Live on Base mainnet</StatusPill>
 
