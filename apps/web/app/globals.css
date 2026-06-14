@@ -16,8 +16,8 @@
 
   /* Text */
   --color-text:          #EDEDF5;
-  --color-text-muted:    #8787A5;
-  --color-text-subtle:   #6E6E85;
+  --color-text-muted:    #A0A0B4;
+  --color-text-subtle:   #8A8AA0;
 
   /* Accents */
   --color-cyan:          #5EE3F5;
@@ -53,6 +53,13 @@
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* One-shot mint ring when a plan node settles (status → paid). */
+@keyframes node-paid-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(110,231,183,0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(110,231,183,0); }
+}
+.node-paid-pulse { animation: node-paid-pulse 0.9s var(--ease-out); }
 
 /* ---------- Global baseline ---------- */
 html, body { background: var(--bg); }

@@ -8,6 +8,19 @@
 
 ---
 
+## 2026-06-14 — UI/UX polish + Galaxy hero (ADR-0021) — `decision`
+
+Применён `sage-ui-polish-plan.md` одним заходом — presentational-правки + новый hero-фон. Контракты/SDK/логику ранов не трогали. Explore-mode: цель — видимая инженерная аккуратность и чистый выбор для разработчика, не GTM. ADR-0021 Accepted. Открытые вопросы закрыл Alex (Galaxy-only, граф минимально, Phase 1+2, Basescan ghost, токены subtle `#8A8AA0` / muted `#A0A0B4`).
+
+- **Контраст (a11y):** `--color-text-subtle` `#6E6E85`→`#8A8AA0` (был 3.98:1, ниже AA для 11px) и `--color-text-muted` `#8787A5`→`#A0A0B4` — в обоих файлах (`styles/tokens.css` + `app/globals.css` @theme), чтобы не разъехались.
+- **Hero CTA:** primary → `Try the live demo →` (`/demo/composite`); `Read the docs` демотнут в secondary (outline); Basescan — третья ghost-кнопка.
+- **Composite Phase 1:** `gap-1` табам режимов (слипались); chain-picker переписан — статус сети внутрь пилюль (`Base · mainnet · 8453`, `Arc · testnet`), убран висящий hint (читался как третья сеть), лейбл → `Settlement chain`; из plan-graph убраны xyflow `<Controls>` (зум колесом оставлен).
+- **Composite Phase 2:** легенда статусов под графом (`PlanLegend`, подсветка активных синхронно с раном); оживление графа — gradient-stroke (cyan→purple) активному потоку + one-shot mint-pulse ноды на `paid` (keyframe `node-paid-pulse`); чипы-примеры брифа (по mode); sticky `FlowStepper` (`brief → plan → run → settled`).
+- **Nav IA:** три демо-пункта (`Live`/`Demo`/`Composite`) сгруппированы под `Demo ▾` (CSS-дропдаун hover + focus-within, без JS-state → safe под static export); сабы `Live stream · Lifecycle · Composite`.
+- **Galaxy hero:** `pnpm add ogl -F @sage/web` (~30 KB, ogl 1.0.11 со своими типами); вендорный оригинал reactbits `components/backgrounds/Galaxy.tsx` (verbatim + только `'use client'`; file-scoped eslint-disable — `let program` hoisted + ogl-uniforms `any`); враппер `galaxy-background.tsx` с рейлами, которых нет в оригинале: `next/dynamic({ssr:false})`, prefers-reduced-motion (замороженный кадр), пауза вне вьюпорта (IntersectionObserver), пониженная density на мобиле, radial-gradient фолбэк под no-WebGL; декоративный, `pointer-events-none`, прозрачный canvas → без шва на широких экранах; left-darken + bottom-fade overlay под читабельность копии. Конфиг под Sage: hueShift 250, density 1.1, glow 0.45, sat 0.5.
+- **Гейты:** `pnpm typecheck` чисто, `pnpm lint` 0 ошибок, `pnpm build` (static export) — 23 страницы, экспорт ОК (Galaxy не сломал прероллап). `/` First Load 262 kB.
+- **Деплой:** не делался (правки в рабочем дереве, не закоммичены). Threads (вторичный фон) отложен.
+
 ## 2026-06-13 — M12.2.3: research UI-режим + управляемый провальный ран + e2e на mainnet — секция 12.2 закрыта — `release`
 
 Закрыт research-пайплайн целиком (флагман нарратива «протухшая память»). Оба сценария — честный и провальный — подтверждены живыми ранами на Base mainnet.

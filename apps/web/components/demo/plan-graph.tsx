@@ -3,7 +3,6 @@
 import { useMemo } from 'react';
 import {
   Background,
-  Controls,
   Handle,
   Position,
   ReactFlow,
@@ -101,13 +100,22 @@ export function PlanGraph({ subtasks, runtimes, onSubtaskClick }: PlanGraphProps
     });
 
     const edges: Edge[] = subtasks.flatMap((s) =>
-      (s.depends_on ?? []).map((dep) => ({
-        id: `e-${dep}-${s.id}`,
-        source: String(dep),
-        target: String(s.id),
-        animated: runtimes[s.id]?.status === 'created' || runtimes[s.id]?.status === 'accepted',
-        style: { stroke: '#3a3a4a' },
-      })),
+      (s.depends_on ?? []).map((dep) => {
+        const flowing =
+          runtimes[s.id]?.status === 'created' || runtimes[s.id]?.status === 'accepted';
+        return {
+          id: `e-${dep}-${s.id}`,
+          source: String(dep),
+          target: String(s.id),
+          animated: flowing,
+          // Active flow takes the cyan→purple sweep (def injected below); idle
+          // edges stay a flat slate so the live path reads at a glance.
+          style: {
+            stroke: flowing ? 'url(#plan-edge-flow)' : '#3a3a4a',
+            strokeWidth: flowing ? 2 : 1,
+          },
+        };
+      }),
     );
 
     return { nodes, edges };
@@ -125,6 +133,16 @@ export function PlanGraph({ subtasks, runtimes, onSubtaskClick }: PlanGraphProps
       className="rounded-[14px] border border-border bg-surface overflow-hidden"
       style={{ height: 460 }}
     >
+      {/* Gradient referenced by active edges' stroke. Zero-size svg — defs
+          resolve document-wide by id, including inside xyflow's own svg. */}
+      <svg aria-hidden width="0" height="0" style={{ position: 'absolute' }}>
+        <defs>
+          <linearGradient id="plan-edge-flow" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#5EE3F5" />
+            <stop offset="100%" stopColor="#A78BFA" />
+          </linearGradient>
+        </defs>
+      </svg>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -137,10 +155,6 @@ export function PlanGraph({ subtasks, runtimes, onSubtaskClick }: PlanGraphProps
         {...(handleNodeClick ? { onNodeClick: handleNodeClick } : {})}
       >
         <Background color="#1d1d27" gap={20} />
-        <Controls
-          showInteractive={false}
-          className="!bg-surface !border !border-border !text-text-subtle"
-        />
       </ReactFlow>
     </div>
   );
@@ -161,7 +175,9 @@ function PlanNode({ data }: NodeProps<PlanNode>) {
           ? `0 0 16px ${color}33`
           : undefined,
       }}
-      className="rounded-[10px] border-2 px-4 py-3 transition-colors hover:bg-[#13131b] cursor-pointer"
+      className={`rounded-[10px] border-2 px-4 py-3 transition-colors hover:bg-[#13131b] cursor-pointer ${
+        data.status === 'paid' ? 'node-paid-pulse' : ''
+      }`}
     >
       <Handle type="target" position={Position.Top} style={{ background: color, border: 0 }} />
       <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
@@ -192,6 +208,53 @@ const STATUS_DESCRIPTORS: Record<SubTaskRunStatus, { color: string; label: strin
   disputed: { color: '#A78BFA', label: 'disputed · council' },
   refunded: { color: '#F59E0B', label: 'refunded' },
 };
+
+// ───────────────────────────────────────────────────────────────────────
+
+const LEGEND_ORDER: SubTaskRunStatus[] = [
+  'waiting',
+  'created',
+  'accepted',
+  'completed',
+  'awaiting-review',
+  'paid',
+  'disputed',
+  'refunded',
+  'errored',
+];
+
+/**
+ * Status key for the node colors. Statuses present in the current run are
+ * lit (full color + glow dot); the rest are dimmed so the legend doubles as
+ * a live progress read-out, not just a static key.
+ */
+export function PlanLegend({ runtimes }: { runtimes: Record<number, SubTaskRuntime> }) {
+  const active = new Set(Object.values(runtimes).map((r) => r.status));
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1">
+      {LEGEND_ORDER.map((status) => {
+        const { color } = STATUS_DESCRIPTORS[status];
+        const on = active.has(status);
+        return (
+          <span
+            key={status}
+            className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-opacity"
+            style={{ opacity: on ? 1 : 0.4 }}
+          >
+            <span
+              className="w-[8px] h-[8px] rounded-full"
+              style={{ background: color, boxShadow: on ? `0 0 8px ${color}66` : 'none' }}
+              aria-hidden
+            />
+            <span style={{ color: on ? color : undefined }} className={on ? '' : 'text-text-subtle'}>
+              {status}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * Topological depth for each sub-task: 0 for sources (no deps), `max(dep) + 1`

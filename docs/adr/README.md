@@ -36,6 +36,7 @@
 | [0018](./0018-composite-content-envelope.md) | Composite content envelope: faithful `source` payload + `inputs` dependency chaining alongside `spec` | Accepted | 2026-06-08 |
 | [0019](./0019-off-chain-council-v1.md) | Off-chain council v1: opt-in review gate, single LLM-judge verdict, arbiter EOA auto-executes `resolveDispute` | Accepted | 2026-06-08 |
 | [0020](./0020-useful-output-pipelines.md) | Useful-output pipelines: демо как поверка с чатом, консолидация воркеров, wake-on-HTTP | Accepted | 2026-06-10 |
+| [0021](./0021-ui-polish-galaxy-hero.md) | UI/UX polish + Galaxy hero: try-first CTA, AA-контраст, composite legend/animation/chips/stepper, nav `Demo ▾`, vendored OGL Galaxy фон | Accepted | 2026-06-14 |
 
 ## Ожидаемые ADR (черновик)
 

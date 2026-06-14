@@ -7,7 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ChainPicker } from '@/components/demo/chain-picker';
 import { PlanCard } from '@/components/demo/plan-card';
 import { PlanEditor } from '@/components/demo/plan-editor';
-import { PlanGraph } from '@/components/demo/plan-graph';
+import { PlanGraph, PlanLegend } from '@/components/demo/plan-graph';
 import { SubtaskDrawer } from '@/components/demo/subtask-drawer';
 import { ReplanPrompt } from '@/components/demo/replan-prompt';
 import { ReviewPrompt } from '@/components/demo/review-prompt';
@@ -30,6 +30,25 @@ import {
  * (M12.2.3).
  */
 type CompositeMode = 'composite' | 'website' | 'research';
+
+/**
+ * One-click brief seeds per mode — lower the «what do I even type here» bar.
+ * Clicking a chip fills the textarea; the user can still edit before submit.
+ */
+const BRIEF_EXAMPLES: Record<CompositeMode, readonly string[]> = {
+  composite: [
+    'research the top 3 stablecoin yield products on Base and write a comparative report',
+    'summarize this article and translate the summary into Spanish',
+  ],
+  website: [
+    'a specialty coffee shop by the sea in Lisbon — warm tone, English copy',
+    'a portfolio site for a freelance product designer — minimal, dark theme',
+  ],
+  research: [
+    'what changed in EIP-7702 account abstraction in 2026?',
+    'compare Base and Arbitrum fee markets over the last year',
+  ],
+};
 
 /**
  * /demo/composite — observable-decomposition flow.
@@ -161,6 +180,8 @@ function CompositePageInner() {
         then watch the graph fill in live as the work settles on Base mainnet.
       </p>
 
+      <FlowStepper status={demo.status} />
+
       {isInputPhase && (
         <section className="mt-10 space-y-6">
           <ChainPicker
@@ -169,7 +190,7 @@ function CompositePageInner() {
             disabled={demo.status !== 'idle'}
           />
           <div
-            className="inline-flex rounded-[10px] border border-border bg-surface p-1 font-mono text-[12px]"
+            className="inline-flex gap-1 rounded-[10px] border border-border bg-surface p-1 font-mono text-[12px]"
             role="tablist"
             aria-label="Demo mode"
           >
@@ -247,6 +268,22 @@ function CompositePageInner() {
               className="w-full px-4 py-3 rounded-[10px] border border-border bg-[#0A0A0F] text-[14px] text-text leading-[1.55] focus:outline-none focus:border-cyan"
               disabled={demo.status === 'classifying'}
             />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
+                try
+              </span>
+              {BRIEF_EXAMPLES[mode].map((ex) => (
+                <button
+                  key={ex}
+                  type="button"
+                  onClick={() => setBrief(ex)}
+                  disabled={demo.status === 'classifying'}
+                  className="max-w-full truncate px-3 py-1.5 rounded-full border border-border text-[12px] text-text-muted hover:text-text hover:border-cyan transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
                 {demo.status === 'classifying'
@@ -344,6 +381,7 @@ function CompositePageInner() {
             runtimes={demo.runtimes}
             onSubtaskClick={setSelectedSubId}
           />
+          <PlanLegend runtimes={demo.runtimes} />
           {isRunning && demo.error && (
             // web-H1: a failed review/retry POST sets `error` while the run is
             // still executing — ErrorPanel only renders at status === 'error',
@@ -627,6 +665,51 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span className="text-text-subtle uppercase tracking-[0.08em]">{label}</span>{' '}
       <span className="text-text">{value}</span>
     </span>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Compact orientation rail for the long vertical flow. Sticks under the nav
+ * so the user always knows which phase the run is in. Derived purely from
+ * the hook status — no new state.
+ */
+function FlowStepper({ status }: { status: string }) {
+  const steps = ['Brief', 'Plan', 'Run', 'Settled'] as const;
+  const activeIndex =
+    status === 'plan-ready'
+      ? 1
+      : status === 'executing'
+        ? 2
+        : status === 'completed'
+          ? 3
+          : 0;
+  return (
+    <div className="sticky top-16 z-30 -mx-6 md:-mx-10 px-6 md:px-10 py-3 mt-8 bg-canvas/90 backdrop-blur-sm border-b border-border">
+      <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.08em]">
+        {steps.map((label, i) => (
+          <div key={label} className="flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1.5 ${i <= activeIndex ? 'text-text' : 'text-text-subtle'}`}>
+              <span
+                className="w-[6px] h-[6px] rounded-full"
+                style={{
+                  background: i < activeIndex ? '#6EE7B7' : i === activeIndex ? '#A78BFA' : '#3a3a4a',
+                  boxShadow: i === activeIndex ? '0 0 8px #A78BFA' : 'none',
+                }}
+                aria-hidden
+              />
+              {label}
+            </span>
+            {i < steps.length - 1 ? (
+              <span aria-hidden className="text-text-subtle">
+                →
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

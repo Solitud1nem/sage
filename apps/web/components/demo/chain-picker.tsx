@@ -1,7 +1,7 @@
 'use client';
 
 import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
-import { BASE_MAINNET_CHAIN_ID, SAGE_CHAINS } from '@/chains/base';
+import { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
 import type { CompositeChainId } from '@/hooks/use-composite-demo';
 
 /**
@@ -14,9 +14,10 @@ import type { CompositeChainId } from '@/hooks/use-composite-demo';
  * to the wrong orchestrator.
  *
  * Visual: two pills inside a bordered tray. Active pill takes the cyan
- * accent (same token as `Classify brief →` CTA on the page). Arc shows
- * a small `testnet` tag so the user knows what they're committing to
- * before clicking.
+ * accent (same token as `Classify brief →` CTA on the page). Each pill
+ * carries its own network status tag (`mainnet · 8453` / `testnet`) so the
+ * user knows what they're committing to before clicking — no dangling hint
+ * that reads like a third network option.
  */
 
 interface ChainPickerProps {
@@ -28,32 +29,29 @@ interface ChainPickerProps {
 const OPTIONS: Array<{
   chainId: CompositeChainId;
   label: string;
-  badge?: string;
-  hint: string;
+  tag: string;
 }> = [
   {
     chainId: BASE_MAINNET_CHAIN_ID,
     label: 'Base',
-    hint: 'mainnet',
+    tag: `mainnet · ${BASE_MAINNET_CHAIN_ID}`,
   },
   {
     chainId: ARC_TESTNET_CHAIN_ID,
     label: 'Arc',
-    badge: 'testnet',
-    hint: 'bridge · ADR-0015',
+    tag: 'testnet',
   },
 ];
 
 export function ChainPicker({ chainId, onChange, disabled }: ChainPickerProps) {
-  const activeCfg = SAGE_CHAINS[chainId];
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle">
-        Chain
+        Settlement chain
       </div>
       <div
         role="radiogroup"
-        aria-label="Chain"
+        aria-label="Settlement chain"
         aria-disabled={disabled}
         className={`inline-flex items-center gap-1 rounded-[10px] border border-border p-1 bg-[#0A0A0F] ${
           disabled ? 'opacity-50' : ''
@@ -76,24 +74,20 @@ export function ChainPicker({ chainId, onChange, disabled }: ChainPickerProps) {
               } ${disabled && !active ? 'pointer-events-none' : ''}`}
             >
               <span>{opt.label}</span>
-              {opt.badge ? (
-                <span
-                  className={`text-[10px] uppercase tracking-[0.08em] px-1.5 rounded ${
-                    active ? 'bg-[#0A0A0F]/15 text-[#0A0A0F]' : 'bg-surface text-text-subtle'
-                  }`}
-                >
-                  {opt.badge}
-                </span>
-              ) : null}
+              <span
+                className={`text-[10px] uppercase tracking-[0.08em] px-1.5 rounded ${
+                  active ? 'bg-[#0A0A0F]/15 text-[#0A0A0F]' : 'bg-surface text-text-subtle'
+                }`}
+              >
+                {opt.tag}
+              </span>
             </button>
           );
         })}
       </div>
-      <div className="font-mono text-[11px] text-text-subtle">
-        {OPTIONS.find((o) => o.chainId === chainId)?.hint}
-        {disabled ? ' · frozen for this run' : null}
-        {activeCfg ? null : null}
-      </div>
+      {disabled ? (
+        <div className="font-mono text-[11px] text-text-subtle">· frozen for this run</div>
+      ) : null}
     </div>
   );
 }

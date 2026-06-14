@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { BASE_MAINNET, addressUrl } from '@/chains/base';
+import { GalaxyBackground } from '@/components/backgrounds/galaxy-background';
 import { GradientText } from '@/components/gradient-text';
 import { StatusPill } from '@/components/status-pill';
 
@@ -30,6 +31,7 @@ const chainInfoRow = [
 export function Hero() {
   return (
     <section className="relative mx-auto max-w-[1200px] px-6 md:px-10 pt-16 pb-24">
+      <GalaxyBackground />
       <StatusPill>Live on Base mainnet</StatusPill>
 
       <h1 className="mt-7 text-[clamp(48px,6.4vw,84px)] font-medium leading-[1.04] tracking-[-0.025em] max-w-[900px]">
@@ -47,8 +49,14 @@ export function Hero() {
 
       <div className="mt-9 flex flex-wrap gap-3">
         <Link
-          href="/docs"
+          href="/demo/composite"
           className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] bg-purple text-[#0A0A0F] text-[13px] font-semibold hover:shadow-[0_0_28px_rgba(167,139,250,0.45)] transition-shadow duration-200"
+        >
+          Try the live demo →
+        </Link>
+        <Link
+          href="/docs"
+          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
         >
           Read the docs →
         </Link>
@@ -56,7 +64,7 @@ export function Hero() {
           href={addressUrl(BASE_MAINNET.chainId, BASE_MAINNET.contracts.taskEscrow)}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] border border-border-hover text-[13px] hover:bg-surface transition-colors duration-200"
+          className="inline-flex items-center justify-center h-11 px-5 rounded-[10px] text-[13px] text-text-muted hover:text-text transition-colors duration-200"
         >
           View on Basescan ↗
         </a>

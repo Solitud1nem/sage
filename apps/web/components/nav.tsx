@@ -5,13 +5,18 @@ import { ConnectKitButton } from 'connectkit';
 
 import { siteConfig } from '@/lib/site-config';
 
+// Top-level marketing anchors. The three demo-ish destinations (live tx
+// stream, lifecycle walk-through, composite plan) are grouped under one
+// `Demo ▾` menu — their names didn't read as distinct in a flat row.
 const links = [
   { href: '/#how-it-works', label: 'How it works' },
   { href: '/#integrate', label: 'Integrate' },
-  { href: '/#live', label: 'Live' },
-  { href: '/demo', label: 'Demo' },
+];
+
+const demoLinks = [
+  { href: '/#live', label: 'Live stream' },
+  { href: '/demo', label: 'Lifecycle' },
   { href: '/demo/composite', label: 'Composite' },
-  { href: '/docs', label: 'Docs' },
 ];
 
 export function Nav() {
@@ -33,6 +38,39 @@ export function Nav() {
               {l.label}
             </Link>
           ))}
+
+          {/* CSS-driven dropdown: hover bridges via the pt-2 gap, keyboard
+              opens it through focus-within. No JS state → safe under static
+              export. */}
+          <div className="relative group">
+            <button
+              type="button"
+              aria-haspopup="true"
+              className="inline-flex items-center gap-1 hover:text-text group-focus-within:text-text transition-colors duration-200"
+            >
+              Demo
+              <span aria-hidden className="text-[10px]">
+                ▾
+              </span>
+            </button>
+            <div className="absolute left-0 top-full pt-2 hidden group-hover:block group-focus-within:block">
+              <div className="min-w-[176px] rounded-[10px] border border-border bg-canvas py-1 shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
+                {demoLinks.map((l) => (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className="block px-4 py-2 text-[13px] hover:text-text hover:bg-surface transition-colors duration-150"
+                  >
+                    {l.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <Link href="/docs" className="hover:text-text transition-colors duration-200">
+            Docs
+          </Link>
         </div>
 
         <div className="flex items-center gap-3">
