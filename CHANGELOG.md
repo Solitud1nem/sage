@@ -19,7 +19,7 @@
 - **Nav IA:** три демо-пункта (`Live`/`Demo`/`Composite`) сгруппированы под `Demo ▾` (CSS-дропдаун hover + focus-within, без JS-state → safe под static export); сабы `Live stream · Lifecycle · Composite`.
 - **Galaxy hero:** `pnpm add ogl -F @sage/web` (~30 KB, ogl 1.0.11 со своими типами); вендорный оригинал reactbits `components/backgrounds/Galaxy.tsx` (verbatim + только `'use client'`; file-scoped eslint-disable — `let program` hoisted + ogl-uniforms `any`); враппер `galaxy-background.tsx` с рейлами, которых нет в оригинале: `next/dynamic({ssr:false})`, prefers-reduced-motion (замороженный кадр), пауза вне вьюпорта (IntersectionObserver), пониженная density на мобиле, radial-gradient фолбэк под no-WebGL; декоративный, `pointer-events-none`, прозрачный canvas → без шва на широких экранах; left-darken + bottom-fade overlay под читабельность копии. Конфиг под Sage: hueShift 250, density 1.1, glow 0.45, sat 0.5.
 - **Гейты:** `pnpm typecheck` чисто, `pnpm lint` 0 ошибок, `pnpm build` (static export) — 23 страницы, экспорт ОК (Galaxy не сломал прероллап). `/` First Load 262 kB.
-- **Деплой:** не делался (правки в рабочем дереве, не закоммичены). Threads (вторичный фон) отложен.
+- **Деплой:** commit `e691431` → push `main`; `wrangler pages deploy apps/web/out --project-name=sage-protocol --branch=main` (Pages не git-connected, ручной wrangler) — прод `https://sage-protocol.pages.dev` (deployment `440a2ece`). Смоук: `/` + `/demo/composite` 200, новые CTA/Settlement-chain/nav-dropdown на месте. Threads (вторичный фон) отложен.
 
 ## 2026-06-13 — M12.2.3: research UI-режим + управляемый провальный ран + e2e на mainnet — секция 12.2 закрыта — `release`
 
