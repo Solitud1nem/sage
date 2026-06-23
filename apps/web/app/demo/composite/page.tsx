@@ -335,9 +335,11 @@ function CompositePageInner() {
             }}
             brief={brief}
             onApprove={handleApprove}
-            // Website & research are fixed templates — editing would break the
-            // evaluator wiring (qa-website / fact-checker), so no Edit.
-            {...(mode === 'composite' ? { onEdit: () => setEditing(true) } : {})}
+            // Editing is available in every mode (M13.1.1). Website & research
+            // are fixed templates, so the editor opens in `locked` mode — it
+            // keeps executor / spec / cost / deadline editable but leaves the
+            // structure and evaluator wiring (qa-website / fact-checker) intact.
+            onEdit={() => setEditing(true)}
             onCancel={handleReset}
           />
         </section>
@@ -347,6 +349,8 @@ function CompositePageInner() {
         <section className="mt-10">
           <PlanEditor
             initialPlan={planForDisplay}
+            chainId={chainId}
+            locked={mode !== 'composite'}
             onSave={(p) => {
               const before = planForDisplay.subtasks.length;
               const after = p.subtasks.length;

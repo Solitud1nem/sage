@@ -1,8 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import type { WirePlan, WireSubTask } from '@/hooks/use-composite-demo';
+import {
+  fetchRegistryAgents,
+  type RegistryAgent,
+  type WirePlan,
+  type WireSubTask,
+} from '@/hooks/use-composite-demo';
 import { formatUsdc } from '@/lib/format-usdc';
 
 /**
@@ -11,16 +16,23 @@ import { formatUsdc } from '@/lib/format-usdc';
  * the caller (which then either re-displays the plan-card or runs Approve
  * immediately, depending on UX choice).
  *
- * v1 implementation notes (per M10.3.4):
- * - Reordering uses ↑/↓ arrow buttons. The PARENT-PLAN intent was native
- *   drag-and-drop, but adding a drag library (`@dnd-kit`) for one screen is
- *   excessive — arrow buttons are accessible-by-default and unblock the
- *   acceptance criterion. Future polish task in IDEAS.md if it matters.
- * - Executor selection: known production agents (Summarizer / Translator /
- *   Sentiment / Vision) pulled from `NEXT_PUBLIC_DEMO_*_ADDRESS` env vars,
- *   plus a "Custom" option that reveals a free-text input. Same pattern as
- *   `use-wallet-demo.ts` resolves executor addresses.
- * - Live total cost recomputed on every edit.
+ * Two editing shapes (M13.1.1):
+ *   - Composite (LLM) plans: full editing — add / remove / reorder / type /
+ *     depends_on, plus per-subtask fields.
+ *   - `locked` template plans (website / research): the pipeline structure is
+ *     fixed because evaluator wiring (`evaluates`) and the dependency DAG are
+ *     load-bearing. Structure is read-only; the user still reassigns the
+ *     executor and tweaks spec / cost / deadline. This restores the editing
+ *     pillar (ADR-0007) to those pipelines without letting an edit break the
+ *     qa-website / fact-checker wiring (ADR-0022 / ADR-0023).
+ *
+ * Executor selection (M13.1.1): candidates come from the chain's V2 registry
+ * (GET /api/demo/composite/agents) filtered by each sub-task's capability —
+ * the env-var four were the only executors the editor used to know, none of
+ * which serve the website/research pipelines. Registry fetch is best-effort;
+ * on failure the editor falls back to the env-var executors plus a free-text
+ * "Custom address…" field. Reputation-ranked default selection is the
+ * follow-up (M13.1.2); here candidates are listed as the registry returns them.
  */
 
 const COMMON_TYPES = [
@@ -52,16 +64,82 @@ function loadKnownExecutors(): KnownExecutor[] {
   );
 }
 
+interface ExecutorOption {
+  label: string;
+  address: `0x${string}`;
+}
+
+/**
+ * Build the executor dropdown options for a sub-task of capability `type`.
+ * Priority: registry agents that declare this exact capability → (if none)
+ * any registry agent labelled by its capability → env-var known executors.
+ * Deduped by address. The caller always appends "unassigned" / "custom".
+ */
+function executorOptionsFor(
+  type: string,
+  registryAgents: readonly RegistryAgent[],
+  envKnown: readonly KnownExecutor[],
+): ExecutorOption[] {
+  const out: ExecutorOption[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, address: `0x${string}`) => {
+    const key = address.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ label, address });
+  };
+
+  for (const a of registryAgents) {
+    const cap = a.capabilities.find((c) => c.name === type);
+    if (cap) push(`${type} · ${shortAddr(a.address)} · ${formatUsdc(cap.price)}`, a.address);
+  }
+  // No exact-capability match (e.g. a composite plan whose `type` is a free
+  // descriptor): still offer every registry agent so the dropdown isn't empty.
+  if (out.length === 0) {
+    for (const a of registryAgents) {
+      const cap = a.capabilities[0];
+      push(cap ? `${cap.name} · ${shortAddr(a.address)}` : shortAddr(a.address), a.address);
+    }
+  }
+  for (const k of envKnown) push(`${k.label} (${shortAddr(k.address)})`, k.address);
+  return out;
+}
+
 interface PlanEditorProps {
   initialPlan: WirePlan;
+  /** Chain whose V2 registry supplies executor candidates. */
+  chainId: number;
+  /**
+   * Fixed-template plan (website / research): lock structure (no add / remove /
+   * reorder, read-only type & depends_on & evaluator wiring); keep per-subtask
+   * fields editable. Default false → full editing for composite plans.
+   */
+  locked?: boolean;
   onSave: (plan: WirePlan) => void;
   onDiscard: () => void;
 }
 
-export function PlanEditor({ initialPlan, onSave, onDiscard }: PlanEditorProps) {
+export function PlanEditor({
+  initialPlan,
+  chainId,
+  locked = false,
+  onSave,
+  onDiscard,
+}: PlanEditorProps) {
   const [brief] = useState(initialPlan.brief);
   const [subtasks, setSubtasks] = useState<WireSubTask[]>(initialPlan.subtasks);
-  const knownExecutors = useMemo(loadKnownExecutors, []);
+  const envKnown = useMemo(loadKnownExecutors, []);
+  const [registryAgents, setRegistryAgents] = useState<RegistryAgent[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    void fetchRegistryAgents(chainId).then((agents) => {
+      if (live) setRegistryAgents(agents);
+    });
+    return () => {
+      live = false;
+    };
+  }, [chainId]);
 
   const totalCost = useMemo(
     () =>
@@ -156,6 +234,12 @@ export function PlanEditor({ initialPlan, onSave, onDiscard }: PlanEditorProps) 
             {subtasks.length} sub-task{subtasks.length === 1 ? '' : 's'}
           </span>
         </div>
+        {locked && (
+          <p className="mb-3 text-[12px] leading-[1.55] text-text-muted">
+            This is a fixed pipeline — its steps and evaluator wiring stay as-is. You can reassign
+            executors and adjust the spec, cost, and deadline of each step.
+          </p>
+        )}
         <div className="font-mono text-[11px] uppercase tracking-[0.08em] text-text-subtle mb-2">
           Brief (read-only)
         </div>
@@ -167,8 +251,9 @@ export function PlanEditor({ initialPlan, onSave, onDiscard }: PlanEditorProps) 
           <SubTaskEditorRow
             key={sub.id}
             sub={sub}
+            locked={locked}
+            executorOptions={executorOptionsFor(sub.type, registryAgents, envKnown)}
             allIds={subtasks.map((s) => s.id).filter((id) => id !== sub.id)}
-            knownExecutors={knownExecutors}
             canMoveUp={idx > 0}
             canMoveDown={idx < subtasks.length - 1}
             onMoveUp={() => move(idx, -1)}
@@ -179,15 +264,17 @@ export function PlanEditor({ initialPlan, onSave, onDiscard }: PlanEditorProps) 
         ))}
       </ol>
 
-      <div className="px-6 md:px-8 py-4 border-t border-border">
-        <button
-          type="button"
-          onClick={add}
-          className="h-9 px-3 rounded-[8px] border border-dashed border-border text-text-muted font-mono text-[12px] hover:text-text hover:border-text-muted transition-colors"
-        >
-          + Add sub-task
-        </button>
-      </div>
+      {!locked && (
+        <div className="px-6 md:px-8 py-4 border-t border-border">
+          <button
+            type="button"
+            onClick={add}
+            className="h-9 px-3 rounded-[8px] border border-dashed border-border text-text-muted font-mono text-[12px] hover:text-text hover:border-text-muted transition-colors"
+          >
+            + Add sub-task
+          </button>
+        </div>
+      )}
 
       <footer className="px-6 md:px-8 py-5 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -224,8 +311,9 @@ export function PlanEditor({ initialPlan, onSave, onDiscard }: PlanEditorProps) 
 
 interface SubTaskEditorRowProps {
   sub: WireSubTask;
+  locked: boolean;
+  executorOptions: ExecutorOption[];
   allIds: number[];
-  knownExecutors: KnownExecutor[];
   canMoveUp: boolean;
   canMoveDown: boolean;
   onMoveUp: () => void;
@@ -236,8 +324,9 @@ interface SubTaskEditorRowProps {
 
 function SubTaskEditorRow({
   sub,
+  locked,
+  executorOptions,
   allIds,
-  knownExecutors,
   canMoveUp,
   canMoveDown,
   onMoveUp,
@@ -250,7 +339,7 @@ function SubTaskEditorRow({
   // back into the controlled input, so "1," collapsed to "1" mid-typing.
   const [dependsDraft, setDependsDraft] = useState<string | null>(null);
 
-  const matchedExecutor = knownExecutors.find(
+  const matchedExecutor = executorOptions.find(
     (k) => k.address.toLowerCase() === sub.executor_address?.toLowerCase(),
   );
   const executorMode: 'preset' | 'custom' | 'unset' = matchedExecutor
@@ -263,30 +352,49 @@ function SubTaskEditorRow({
     <li className="px-6 md:px-8 py-4 grid grid-cols-1 lg:grid-cols-[40px_1fr_auto] gap-x-4 gap-y-3 items-start">
       <div className="flex lg:flex-col items-center gap-1">
         <span className="font-mono text-[13px] text-text-subtle">#{sub.id}</span>
-        <div className="flex lg:flex-col gap-1">
-          <IconButton onClick={onMoveUp} disabled={!canMoveUp} label="Move up">
-            ↑
-          </IconButton>
-          <IconButton onClick={onMoveDown} disabled={!canMoveDown} label="Move down">
-            ↓
-          </IconButton>
-        </div>
+        {!locked && (
+          <div className="flex lg:flex-col gap-1">
+            <IconButton onClick={onMoveUp} disabled={!canMoveUp} label="Move up">
+              ↑
+            </IconButton>
+            <IconButton onClick={onMoveDown} disabled={!canMoveDown} label="Move down">
+              ↓
+            </IconButton>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Type">
-            <input
-              list={`type-suggestions-${sub.id}`}
-              value={sub.type}
-              onChange={(e) => onUpdate({ type: e.target.value })}
-              className="w-full h-9 px-3 rounded-[8px] border border-border bg-[#0A0A0F] font-mono text-[12px] text-text focus:outline-none focus:border-cyan"
-            />
-            <datalist id={`type-suggestions-${sub.id}`}>
-              {COMMON_TYPES.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
+            {locked ? (
+              <div className="flex flex-wrap items-center gap-2 h-9 px-3 rounded-[8px] border border-border bg-[#0A0A0F]/40 font-mono text-[12px] text-text-muted">
+                <span className="text-text">{sub.type}</span>
+                {sub.evaluates !== undefined && (
+                  <span
+                    className="font-mono text-[11px] px-2 py-[1px] rounded-full border"
+                    style={{ borderColor: '#A78BFA', color: '#A78BFA' }}
+                    title="Paid evaluator: its verdict releases or disputes the judged step's payment."
+                  >
+                    ⚖ judges #{sub.evaluates}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <>
+                <input
+                  list={`type-suggestions-${sub.id}`}
+                  value={sub.type}
+                  onChange={(e) => onUpdate({ type: e.target.value })}
+                  className="w-full h-9 px-3 rounded-[8px] border border-border bg-[#0A0A0F] font-mono text-[12px] text-text focus:outline-none focus:border-cyan"
+                />
+                <datalist id={`type-suggestions-${sub.id}`}>
+                  {COMMON_TYPES.map((t) => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+              </>
+            )}
           </Field>
 
           <Field label="Executor">
@@ -305,9 +413,9 @@ function SubTaskEditorRow({
               className="w-full h-9 px-3 rounded-[8px] border border-border bg-[#0A0A0F] font-mono text-[12px] text-text focus:outline-none focus:border-cyan"
             >
               <option value="unset">— unassigned —</option>
-              {knownExecutors.map((k) => (
+              {executorOptions.map((k) => (
                 <option key={k.address} value={k.address}>
-                  {k.label} ({shortAddr(k.address)})
+                  {k.label}
                 </option>
               ))}
               <option value="custom">Custom address…</option>
@@ -361,38 +469,48 @@ function SubTaskEditorRow({
             />
           </Field>
           <Field label="Depends on">
-            <input
-              value={dependsDraft ?? (sub.depends_on ?? []).join(',')}
-              onChange={(e) => setDependsDraft(e.target.value)}
-              onBlur={() => {
-                if (dependsDraft === null) return;
-                const parsed = dependsDraft
-                  .split(',')
-                  .map((s) => parseInt(s.trim(), 10))
-                  .filter((n) => Number.isFinite(n) && allIds.includes(n));
-                onUpdate({ depends_on: parsed.length > 0 ? parsed : undefined });
-                setDependsDraft(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-              }}
-              placeholder={`e.g. ${allIds.slice(0, 2).join(',') || '(none)'}`}
-              className="w-full h-9 px-3 rounded-[8px] border border-border bg-[#0A0A0F] font-mono text-[12px] text-text-muted focus:outline-none focus:border-cyan"
-            />
+            {locked ? (
+              <div className="w-full h-9 px-3 inline-flex items-center rounded-[8px] border border-border bg-[#0A0A0F]/40 font-mono text-[12px] text-text-muted">
+                {(sub.depends_on ?? []).length > 0
+                  ? (sub.depends_on ?? []).map((d) => `#${d}`).join(', ')
+                  : '—'}
+              </div>
+            ) : (
+              <input
+                value={dependsDraft ?? (sub.depends_on ?? []).join(',')}
+                onChange={(e) => setDependsDraft(e.target.value)}
+                onBlur={() => {
+                  if (dependsDraft === null) return;
+                  const parsed = dependsDraft
+                    .split(',')
+                    .map((s) => parseInt(s.trim(), 10))
+                    .filter((n) => Number.isFinite(n) && allIds.includes(n));
+                  onUpdate({ depends_on: parsed.length > 0 ? parsed : undefined });
+                  setDependsDraft(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+                placeholder={`e.g. ${allIds.slice(0, 2).join(',') || '(none)'}`}
+                className="w-full h-9 px-3 rounded-[8px] border border-border bg-[#0A0A0F] font-mono text-[12px] text-text-muted focus:outline-none focus:border-cyan"
+              />
+            )}
           </Field>
         </div>
       </div>
 
       <div className="flex lg:flex-col gap-2 lg:items-end">
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label="Remove sub-task"
-          className="h-9 w-9 rounded-[8px] border border-border text-text-subtle hover:text-pink hover:border-pink transition-colors font-mono"
-          title="Remove"
-        >
-          ✕
-        </button>
+        {!locked && (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label="Remove sub-task"
+            className="h-9 w-9 rounded-[8px] border border-border text-text-subtle hover:text-pink hover:border-pink transition-colors font-mono"
+            title="Remove"
+          >
+            ✕
+          </button>
+        )}
       </div>
     </li>
   );

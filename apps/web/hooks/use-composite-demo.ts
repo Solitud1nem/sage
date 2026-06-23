@@ -868,6 +868,48 @@ async function safeJson(res: Response): Promise<unknown> {
 }
 
 /**
+ * A V2-registry agent as returned by GET /api/demo/composite/agents
+ * (M13.1.1). `price` is a decimal string of USDC base units (JSON has no
+ * bigint). The plan-editor uses these to offer real executor candidates per
+ * capability instead of the legacy env-var four.
+ */
+export interface RegistryAgent {
+  address: `0x${string}`;
+  capabilities: { name: string; price: string }[];
+}
+
+/**
+ * Fetch active agents from the chain's V2 registry. Best-effort: returns `[]`
+ * on any failure (no registry on the chain, lookup error, malformed body) so
+ * a registry hiccup never blocks editing — the editor falls back to env-var
+ * executors plus the custom-address field.
+ */
+export async function fetchRegistryAgents(chainId: number): Promise<RegistryAgent[]> {
+  try {
+    const res = await fetch(urlFor('/api/demo/composite/agents', chainId), { method: 'GET' });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { agents?: unknown };
+    if (!Array.isArray(data.agents)) return [];
+    return data.agents.flatMap((a): RegistryAgent[] => {
+      if (!a || typeof a !== 'object') return [];
+      const { address, capabilities } = a as Record<string, unknown>;
+      if (typeof address !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(address)) return [];
+      const caps = Array.isArray(capabilities)
+        ? capabilities.flatMap((c): { name: string; price: string }[] => {
+            if (!c || typeof c !== 'object') return [];
+            const { name, price } = c as Record<string, unknown>;
+            if (typeof name !== 'string') return [];
+            return [{ name, price: typeof price === 'string' ? price : String(price ?? '0') }];
+          })
+        : [];
+      return [{ address: address as `0x${string}`, capabilities: caps }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Derive a `WirePlan` from a `WireClassification` — drops classifier-only fields.
  * The plan-card uses this for the "Approve as-is" path; the editor can splice
  * in changes before passing the result to `approve()`.

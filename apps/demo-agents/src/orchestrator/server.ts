@@ -545,6 +545,35 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  // --- GET /api/demo/composite/agents (M13.1.1) ----------------------
+  // Active V2-registry agents (address + capabilities + price) so the
+  // plan-editor can offer real executor candidates per capability — the
+  // env-var executor list only ever knew the legacy four, so editing the
+  // website/research pipelines had no usable executors. Best-effort: an
+  // unconfigured registry (e.g. Arc) or a lookup failure returns an empty
+  // list so the editor degrades to a custom-address field rather than
+  // erroring. Read-only GET, so no gateway-key guard applies.
+  if (url === '/api/demo/composite/agents' && method === 'GET') {
+    const registryV2Addr = sageBundle.chainConfig.contracts.agentRegistryV2;
+    if (!registryV2Addr) {
+      json(res, 200, { agents: [] });
+      return;
+    }
+    try {
+      const registryAgents = await listActiveAgentsV2(sageBundle.publicClient, registryV2Addr);
+      jsonWithBigints(res, 200, {
+        agents: registryAgents.map((a) => ({
+          address: a.id,
+          capabilities: a.capabilities.map((c) => ({ name: c.name, price: c.price })),
+        })),
+      });
+    } catch (regErr) {
+      console.error('[Orchestrator] /api/demo/composite/agents registry lookup failed:', regErr);
+      json(res, 200, { agents: [] });
+    }
+    return;
+  }
+
   // --- POST /api/demo/composite/execute -------------------------------
   if (url === '/api/demo/composite/execute' && method === 'POST') {
     try {
