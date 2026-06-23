@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-06-23 — M13.1.1: editable evaluator-aware plans в website/research — `release`
+
+Вернул столб явной декомпозиции (ADR-0007) в детерминированные пайплайны сайта и ресерча — они его потеряли (редактор жил только в composite-режиме). Реализует ADR-0022 / ADR-0023 §Layer 3.7. Задеплоено на прод.
+
+- **Editor `locked`-режим** (`apps/web/components/demo/plan-editor.tsx`): для template-планов структура read-only (нет add/remove/reorder; `type`/`depends_on`/`evaluates`-бейдж только на чтение) → evaluator-связки (qa-website/fact-checker) и DAG защищены конструктивно; редактируемы executor/spec/cost/deadline. Composite-режим — полный редактор без изменений.
+- **Registry-sourced executors**: новый `GET /api/demo/composite/agents` (`orchestrator/server.ts`, reuse `listActiveAgentsV2`, best-effort пустой список без реестра/при ошибке; GET → без gateway-key-гарда) + hook `fetchRegistryAgents` → редактор предлагает кандидатов из живого V2-реестра по capability сабтаска, заменяя legacy env-var четвёрку; fallback на env-vars+custom. Реп-ранжирование дефолта — M13.1.2.
+- **Page** (`app/demo/composite/page.tsx`): `onEdit` во всех режимах + `locked={mode!=='composite'}` + `chainId` в редактор.
+- **Гейты**: typecheck (demo-agents+web), web lint, web build (static export), demo-agents 393/393.
+- **Деплой**: git push main (`77681d6`); Fly `sage-demo-agents` (10 машин обновлены, DNS verified); Pages (`295d7f32`). Смоук `GET /agents` через gateway → **12 агентов** с capability+ценой (website-четвёрка + research-четвёрка + legacy). **Остаток: browser-verify редактора в website/research на проде** (build-green ≠ visible).
+- **Коммиты**: `c930b3c` (ADR 0022-0024 + README + CHANGELOG), `77681d6` (код M13.1.1).
+
 ## 2026-06-23 — Ответственность, conformance чужих агентов, приватность (ADR-0022/0023/0024) — `adr`
 
 Резолв трёх вопросов Alex'а (ответственность за агентов · требования/проверки к чужим агентам · защита чувствительных данных). Три связанных ADR, все Accepted. Это decision-уровень — кода пока не меняли; consequences разбиты на staged build order внутри каждого ADR.
