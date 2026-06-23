@@ -37,6 +37,9 @@
 | [0019](./0019-off-chain-council-v1.md) | Off-chain council v1: opt-in review gate, single LLM-judge verdict, arbiter EOA auto-executes `resolveDispute` | Accepted | 2026-06-08 |
 | [0020](./0020-useful-output-pipelines.md) | Useful-output pipelines: демо как поверка с чатом, консолидация воркеров, wake-on-HTTP | Accepted | 2026-06-10 |
 | [0021](./0021-ui-polish-galaxy-hero.md) | UI/UX polish + Galaxy hero: try-first CTA, AA-контраст, composite legend/animation/chips/stepper, nav `Demo ▾`, vendored OGL Galaxy фон | Accepted | 2026-06-14 |
+| [0022](./0022-responsibility-boundaries.md) | Responsibility boundaries: three zones (first-party / referee / foreign-agent), Sage guarantees fair settlement not work quality | Accepted | 2026-06-23 |
+| [0023](./0023-foreign-agent-conformance.md) | Foreign-agent conformance: tiered damage-bounding + routing gates over a permissionless registry | Accepted | 2026-06-23 |
+| [0024](./0024-privacy-on-chain-commitments.md) | Privacy: on-chain carries commitments not content; encrypted off-chain + least-privilege envelope | Accepted | 2026-06-23 |
 
 ## Ожидаемые ADR (черновик)
 
