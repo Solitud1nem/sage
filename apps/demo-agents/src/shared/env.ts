@@ -60,6 +60,14 @@ export interface OrchestratorEnv {
    * unset / unreachable → cheapest-first, so this degrades safely.
    */
   reputationUrl: string | undefined;
+  /**
+   * Quarantine (M13.2.4): an unproven foreign agent (foreign + fewer than
+   * `quarantineProvenMin` settled tasks) may only run a sub-task whose value
+   * is ≤ this. Default 0.1 USDC. Only enforced when `firstPartyAgents` is set.
+   */
+  quarantineMaxUnits: bigint;
+  /** Settled-task count at which a foreign agent graduates out of quarantine. */
+  quarantineProvenMin: number;
 }
 
 export function loadOrchestratorEnv(): OrchestratorEnv {
@@ -93,6 +101,9 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
     gatewayKey: process.env.DEMO_GATEWAY_KEY || undefined,
     firstPartyAgents: parseAddressSet('FIRST_PARTY_AGENTS'),
     reputationUrl: process.env.REPUTATION_URL || undefined,
+    // 0.1 USDC ceiling for unproven foreign agents; proven after 5 settled tasks.
+    quarantineMaxUnits: BigInt(process.env.QUARANTINE_MAX_UNITS ?? '100000'),
+    quarantineProvenMin: parseBoundedIntEnv('QUARANTINE_PROVEN_MIN', 5, 1, 1000),
   };
 }
 

@@ -62,3 +62,39 @@ export function checkEvaluatorCoverage(
 
   return null;
 }
+
+/**
+ * Quarantine rule (M13.2.4, ADR-0023 §Layer 3.8). An UNPROVEN foreign agent —
+ * foreign (not in `firstParty`) and not in the `proven` set (fewer than the
+ * configured settled-task threshold) — may only be entrusted with a low-value
+ * sub-task (`estimated_cost_units <= maxUnits`). This is the cold-start ramp:
+ * a brand-new agent earns a track record on cheap work before it can be handed
+ * a high-value task, bounding the blast radius of a new or malicious entrant.
+ * Proven foreign agents and all first-party agents have no ceiling.
+ *
+ * Opt-in: an empty allowlist disables it (nothing is foreign). Enforced at
+ * `/execute` alongside `checkEvaluatorCoverage`.
+ *
+ * Returns an error string for a 400, or null when the plan is acceptable.
+ */
+export function checkQuarantine(
+  plan: Plan,
+  firstParty: ReadonlySet<string>,
+  proven: ReadonlySet<string>,
+  maxUnits: bigint,
+): string | null {
+  if (firstParty.size === 0) return null; // rule disabled until an allowlist is configured
+
+  for (const s of plan.subtasks) {
+    const addr = s.executor_address;
+    if (addr === undefined) continue;
+    const lower = addr.toLowerCase();
+    if (firstParty.has(lower)) continue; // first-party — no ceiling
+    if (proven.has(lower)) continue; // proven foreign — earned its ceiling-free status
+    if (s.estimated_cost_units > maxUnits) {
+      return `subtask #${s.id} routes ${s.estimated_cost_units} base units to an unproven foreign agent (${addr}); new agents are capped at ${maxUnits} base units until they build a track record (ADR-0023 §Layer 3.8)`;
+    }
+  }
+
+  return null;
+}

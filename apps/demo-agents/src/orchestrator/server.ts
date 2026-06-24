@@ -20,12 +20,12 @@ import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { demoRegistry } from '../shared/sse.js';
 import { loadOrchestratorEnv } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
-import { checkEvaluatorCoverage } from './plan-guards.js';
+import { checkEvaluatorCoverage, checkQuarantine } from './plan-guards.js';
 import { startDemoRun, type DemoMode } from './demo-run.js';
 import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
 import { makeDisputeFlow } from '../parent/dispute-flow.js';
 import { resolveExecutorFromRegistry } from '../parent/registry-resolver.js';
-import { fetchReputation } from './reputation-client.js';
+import { fetchReputationScores, fetchProvenAgents } from './reputation-client.js';
 import { buildWebsiteClassification } from '../parent/website-plan.js';
 import { buildResearchClassification } from '../parent/research-plan.js';
 import { listActiveAgentsV2 } from '@sage/adapter-evm';
@@ -448,7 +448,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 
       // M13.1.2: rank executor candidates by reputation (best-first) instead of
       // cheapest. Best-effort + cached; an empty map → cheapest-first fallback.
-      const reputation = await fetchReputation(env.reputationUrl);
+      const reputation = await fetchReputationScores(env.reputationUrl);
 
       const classification = await classifyBrief(body.brief, {
         ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
@@ -608,6 +608,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
       if (coverageError) {
         json(res, 400, { error: coverageError });
         return;
+      }
+
+      // Quarantine rule (M13.2.4): an unproven foreign agent may only run a
+      // low-value sub-task. Proven = enough settled tasks in the reputation
+      // index. Best-effort fetch; no-op until FIRST_PARTY_AGENTS is set.
+      if (env.firstPartyAgents.size > 0) {
+        const proven = await fetchProvenAgents(env.reputationUrl, env.quarantineProvenMin);
+        const quarantineError = checkQuarantine(plan, env.firstPartyAgents, proven, env.quarantineMaxUnits);
+        if (quarantineError) {
+          json(res, 400, { error: quarantineError });
+          return;
+        }
       }
 
       // Reuse the sponsor guard from the 3-mode flow — composite runs draw

@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Plan, SubTask } from '@sage/core';
 
-import { checkEvaluatorCoverage } from '../../src/orchestrator/plan-guards.js';
+import { checkEvaluatorCoverage, checkQuarantine } from '../../src/orchestrator/plan-guards.js';
 
 const FP1 = `0x${'1'.repeat(40)}` as `0x${string}`;
 const FP2 = `0x${'a'.repeat(40)}` as `0x${string}`;
@@ -86,5 +86,41 @@ describe('checkEvaluatorCoverage', () => {
       sub(3, { executor_address: FP1, evaluates: 2 }), // first-party evaluator covers it
     ]);
     expect(checkEvaluatorCoverage(p, firstParty)).toBeNull();
+  });
+});
+
+describe('checkQuarantine (M13.2.4)', () => {
+  const CEILING = 100_000n;
+  const noProven = new Set<string>();
+
+  it('is disabled when the allowlist is empty', () => {
+    const p = plan([sub(1, { executor_address: FOREIGN, estimated_cost_units: 999_999n })]);
+    expect(checkQuarantine(p, new Set(), noProven, CEILING)).toBeNull();
+  });
+
+  it('caps an unproven foreign agent above the ceiling', () => {
+    const p = plan([sub(1, { executor_address: FOREIGN, estimated_cost_units: CEILING + 1n })]);
+    expect(checkQuarantine(p, firstParty, noProven, CEILING)).toMatch(/unproven foreign agent/i);
+  });
+
+  it('allows an unproven foreign agent at or below the ceiling', () => {
+    const p = plan([sub(1, { executor_address: FOREIGN, estimated_cost_units: CEILING })]);
+    expect(checkQuarantine(p, firstParty, noProven, CEILING)).toBeNull();
+  });
+
+  it('does not cap a first-party agent', () => {
+    const p = plan([sub(1, { executor_address: FP1, estimated_cost_units: 5_000_000n })]);
+    expect(checkQuarantine(p, firstParty, noProven, CEILING)).toBeNull();
+  });
+
+  it('does not cap a PROVEN foreign agent', () => {
+    const proven = new Set([FOREIGN.toLowerCase()]);
+    const p = plan([sub(1, { executor_address: FOREIGN, estimated_cost_units: 5_000_000n })]);
+    expect(checkQuarantine(p, firstParty, proven, CEILING)).toBeNull();
+  });
+
+  it('ignores unassigned executors', () => {
+    const p = plan([sub(1, { estimated_cost_units: 5_000_000n })]);
+    expect(checkQuarantine(p, firstParty, noProven, CEILING)).toBeNull();
   });
 });
