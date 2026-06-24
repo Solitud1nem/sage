@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-06-24 — M13.2.1: shared SSRF/egress guard для extractor/fact-checker — `release`
+
+Закрыл реальную SSRF-дыру в research-пайплайне (ADR-0023 §Layer 4). Раньше `fetchPublicPage` (в `extractor.ts`) проверял только строку хоста — публичный URL мог `302`-редиректнуть на `http://169.254.169.254/` (cloud-metadata, утечка instance-кредами), и нативный fetch шёл туда молча; либо публичный хост с A-record в приватный IP.
+
+- **Общий `apps/demo-agents/src/worker/net.ts`** (`fetchPublicPage` + `isPrivateIp`/`isBlockedHostname`): https-only · hostname-blocklist · **resolved-IP-чек** (DNS-резолв всех A/AAAA, reject если любой private/loopback/link-local/metadata — IPv4 диапазоны + IPv6 `::1`/`fc00::/7`/`fe80::/10`/IPv4-mapped) · **ручные redirect'ы с re-validation каждого хопа** (cap 5) · timeout + size + content-type. `lookupImpl` инъектируем; при замоканном `fetchImpl` DNS-гард permissive (тесты сети контролируют сокет), на проде — реальный `node:dns`.
+- **extractor + fact-checker** переведены на общий модуль (extractor re-export'ит `fetchPublicPage`/константы для back-compat — fact-checker и тесты не тронуты).
+- **foreign-agent template README**: SSRF вынесен в conformance-требование (5 правил, акцент на resolved-IP + redirect-revalidation — то, что наивный гард пропускает).
+- **Эмпирически сверено** (вне юнит-моков): Node/undici `fetch(url,{redirect:'manual'})` отдаёт читаемый 3xx + `Location` (wikipedia → 301 `www.wikipedia.org`), не browser-style opaqueredirect — значит ручной redirect-loop работает в проде как в тестах.
+- **Гейты**: demo-agents typecheck + lint + **448/448** тестов (+`test/worker/net.test.ts`: IP-диапазоны, redirect→metadata, https→http downgrade, loop-cap, resolved-private, size/content-type). Деплой → **sage-workers** (хостит extractor/fact-checker).
+- Остаток: connection-level IP-pinning против TOCTOU DNS-rebinding (undici dispatcher с валидирующим `connect`) — документированный follow-up; текущий гард закрывает тривиально-эксплойтные redirect + static-DNS случаи.
+
 ## 2026-06-23 — M13.1.1: editable evaluator-aware plans в website/research — `release`
 
 Вернул столб явной декомпозиции (ADR-0007) в детерминированные пайплайны сайта и ресерча — они его потеряли (редактор жил только в composite-режиме). Реализует ADR-0022 / ADR-0023 §Layer 3.7. Задеплоено на прод.
