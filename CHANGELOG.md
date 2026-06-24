@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-24 — M13.2.4: new-agent quarantine (value ceiling) — `release`
+
+Замыкает damage-bounding для чужих агентов (ADR-0023 §Layer 3.8): новичок не получает дорогую задачу, пока не наработает трек-рекорд.
+
+- **`orchestrator/plan-guards.checkQuarantine`** — гейт на `/execute` (рядом с evaluator-coverage): непроверенный foreign-агент (foreign по `FIRST_PARTY_AGENTS` + < `QUARANTINE_PROVEN_MIN` сеттлментов в reputation-индексе) может вести только подзадачу `≤ QUARANTINE_MAX_UNITS` (дефолт 0.1 USDC). Proven foreign + first-party — без потолка. Cold-start-рампа: дешёвая работа → репутация → снятие потолка.
+- **reputation-client переструктурирован**: один кэшируемый fetch → два представления — `fetchReputationScores` (13.1.2 best-rep) + `fetchProvenAgents(minTasks)` (proven-set для карантина). `/execute` тянет proven-set best-effort.
+- **env**: `QUARANTINE_MAX_UNITS` (0.1 USDC), `QUARANTINE_PROVEN_MIN` (5). **Opt-in**: всё выключено пока `FIRST_PARTY_AGENTS` пуст → текущий all-first-party demo не затронут.
+- **Гейты**: typecheck + root eslint + **468 тестов** (+6 quarantine: disabled/cap-above/allow-at-ceiling/first-party-exempt/proven-exempt/unassigned). Деплой → sage-demo-agents (инертно до установки env).
+- Остаток: частотный/per-day потолок (нужен дневной учёт на агента) — отложен, value-cap это высокоценная половина.
+
 ## 2026-06-24 — M13.3 + M13.1.2: durable reputation indexer + best-rep selection — `release`
 
 Reputation surface (ADR-0023 §Layer 3.7) — durable indexer (решение Alex: CF Worker + D1, не отдельный `packages/indexer/`), и флип выбора исполнителя cheapest→best-reputation.
