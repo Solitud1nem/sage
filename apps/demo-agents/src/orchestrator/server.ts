@@ -25,6 +25,7 @@ import { startDemoRun, type DemoMode } from './demo-run.js';
 import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
 import { makeDisputeFlow } from '../parent/dispute-flow.js';
 import { resolveExecutorFromRegistry } from '../parent/registry-resolver.js';
+import { fetchReputation } from './reputation-client.js';
 import { buildWebsiteClassification } from '../parent/website-plan.js';
 import { buildResearchClassification } from '../parent/research-plan.js';
 import { listActiveAgentsV2 } from '@sage/adapter-evm';
@@ -445,10 +446,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
         }
       }
 
+      // M13.1.2: rank executor candidates by reputation (best-first) instead of
+      // cheapest. Best-effort + cached; an empty map → cheapest-first fallback.
+      const reputation = await fetchReputation(env.reputationUrl);
+
       const classification = await classifyBrief(body.brief, {
         ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
         ...(registryAgents.length > 0
-          ? { resolveExecutor: (taskType: string) => resolveExecutorFromRegistry(taskType, registryAgents) }
+          ? { resolveExecutor: (taskType: string) => resolveExecutorFromRegistry(taskType, registryAgents, reputation) }
           : {}),
       });
       jsonWithBigints(res, 200, { classification });

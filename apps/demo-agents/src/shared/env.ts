@@ -54,6 +54,12 @@ export interface OrchestratorEnv {
    * current all-first-party demo is unaffected until the operator opts in.
    */
   firstPartyAgents: ReadonlySet<string>;
+  /**
+   * Gateway reputation endpoint (M13.1.2). When set, the composite classifier
+   * ranks executor candidates by reputation (best-first) instead of cheapest;
+   * unset / unreachable → cheapest-first, so this degrades safely.
+   */
+  reputationUrl: string | undefined;
 }
 
 export function loadOrchestratorEnv(): OrchestratorEnv {
@@ -86,6 +92,7 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
     maxPlanDepth: parseBoundedIntEnv('MAX_PLAN_DEPTH', 1, 1, 4),
     gatewayKey: process.env.DEMO_GATEWAY_KEY || undefined,
     firstPartyAgents: parseAddressSet('FIRST_PARTY_AGENTS'),
+    reputationUrl: process.env.REPUTATION_URL || undefined,
   };
 }
 

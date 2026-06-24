@@ -170,3 +170,47 @@ describe('resolveExecutorFromRegistry — end-to-end', () => {
     expect(result!.price).toBe(500n);
   });
 });
+
+describe('pickAgentForCapability — reputation ranking (M13.1.2)', () => {
+  const PROVEN = '0x00000000000000000000000000000000000000a1'; // pricier, high rep
+  const CHEAP = '0x00000000000000000000000000000000000000b2'; // cheapest, low rep
+  const reps = [
+    mkAgent(PROVEN, [{ name: 'summarize', price: 2000n }]),
+    mkAgent(CHEAP, [{ name: 'summarize', price: 500n }]),
+  ];
+
+  it('falls back to cheapest-first when no reputation map is given', () => {
+    expect(pickAgentForCapability('summarize', reps)!.address.toLowerCase()).toBe(CHEAP);
+  });
+
+  it('falls back to cheapest-first when the map is empty (reputation outage)', () => {
+    expect(pickAgentForCapability('summarize', reps, new Map())!.address.toLowerCase()).toBe(CHEAP);
+  });
+
+  it('prefers the higher-reputation agent over the cheaper one', () => {
+    const rep = new Map([
+      [PROVEN, 0.95],
+      [CHEAP, 0.2],
+    ]);
+    expect(pickAgentForCapability('summarize', reps, rep)!.address.toLowerCase()).toBe(PROVEN);
+  });
+
+  it('breaks equal reputation by price (cheapest)', () => {
+    const rep = new Map([
+      [PROVEN, 0.8],
+      [CHEAP, 0.8],
+    ]);
+    expect(pickAgentForCapability('summarize', reps, rep)!.address.toLowerCase()).toBe(CHEAP);
+  });
+
+  it('treats an unknown agent as neutral (0.5)', () => {
+    // CHEAP unknown (0.5) vs PROVEN 0.9 → PROVEN wins despite being pricier.
+    expect(
+      pickAgentForCapability('summarize', reps, new Map([[PROVEN, 0.9]]))!.address.toLowerCase(),
+    ).toBe(PROVEN);
+    // CHEAP unknown (0.5) vs PROVEN 0.1 → CHEAP wins (neutral beats bad).
+    expect(
+      pickAgentForCapability('summarize', reps, new Map([[PROVEN, 0.1]]))!.address.toLowerCase(),
+    ).toBe(CHEAP);
+  });
+});

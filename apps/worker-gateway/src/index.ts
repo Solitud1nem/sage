@@ -19,6 +19,7 @@ import { handleOrchestrator } from './orchestrator-proxy';
 import { handleArtifacts } from './artifacts';
 import { handlePreview } from './preview';
 import { handleReport } from './report';
+import { handleReputation, indexReputation } from './reputation';
 import { applyCors, corsPreflight } from './cors';
 
 export interface Env {
@@ -35,6 +36,10 @@ export interface Env {
   ORCHESTRATOR_URL_ARC: string;
   ALCHEMY_BASE_URL: string;
   ALCHEMY_KEY: string;
+  /** TaskEscrow address whose lifecycle events feed the reputation index (M13.3). */
+  ESCROW_ADDRESS: string;
+  /** Block the escrow was deployed at — the indexer's backfill floor. */
+  ESCROW_FROM_BLOCK: string;
   DAILY_LIMIT: string;
   ALLOWED_ORIGINS: string;
   /**
@@ -84,10 +89,26 @@ export default {
       return handleReport(req, env);
     }
 
+    // M13.3: per-agent reputation (GET, read by the orchestrator's resolver)
+    // + a backend-key-gated reindex trigger. Outside the demo rate-limit bucket.
+    if (url.pathname.startsWith('/api/agents/')) {
+      return applyCors(await handleReputation(req, env), req, env);
+    }
+
     if (url.pathname === '/health' || url.pathname.startsWith('/api/demo/')) {
       return applyCors(await handleOrchestrator(req, env, ctx), req, env);
     }
 
     return applyCors(new Response('Not found', { status: 404 }), req, env);
+  },
+
+  // M13.3: scheduled reputation indexer — pulls new escrow events into D1.
+  // Bounded per run; the first backfill catches up over several invocations.
+  scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(
+      indexReputation(env).catch((err: unknown) => {
+        console.error('[reputation] scheduled index failed:', err);
+      }),
+    );
   },
 };

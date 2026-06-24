@@ -83,15 +83,28 @@ export function capabilityNameForType(taskType: string): string | null {
   return null;
 }
 
+/** Reputation scores by lowercased executor address, in [0,1] (M13.1.2). */
+export type ReputationMap = ReadonlyMap<string, number>;
+
+/** Score for an agent with no reputation data — neither boosted nor buried,
+ *  so unknown/new agents compete on price (the cold-start case is handled by
+ *  quarantine, M13.2.4). */
+const NEUTRAL_SCORE = 0.5;
+
 /**
- * Find the cheapest active agent in `agents` whose capability list
- * contains `capabilityName`. Stable: ties broken by ascending agent address
- * (deterministic per registry state). Returns null when no agent supports
- * the capability.
+ * Pick the best active agent in `agents` whose capability list contains
+ * `capabilityName`. When a non-empty `reputation` map is supplied, candidates
+ * are ranked by score (desc) first — the decided policy is "propose the
+ * best-reputation agent, not the cheapest" (ADR-0022) — with price (asc) as
+ * the tiebreak and address as the final deterministic tiebreak. With no
+ * reputation map (or an empty one) this is exactly the previous cheapest-first
+ * behavior, so a reputation outage degrades safely. Returns null when no agent
+ * supports the capability.
  */
 export function pickAgentForCapability(
   capabilityName: string,
   agents: readonly AgentRecordV2[],
+  reputation?: ReputationMap,
 ): { address: `0x${string}`; price: bigint } | null {
   const candidates: Array<{ address: `0x${string}`; price: bigint }> = [];
 
@@ -107,7 +120,15 @@ export function pickAgentForCapability(
 
   if (candidates.length === 0) return null;
 
+  const useRep = reputation !== undefined && reputation.size > 0;
+  const scoreOf = (addr: string): number => reputation?.get(addr.toLowerCase()) ?? NEUTRAL_SCORE;
+
   candidates.sort((a, b) => {
+    if (useRep) {
+      const sa = scoreOf(a.address);
+      const sb = scoreOf(b.address);
+      if (sa !== sb) return sb - sa; // higher reputation first
+    }
     if (a.price < b.price) return -1;
     if (a.price > b.price) return 1;
     return a.address.toLowerCase() < b.address.toLowerCase() ? -1 : 1;
@@ -118,16 +139,18 @@ export function pickAgentForCapability(
 
 /**
  * Resolve an executor for an LLM-emitted sub-task type from a pre-fetched
- * agent list. Combines the stem match + cheapest-pick steps.
+ * agent list. Combines the stem match + best-agent pick (reputation-weighted
+ * when a map is supplied; cheapest-first otherwise).
  */
 export function resolveExecutorFromRegistry(
   taskType: string,
   agents: readonly AgentRecordV2[],
+  reputation?: ReputationMap,
 ): { address: `0x${string}`; price: bigint; capability: string } | null {
   const capability = capabilityNameForType(taskType);
   if (capability === null) return null;
 
-  const pick = pickAgentForCapability(capability, agents);
+  const pick = pickAgentForCapability(capability, agents, reputation);
   if (pick === null) return null;
 
   return { ...pick, capability };

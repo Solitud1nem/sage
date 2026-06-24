@@ -24,6 +24,10 @@ ORCHESTRATOR_URL = "https://sage-demo-agents.fly.dev"
 # through to the Base orchestrator and surfaces as chain-mismatch in UI.
 ORCHESTRATOR_URL_ARC = "https://sage-demo-agents-arc.fly.dev"
 ALCHEMY_BASE_URL = "https://base-mainnet.g.alchemy.com/v2"
+# M13.3 reputation indexer — Base-mainnet TaskEscrow (V3, sage:escrow:v2 salt)
+# and its deploy block (the backfill floor).
+ESCROW_ADDRESS = "0x61c585630B32eee0b8c00306047c301B56419a81"
+ESCROW_FROM_BLOCK = "47057463"
 DAILY_LIMIT = "30"  # TEMPORARY test rebaseline (Alex 2026-06-11, M12.1.3 hands-on testing) — public positioning is 3/IP/day (README/KB, Alex 2026-06-10); REVERT to "3" at M12.4.3 before the public narrative ships.
 ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage-web.pages.dev,http://localhost:3000,http://localhost:3001"
 
@@ -42,6 +46,11 @@ database_id = "397f247f-e53a-495e-9c9e-3aee244a158f"
 [[r2_buckets]]
 binding = "ARTIFACTS"
 bucket_name = "sage-artifacts"
+
+# M13.3 — reputation indexer cron. Every 10 min the scheduled() handler pulls
+# new escrow events into D1 (task_index); steady-state is 1–2 getLogs calls.
+[triggers]
+crons = ["*/10 * * * *"]
 
 # Observability.
 [observability]
