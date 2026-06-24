@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-24 — M13.2.2: evaluator-coverage routing rule (foreign work must be judged) — `release`
+
+Damage-bounding для чужих агентов (ADR-0023 §Layer 1.2): работа, пересекающая границу владения (foreign-исполнитель), обязана быть закрыта first-party evaluator'ом до выплаты.
+
+- **`orchestrator/plan-guards.ts` `checkEvaluatorCoverage(plan, firstParty)`** — гейт на `/api/demo/composite/execute` (рядом с `checkPlanCaps`, 400 при нарушении). Инвариант **A**: каждый foreign-worker (non-evaluator) должен быть целью какого-то `evaluates`-шага. Инвариант **B**: evaluator сам обязан быть first-party — нельзя отдать наружу судью, решающего, платить ли чужому воркеру (иначе гарантия пустая).
+- **`FIRST_PARTY_AGENTS` env** (`shared/env.ts`, lowercased Set, валидируется как адреса) — «foreign» = не в этом списке. **Opt-in**: пустой/неустановленный → правило выключено, every executor доверенный → текущий all-first-party demo не затронут. Активация: `fly secrets set FIRST_PARTY_AGENTS=0x…,0x…` (адреса 12 наших identity).
+- Запас прочности: plan-runner требует `executor_address` на каждом шаге (бросает, не ре-резолвит), поэтому execute-time чек видит реальных исполнителей, а не плейсхолдеры. Известный edge (документирован): swap `newExecutor` на dispute-retry не пере-проверяется — foreign-агенты припаркованы (M11.8.2), tracked follow-up.
+- Side-effect-free модуль (server.ts бутает листенер на импорте) → юнит-тестируемо. **457/457** (+`test/orchestrator/plan-guards.test.ts`: disabled-when-empty, all-first-party, case-insensitive, foreign-no-evaluator→A, foreign+first-party-evaluator→ok, foreign-evaluator→B, unassigned-not-foreign, research-shaped).
+- Попутно: фикс `require-await` в `worker/net.ts` (M13.2.1 — `pnpm --filter demo-agents lint` оказался no-op, у пакета нет lint-скрипта; канонический lint — root `eslint`). Деплой → **sage-demo-agents** (инертно до установки env).
+
 ## 2026-06-24 — M13.2.1: shared SSRF/egress guard для extractor/fact-checker — `release`
 
 Закрыл реальную SSRF-дыру в research-пайплайне (ADR-0023 §Layer 4). Раньше `fetchPublicPage` (в `extractor.ts`) проверял только строку хоста — публичный URL мог `302`-редиректнуть на `http://169.254.169.254/` (cloud-metadata, утечка instance-кредами), и нативный fetch шёл туда молча; либо публичный хост с A-record в приватный IP.
