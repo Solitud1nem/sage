@@ -899,7 +899,11 @@ export async function fetchRegistryAgents(chainId: number): Promise<RegistryAgen
             if (!c || typeof c !== 'object') return [];
             const { name, price } = c as Record<string, unknown>;
             if (typeof name !== 'string') return [];
-            return [{ name, price: typeof price === 'string' ? price : String(price ?? '0') }];
+            // Server sends price as a decimal string (jsonWithBigints); accept a
+            // number defensively, anything else → '0'. Never stringify an object.
+            const priceStr =
+              typeof price === 'string' ? price : typeof price === 'number' ? String(price) : '0';
+            return [{ name, price: priceStr }];
           })
         : [];
       return [{ address: address as `0x${string}`, capabilities: caps }];

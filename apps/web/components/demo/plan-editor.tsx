@@ -101,7 +101,13 @@ function executorOptionsFor(
       push(cap ? `${cap.name} · ${shortAddr(a.address)}` : shortAddr(a.address), a.address);
     }
   }
-  for (const k of envKnown) push(`${k.label} (${shortAddr(k.address)})`, k.address);
+  // Env-var executors are a last-resort fallback ONLY when the registry gave
+  // us nothing at all (backend not deployed, or a chain without a V2 registry
+  // such as Arc). When the registry is live it is authoritative — the legacy
+  // four are nonsensical options for a copywrite / web-search step.
+  if (out.length === 0) {
+    for (const k of envKnown) push(`${k.label} (${shortAddr(k.address)})`, k.address);
+  }
   return out;
 }
 
