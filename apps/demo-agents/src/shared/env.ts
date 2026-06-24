@@ -45,6 +45,15 @@ export interface OrchestratorEnv {
    * Fly secret and the Worker secret can be rolled out in either order.
    */
   gatewayKey: string | undefined;
+  /**
+   * First-party agent addresses (lowercased) — Sage's own identities. Any
+   * executor NOT in this set is treated as FOREIGN, which triggers the
+   * evaluator-coverage rule (M13.2.2, ADR-0023 §Layer 1.2): foreign work must
+   * be gated by an evaluator, and evaluators must be first-party. EMPTY by
+   * default → the rule is disabled and every executor is trusted, so the
+   * current all-first-party demo is unaffected until the operator opts in.
+   */
+  firstPartyAgents: ReadonlySet<string>;
 }
 
 export function loadOrchestratorEnv(): OrchestratorEnv {
@@ -76,7 +85,25 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
     maxRunTasks: parseBoundedIntEnv('MAX_RUN_TASKS', 12, 1, 64),
     maxPlanDepth: parseBoundedIntEnv('MAX_PLAN_DEPTH', 1, 1, 4),
     gatewayKey: process.env.DEMO_GATEWAY_KEY || undefined,
+    firstPartyAgents: parseAddressSet('FIRST_PARTY_AGENTS'),
   };
+}
+
+/** Parse a comma-separated list of EVM addresses into a lowercased Set. Empty
+ *  when unset — the caller treats an empty set as "feature disabled". */
+function parseAddressSet(name: string): ReadonlySet<string> {
+  const v = process.env[name];
+  if (!v) return new Set();
+  const out = new Set<string>();
+  for (const raw of v.split(',')) {
+    const a = raw.trim().toLowerCase();
+    if (!a) continue;
+    if (!/^0x[0-9a-f]{40}$/.test(a)) {
+      throw new Error(`${name} contains a non-address entry: "${raw.trim()}"`);
+    }
+    out.add(a);
+  }
+  return out;
 }
 
 function requireHex(name: string, hexChars: number): `0x${string}` {

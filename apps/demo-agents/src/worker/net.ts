@@ -107,7 +107,7 @@ const realLookupAll: LookupImpl = async (hostname) => {
 /** Permissive stub used when the network is mocked (a `fetchImpl` is injected):
  *  the test controls the socket, so the DNS guard is moot unless it also
  *  injects a `lookupImpl`. Returns a public address so real hosts pass. */
-const allowAllLookup: LookupImpl = async () => [{ address: '93.184.216.34', family: 4 }];
+const allowAllLookup: LookupImpl = () => Promise.resolve([{ address: '93.184.216.34', family: 4 }]);
 
 export interface FetchPublicPageOpts {
   fetchImpl?: typeof fetch;

@@ -20,6 +20,7 @@ import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { demoRegistry } from '../shared/sse.js';
 import { loadOrchestratorEnv } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
+import { checkEvaluatorCoverage } from './plan-guards.js';
 import { startDemoRun, type DemoMode } from './demo-run.js';
 import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
 import { makeDisputeFlow } from '../parent/dispute-flow.js';
@@ -593,6 +594,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
       const capError = checkPlanCaps(plan);
       if (capError) {
         json(res, 400, { error: capError });
+        return;
+      }
+
+      // Evaluator-coverage rule (M13.2.2): foreign-executor work must be gated
+      // by a first-party evaluator. No-op until FIRST_PARTY_AGENTS is set.
+      const coverageError = checkEvaluatorCoverage(plan, env.firstPartyAgents);
+      if (coverageError) {
+        json(res, 400, { error: coverageError });
         return;
       }
 
