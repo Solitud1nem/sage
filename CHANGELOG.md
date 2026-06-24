@@ -8,6 +8,27 @@
 
 ---
 
+## 2026-06-24 — M13.4.1: demo/real-user intake split — `release`
+
+Первый код-шаг privacy-трека (ADR-0024 §1, Implementation stage 1). Цель: сделать demo-only статус явным + поставить чокпоинт, который откажет real-user intake, пока не приедет шифрованная модель (M13.4.3/ADR-0025). Risk-0 к живым пайплайнам.
+
+- **`DEMO_MODE` env-флаг** (default `true`, permissive — как FIRST_PARTY_AGENTS/quarantine opt-in) в `OrchestratorEnv`. Default-demo = живой прод не затронут.
+- **Гейт** `plan-guards.isPlaintextIntakeBlocked(demoMode, method, url)` (чистая функция, тестируемая) + чокпоинт в `server.ts` перед роутами: при `DEMO_MODE=false` content-пишущие входы (`/api/demo/start`, `/api/demo/composite/execute`) → 403 `real_user_intake_unavailable`. classify/website-plan/research-plan **не** гейтятся — они строят план в памяти, on-chain ничего не пишут.
+- **Web disclosure-баннер** на `/demo/composite`: «Public demo — брифы/результаты пишутся plaintext на Base mainnet, навсегда публичны; не вводи чувствительное» (ADR-0024). Это «explicitly labeled as such» из ADR-0024.
+- **In-code маркер** в `parent-id-codec.encodeParentId` — точный сайт plaintext-записи specUri, который ADR-0025 заменит на `sage://sha256/<hex>` commitment. `demo-run.ts` (production-critical 3-mode) не тронут — гейт в server.ts покрывает оба входа.
+- **Гейты**: demo-agents typecheck + **471 тест** (+3 gate: demo-mode no-op / blocks-intake / allows-plan-build) + root eslint; web lint + typecheck + build (static export). Баннер скомпилирован в page-чанк; rendered-screenshot требует preview-деплоя (outward) — не делал.
+- Закрывает **M13.4.1**. Не задеплоен (флаг default-demo = no-op). Следующее в privacy-треке — M13.4.2 (least-privilege envelope, **M**, трогает живые пайплайны = риск) или M13.4.5 (data-handling декларации).
+
+## 2026-06-24 — ADR-0025: key management для приватного пути — `adr`
+
+Accepted. Резолвит то, что ADR-0024 оставил как «the gating hard problem» (key management). Дизайн-только, кода нет — приоритетный незаблокированный заход privacy-трека (conformance-ветка M13.2.x упирается в живого foreign-агента / фандинг M11.8.2).
+
+- **Схема:** envelope-encryption. Per-subtask DEK (AES-256-GCM) → least-privilege становится криптографическим (foreign-исполнитель подзадачи X математически не читает Y). DEK ECIES-обёрнут к ключам сторон; **v1 переиспользует secp256k1 кошельковый ключ** (ноль нового PKI, pubkey восстанавливается из подписи), **v2 → dedicated X25519 enc-key в манифесте** (меняет только wrap-примитив, не конверт).
+- **Commitment = `sha256(ciphertext)`** (`sage://sha256/<hex>` в `specUri`/`resultUri`), integrity сохранён. **Evaluator scoped re-wrap**: клиент re-wrap'ит DEK только судимой подзадачи. **No trusted reader / no KMS / no recovery** — gateway/R2/индексер видят только шифротекст, Zone A/B/C нетронута.
+- **Отклонены:** KMS/gateway-held (A — возвращает доверенного читателя), per-run DEK (B — ломает least-privilege), threshold/MPC (D — непропорционально). X25519-с-нуля (C) отложен в v2.
+- **Два форка зафиксированы с Alex:** secp256k1-reuse v1 + per-subtask granularity. Открытый острый вопрос на имплементацию: кто делает evaluator re-wrap в dispute-пути при офлайн-клиенте (executor / pre-authorized wrap) — против ADR-0017.
+- Закрывает **M13.4.4** (key-management ADR). Следующий код-шаг privacy-трека — M13.4.1 (demo/real-user разметка, S).
+
 ## 2026-06-24 — M13.2.4: new-agent quarantine (value ceiling) — `release`
 
 Замыкает damage-bounding для чужих агентов (ADR-0023 §Layer 3.8): новичок не получает дорогую задачу, пока не наработает трек-рекорд.
