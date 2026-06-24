@@ -238,6 +238,15 @@ function CompositePageInner() {
               </span>
             </label>
           )}
+          <p className="mb-4 max-w-[640px] rounded-[10px] border border-border bg-surface px-4 py-3 text-[12px] leading-[1.5] text-text-muted">
+            <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-purple">
+              Public demo
+            </span>{' '}
+            — task briefs and results are written in plaintext on Base mainnet and are
+            permanently public and world-readable. Don&apos;t enter sensitive or personal
+            data. Encrypted, commitment-on-chain handling for real work is on the roadmap
+            (ADR-0024).
+          </p>
           <form
             onSubmit={submitBrief}
             className="rounded-[14px] border border-border bg-surface p-6 md:p-8"

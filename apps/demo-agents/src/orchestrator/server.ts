@@ -20,7 +20,7 @@ import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { demoRegistry } from '../shared/sse.js';
 import { loadOrchestratorEnv } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
-import { checkEvaluatorCoverage, checkQuarantine } from './plan-guards.js';
+import { checkEvaluatorCoverage, checkQuarantine, isPlaintextIntakeBlocked } from './plan-guards.js';
 import { startDemoRun, type DemoMode } from './demo-run.js';
 import { classifyBrief, executePlan, resolveUserDecision } from '../parent/index.js';
 import { makeDisputeFlow } from '../parent/dispute-flow.js';
@@ -262,6 +262,21 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
     json(res, 401, {
       error: 'gateway_required',
       message: 'This endpoint must be called through the Sage gateway.',
+    });
+    return;
+  }
+
+  // Demo-only intake gate (M13.4.1, ADR-0024 §1 / ADR-0025). The intake flow
+  // writes task content as PLAINTEXT on-chain (`specUri`) and public-by-hash to
+  // R2 — fine for the public demo, never for real user data. `DEMO_MODE` is
+  // true by default (no-op for the live demo); a deployment that sets it false
+  // has no plaintext-intake path until the encrypted, commitment-on-chain model
+  // (M13.4.3) ships, so content-writing intake is refused.
+  if (isPlaintextIntakeBlocked(env.demoMode, method ?? '', url)) {
+    json(res, 403, {
+      error: 'real_user_intake_unavailable',
+      message:
+        'This deployment is not in demo mode. The current flow writes task content as plaintext on-chain, which is acceptable only for the public demo. Encrypted real-user intake (ADR-0024/0025) is not yet available.',
     });
     return;
   }

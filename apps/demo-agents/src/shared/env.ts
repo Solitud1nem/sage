@@ -68,6 +68,17 @@ export interface OrchestratorEnv {
   quarantineMaxUnits: bigint;
   /** Settled-task count at which a foreign agent graduates out of quarantine. */
   quarantineProvenMin: number;
+  /**
+   * Demo-only intake gate (M13.4.1, ADR-0024 §1 / ADR-0025). The current flow
+   * writes task content as PLAINTEXT on-chain (`specUri`) and public-by-hash to
+   * R2 — acceptable for the public demo, never for real user data. When `true`
+   * (the default) the demo is open. A deployment that sets `DEMO_MODE=false`
+   * has NO plaintext-intake path until the encrypted, commitment-on-chain model
+   * (M13.4.3) ships, so every content-writing intake endpoint is refused with
+   * 403. Permissive-by-default mirrors the other opt-in guards above and keeps
+   * the live demo unaffected.
+   */
+  demoMode: boolean;
 }
 
 export function loadOrchestratorEnv(): OrchestratorEnv {
@@ -104,7 +115,18 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
     // 0.1 USDC ceiling for unproven foreign agents; proven after 5 settled tasks.
     quarantineMaxUnits: BigInt(process.env.QUARANTINE_MAX_UNITS ?? '100000'),
     quarantineProvenMin: parseBoundedIntEnv('QUARANTINE_PROVEN_MIN', 5, 1, 1000),
+    // Default true — the demo accepts plaintext intake. Set DEMO_MODE=false on a
+    // deployment that must not accept plaintext content (real-user, pre-encryption).
+    demoMode: parseBoolEnv('DEMO_MODE', true),
   };
+}
+
+/** Parse a boolean env var. Unset → fallback; `false`/`0`/`no`/`off` → false;
+ *  anything else → true. */
+function parseBoolEnv(name: string, fallback: boolean): boolean {
+  const v = process.env[name];
+  if (v === undefined || v === '') return fallback;
+  return !/^(false|0|no|off)$/i.test(v.trim());
 }
 
 /** Parse a comma-separated list of EVM addresses into a lowercased Set. Empty

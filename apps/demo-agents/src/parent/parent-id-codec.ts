@@ -107,6 +107,11 @@ export function encodeParentId(
   if (content?.inputs && Object.keys(content.inputs).length > 0) {
     payload.inputs = { ...content.inputs };
   }
+  // DEMO-ONLY plaintext on-chain (M13.4.1 / ADR-0024). `spec`/`source`/`inputs`
+  // are inlined verbatim into the on-chain specUri — permanent and public. This
+  // is the exact site ADR-0025 replaces with a `sage://sha256/<hex>` commitment
+  // (content encrypted off-chain) for the real-user path; the gate that keeps
+  // real-user content off this path lives in `isPlaintextIntakeBlocked`.
   return `${DATA_URI_PREFIX}${encodeURIComponent(JSON.stringify(payload))}`;
 }
 

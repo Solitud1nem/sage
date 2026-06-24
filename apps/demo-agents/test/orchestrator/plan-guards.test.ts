@@ -5,7 +5,11 @@
 import { describe, it, expect } from 'vitest';
 import type { Plan, SubTask } from '@sage/core';
 
-import { checkEvaluatorCoverage, checkQuarantine } from '../../src/orchestrator/plan-guards.js';
+import {
+  checkEvaluatorCoverage,
+  checkQuarantine,
+  isPlaintextIntakeBlocked,
+} from '../../src/orchestrator/plan-guards.js';
 
 const FP1 = `0x${'1'.repeat(40)}` as `0x${string}`;
 const FP2 = `0x${'a'.repeat(40)}` as `0x${string}`;
@@ -26,6 +30,25 @@ function plan(subtasks: SubTask[]): Plan {
     estimated_duration_ms: 0,
   };
 }
+
+describe('isPlaintextIntakeBlocked (M13.4.1 demo gate)', () => {
+  it('never blocks while in demo mode (default)', () => {
+    expect(isPlaintextIntakeBlocked(true, 'POST', '/api/demo/start')).toBe(false);
+    expect(isPlaintextIntakeBlocked(true, 'POST', '/api/demo/composite/execute')).toBe(false);
+  });
+
+  it('blocks plaintext-intake POSTs when not in demo mode', () => {
+    expect(isPlaintextIntakeBlocked(false, 'POST', '/api/demo/start')).toBe(true);
+    expect(isPlaintextIntakeBlocked(false, 'POST', '/api/demo/composite/execute')).toBe(true);
+  });
+
+  it('does not block plan-building or read endpoints (no on-chain write)', () => {
+    expect(isPlaintextIntakeBlocked(false, 'POST', '/api/demo/composite/classify')).toBe(false);
+    expect(isPlaintextIntakeBlocked(false, 'POST', '/api/demo/composite/website-plan')).toBe(false);
+    expect(isPlaintextIntakeBlocked(false, 'POST', '/api/demo/composite/research-plan')).toBe(false);
+    expect(isPlaintextIntakeBlocked(false, 'GET', '/api/demo/composite/execute')).toBe(false);
+  });
+});
 
 describe('checkEvaluatorCoverage', () => {
   it('is disabled (always null) when the allowlist is empty', () => {

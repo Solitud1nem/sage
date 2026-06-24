@@ -6,6 +6,39 @@
 import type { Plan } from '@sage/core';
 
 /**
+ * Intake endpoints that write user-supplied task content to the chain as
+ * PLAINTEXT (`specUri`) — the surface the demo/real-user split (M13.4.1) gates.
+ * `classify` / `website-plan` / `research-plan` only build a plan in memory and
+ * are not listed: nothing reaches the chain until `execute`.
+ */
+const PLAINTEXT_INTAKE_ROUTES: ReadonlySet<string> = new Set([
+  '/api/demo/start',
+  '/api/demo/composite/execute',
+]);
+
+/**
+ * Demo-only intake gate (M13.4.1, ADR-0024 §1 / ADR-0025).
+ *
+ * The current flow inlines task content as plaintext into `specUri` on-chain and
+ * stores artifacts public-by-hash in R2 — acceptable for the public demo, never
+ * for real user data. Until the encrypted, commitment-on-chain model (M13.4.3)
+ * ships, a deployment that is not in demo mode has no safe plaintext-intake path,
+ * so every content-writing intake endpoint is refused.
+ *
+ * Returns true when the request must be blocked (respond 403), false otherwise.
+ * `demoMode` is true by default, so this is a no-op for the live demo.
+ */
+export function isPlaintextIntakeBlocked(
+  demoMode: boolean,
+  method: string,
+  url: string,
+): boolean {
+  if (demoMode) return false;
+  if (method !== 'POST') return false;
+  return PLAINTEXT_INTAKE_ROUTES.has(url);
+}
+
+/**
  * Evaluator-coverage rule (M13.2.2, ADR-0023 §Layer 1.2).
  *
  * Work that crosses an ownership boundary — a sub-task running on a FOREIGN
