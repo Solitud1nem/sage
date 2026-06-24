@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-24 — M13.3 + M13.1.2: durable reputation indexer + best-rep selection — `release`
+
+Reputation surface (ADR-0023 §Layer 3.7) — durable indexer (решение Alex: CF Worker + D1, не отдельный `packages/indexer/`), и флип выбора исполнителя cheapest→best-reputation.
+
+- **Gateway indexer** (`apps/worker-gateway/src/reputation.ts` + `schema.sql` + `wrangler.toml` cron): scheduled-cron `*/10` → raw `eth_getLogs` (dep-free, hardcoded topic0 для TaskCreated/Paid/Disputed/Resolved/Expired — taskId/executor индексированы, только `TaskResolved.outcome` декодится из data) → D1 `task_index` (1 строка/таск: executor + терминальный статус + disputed-флаг) + `index_cursor` (резюм с last_block+1, чанки 5k блоков, ≤45/ран). `getReputation` агрегирует per-executor `score∈[0,1]` = completion-rate × (1 − min(0.5, dispute-rate)), neutral 0.5 без settled-истории. Endpoints: `GET /api/agents/reputation` (public, cache 60s) + `POST /api/agents/reindex` (backend-key, ручной backfill). Escrow V3 `0x61c585…9a81`, fromBlock 47057463; enum outcome 3/5/7 сверен с `ITaskEscrowV2.sol`.
+- **Resolver flip** (`registry-resolver.pickAgentForCapability`, M13.1.2): ранжирует по score desc, **tiebreak price asc**, neutral 0.5 для unknown; пустая/отсутствующая мапа → ровно прежний cheapest-first → outage репутации деградирует безопасно. Композитный classify тянет репутацию из gateway (`reputation-client.ts`, best-effort + 60s TTL-кэш, `REPUTATION_URL` env).
+- **Гейты**: gateway typecheck+lint+**22 теста** (event-decode/enum-mapping/scoring/cursor-resume, fake D1 + stubbed fetch); demo-agents typecheck+**462 теста** (+5 resolver-ranking: best-rep/tiebreak/neutral/cheapest-fallback). Lint поймал 2 (require-await на `scheduled`, лишний assertion) — пофикшено (root eslint, не per-package).
+- **Деплой**: D1 remote-migrate (idempotent `IF NOT EXISTS`) + gateway (cron+vars) + orchestrator (`REPUTATION_URL`). Backfill ~695k блоков докатывается крон-циклами (~30 мин); при all-first-party данных score≈neutral → выбор ≈ cheapest, поверхность активируется по мере накопления истории/прихода foreign-агентов.
+- Остаток: connection-level — ранжирование опций исполнителя в web-редакторе по репутации (мелочь); Arc-индекс (Base-only пока).
+
 ## 2026-06-24 — M13.2.2: evaluator-coverage routing rule (foreign work must be judged) — `release`
 
 Damage-bounding для чужих агентов (ADR-0023 §Layer 1.2): работа, пересекающая границу владения (foreign-исполнитель), обязана быть закрыта first-party evaluator'ом до выплаты.
