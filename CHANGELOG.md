@@ -16,8 +16,10 @@
 - **Registry-sourced executors**: новый `GET /api/demo/composite/agents` (`orchestrator/server.ts`, reuse `listActiveAgentsV2`, best-effort пустой список без реестра/при ошибке; GET → без gateway-key-гарда) + hook `fetchRegistryAgents` → редактор предлагает кандидатов из живого V2-реестра по capability сабтаска, заменяя legacy env-var четвёрку; fallback на env-vars+custom. Реп-ранжирование дефолта — M13.1.2.
 - **Page** (`app/demo/composite/page.tsx`): `onEdit` во всех режимах + `locked={mode!=='composite'}` + `chainId` в редактор.
 - **Гейты**: typecheck (demo-agents+web), web lint, web build (static export), demo-agents 393/393.
-- **Деплой**: git push main (`77681d6`); Fly `sage-demo-agents` (10 машин обновлены, DNS verified); Pages (`295d7f32`). Смоук `GET /agents` через gateway → **12 агентов** с capability+ценой (website-четвёрка + research-четвёрка + legacy). **Остаток: browser-verify редактора в website/research на проде** (build-green ≠ visible).
-- **Коммиты**: `c930b3c` (ADR 0022-0024 + README + CHANGELOG), `77681d6` (код M13.1.1).
+- **Деплой**: git push main; Fly `sage-demo-agents` (10 машин обновлены, DNS verified); Pages. Смоук `GET /agents` через gateway → **12 агентов** с capability+ценой (website-четвёрка + research-четвёрка + legacy).
+- **Browser-verify на проде (headless chromium)**: оба режима — редактор открывается в locked-виде (структура read-only, evaluator-бейджи qa-website/fact-check на месте, 0 редактируемых type-инпутов), executor-дропдаун подтягивает кандидата из реестра по capability (website `copywrite … 0.030 USDC`, research `web-search … 0.040 USDC`), spec/cost/deadline правятся. Скриншоты сняты.
+- **Follow-up из verify** (`039a09b`): (1) env-var-исполнители убраны из дропдауна когда реестр живой — теперь они только last-resort fallback при пустом реестре (бэкенд не задеплоен / Arc без V2); до фикса legacy-четвёрка шумела опциями под copywrite/web-search. (2) `fetchRegistryAgents` хардненинг парса цены (`no-base-to-string` — `String(unknown)` мог дать `[object Object]`; теперь только string|number, иначе `'0'`). Re-verify: дропдаун чистый (registry+unassigned+custom). **M13.1.1 закрыт целиком.**
+- **Коммиты**: `c930b3c` (ADR 0022-0024 + README + CHANGELOG), `77681d6` (код M13.1.1), `f8fc002` (этот changelog), `039a09b` (follow-up из browser-verify).
 
 ## 2026-06-23 — Ответственность, conformance чужих агентов, приватность (ADR-0022/0023/0024) — `adr`
 
