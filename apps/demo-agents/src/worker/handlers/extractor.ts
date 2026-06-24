@@ -28,72 +28,19 @@ import {
   type SourceExtract,
 } from '../../shared/research.js';
 import type { CapabilityHandler } from './index.js';
+import { fetchPublicPage } from '../net.js';
 
-/** Page fetch limits: a research source is an article, not a download. */
-export const FETCH_TIMEOUT_MS = 15_000;
-export const MAX_PAGE_BYTES = 2 * 1024 * 1024;
+// fetchPublicPage + the SSRF/egress guard moved to the shared `worker/net.ts`
+// (M13.2.1, ADR-0023 §Layer 4) so the fact-checker and any foreign-agent fork
+// reuse the exact same defenses — and so redirect targets + resolved IPs are
+// now re-validated, not just the hostname string. Re-exported for existing
+// import sites (fact-checker, tests).
+export { fetchPublicPage };
+export { FETCH_TIMEOUT_MS, MAX_PAGE_BYTES } from '../net.js';
+
 /** Text handed to the LLM — ~10k tokens; mini's context dwarfs it, the
  * envelope/cost discipline doesn't. */
 export const MAX_TEXT_CHARS = 40_000;
-
-const BLOCKED_HOST_PATTERNS: readonly RegExp[] = [
-  /^localhost$/i,
-  /\.(local|internal)$/i,
-  /^127\./,
-  /^10\./,
-  /^192\.168\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^169\.254\./,
-  /^0\./,
-  /^\[/, // any IPv6 literal — public research sources have hostnames
-];
-
-/**
- * Guarded fetch for LLM-selected public URLs. Sources come from a real SERP,
- * but the URL still transits an LLM envelope — so: https only, no private /
- * loopback / link-local hosts, bounded size and time. (No DNS-level pinning:
- * the worker holds no internal network worth pivoting to; the gateway key
- * never rides these requests.)
- */
-export async function fetchPublicPage(
-  url: string,
-  opts: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<string> {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`invalid URL: ${url}`);
-  }
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`only https sources are fetched (got ${parsed.protocol}//)`);
-  }
-  if (BLOCKED_HOST_PATTERNS.some((p) => p.test(parsed.hostname))) {
-    throw new Error(`host "${parsed.hostname}" is not a public research source`);
-  }
-
-  const fetchImpl = opts.fetchImpl ?? fetch;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetchImpl(parsed.toString(), {
-      signal: controller.signal,
-      headers: { Accept: 'text/html,application/xhtml+xml,text/plain' },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const contentType = res.headers.get('content-type') ?? '';
-    if (!/text\/html|application\/xhtml|text\/plain|^$/.test(contentType)) {
-      throw new Error(`unsupported content-type "${contentType}"`);
-    }
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > MAX_PAGE_BYTES) {
-      throw new Error(`page is ${buf.byteLength} bytes — max ${MAX_PAGE_BYTES}`);
-    }
-    return new TextDecoder('utf-8', { fatal: false }).decode(buf);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 const STRIP_BLOCKS = /<(script|style|noscript|svg|template|iframe)\b[\s\S]*?<\/\1\s*>/gi;
 const ENTITIES: Readonly<Record<string, string>> = {

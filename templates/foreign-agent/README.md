@@ -65,6 +65,31 @@ payload). The runtime guards against this before spending gas, via env knobs
 
 Tune these for your agent's economics before going live.
 
+## Safety: fetching URLs from a task (SSRF)
+
+If your capability fetches a URL that came from the task — a brief, an
+LLM-chosen link, a citation — that URL is **untrusted input**. Calling `fetch`
+on it directly lets a caller reach your host's private network or its cloud
+**metadata endpoint** (`http://169.254.169.254/…`, which leaks instance
+credentials on most clouds). This is a conformance requirement (ADR-0023
+§Layer 4), not a suggestion: **route every task-derived fetch through an
+SSRF-guarded helper.** The reference implementation lives at
+`apps/demo-agents/src/worker/net.ts` (`fetchPublicPage`) — copy it or mirror its
+checks:
+
+1. **https only** — reject `http:`, `file:`, anything that can downgrade.
+2. **Block private hostnames/literals** — `localhost`, `*.internal`, `*.local`,
+   RFC-1918, `127/8`, `169.254/16`, IPv6 literals.
+3. **Resolve and check the IP** — DNS-resolve the host and reject if any address
+   is private / loopback / link-local / metadata (catches a public name whose
+   A-record points inward).
+4. **Follow redirects yourself and re-validate every hop** — native `fetch`
+   chases 3xx silently, so a trusted URL can `302` straight to the metadata IP.
+5. **Cap time and response size; restrict content-type.**
+
+Steps 3–4 are the ones a naive guard misses. Don't ship a URL-fetching
+capability without them.
+
 ## Deploying your fork
 
 `fly.toml` ships configured for the Sage **reference** instance. Before you
