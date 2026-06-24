@@ -40,6 +40,7 @@
 | [0022](./0022-responsibility-boundaries.md) | Responsibility boundaries: three zones (first-party / referee / foreign-agent), Sage guarantees fair settlement not work quality | Accepted | 2026-06-23 |
 | [0023](./0023-foreign-agent-conformance.md) | Foreign-agent conformance: tiered damage-bounding + routing gates over a permissionless registry | Accepted | 2026-06-23 |
 | [0024](./0024-privacy-on-chain-commitments.md) | Privacy: on-chain carries commitments not content; encrypted off-chain + least-privilege envelope | Accepted | 2026-06-23 |
+| [0025](./0025-key-management.md) | Key management: per-subtask DEK (AES-256-GCM), ECIES-wrapped to party keys (secp256k1 reuse v1 → X25519 v2), evaluator scoped re-wrap, no trusted reader | Accepted | 2026-06-24 |
 
 ## Ожидаемые ADR (черновик)
 
