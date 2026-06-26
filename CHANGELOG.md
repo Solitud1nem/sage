@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-06-26 — M13.4.5: data-handling manifest + provider tiers — `release`
+
+ADR-0023 §Layer 2.5 / ADR-0024 §4: агент декларирует кто его держит, какой моделью гоняет и как обращается с контентом задачи. Декларация — публичное проверяемое обещание (нарушение = dispute/репутационное событие; отсутствие/невалидность = неэлигибельность для guarantee-routing). Risk-0 к живым пайплайнам; on-chain ре-регистрация — операторская (мои ключи не трогаются).
+
+- **`@sage/core/agent-manifest`** — схема `AgentManifest` (operator / model+provider с `zeroRetention`+`noTraining` / dataHandling: `retentionDays`+`secondaryUse`+`subProcessors`) + `encodeAgentManifest` (inline `data:application/json,` — как `specUri`-паттерн) + `parseAgentManifest` / `validateAgentManifest` (строгая валидация: half-valid = no manifest; неизвестные поля дропаются). 11 тестов.
+- **first-party**: `register-identity.ts` строит манифест из `MANIFEST_*` env и ставит в `profileUri`; идемпотентный бэкфилл живых агентов через `updateProfileUri` (пишет только если `profileUri` дрейфанул). Дефолты консервативны — privacy-флаги `false` («без заявления»), чтобы не переобещать.
+- **foreign template**: `src/index.ts` тоже строит/ставит манифест (provider дефолт openai, pseudonymous true) + бэкфилл; README conformance-секция + `.env.example` `MANIFEST_*` блок.
+- **docs**: runbook §4a (first-party манифест + честная подсказка про provider-тиры) + foreign README/«.env.example» (zero-retention/no-training — это твоё соглашение с провайдером, не дефолт API; ставь true только если реально так).
+- **Гейты**: core typecheck + **22 теста** (+11), demo-agents typecheck + **471**, foreign-template typecheck, root eslint — зелёные.
+- **Открыто**: enforcement (absent/invalid manifest → не guarantee-routing) едет с conformance-probe M13.2.3 (парк до живого foreign-агента); реальные значения манифеста + on-chain `updateProfileUri` живых агентов — операторские.
+
 ## 2026-06-26 — M13.1.2 web: reputation-ranked executor dropdown — `release`
 
 Закрывает последний хвост M13.1.2 (бэкенд-резолвер был сделан 2026-06-24). Замыкает reputation-петлю в UI: редактор плана теперь ранжирует и аннотирует кандидатов-исполнителей репутацией.
