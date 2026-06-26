@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-26 — M13.1.2 web: reputation-ranked executor dropdown — `release`
+
+Закрывает последний хвост M13.1.2 (бэкенд-резолвер был сделан 2026-06-24). Замыкает reputation-петлю в UI: редактор плана теперь ранжирует и аннотирует кандидатов-исполнителей репутацией.
+
+- **`fetchReputation()`** в `use-composite-demo.ts` — best-effort fetch gateway `GET /api/agents/reputation` → `Map<addr,score>`; пустая мапа на любой ошибке (graceful, как резолвер). CORS уже покрывает `/api/agents/*` (сверено вживую).
+- **`plan-editor.executorOptionsFor`** — кандидаты сортируются score desc, tiebreak price asc (**зеркало `registry-resolver.pickAgentForCapability`**); label несёт `rep NN%`, топ-пик помечен `★`. Неизвестный агент = neutral 0.5 → без истории порядок падает на реестровый (без шумных «rep 50%»).
+- **Предвыбор**: незаполненный executor сабтаска префиллится лучшим кандидатом (one-shot effect, трогает только пустые слоты — не перетирает template/user-выбор, не зациклить).
+- **Гейты**: web typecheck + lint + build (static export) зелёные. **Browser-verified на проде** (build plan→Edit, без on-chain трат): copywrite rep 88% ★ / build-website 67% ★ / qa 100% ★ / package 100% ★ — score'ы совпали с бэкендом, ноль page-errors. Деплой Pages `bb1f25db`. Чистый web-change, бэкенд-деплой не нужен (CORS `/api/agents/*` уже был).
+- Остаток M13.1.x закрыт. **Открыто в M13**: 13.2.3 probe / 13.2.5 bond (ждут foreign-агента), 13.4.2/3 privacy, per-day карантин, Arc-индекс.
+
 ## 2026-06-24 — M13.4.1: demo/real-user intake split — `release`
 
 Первый код-шаг privacy-трека (ADR-0024 §1, Implementation stage 1). Цель: сделать demo-only статус явным + поставить чокпоинт, который откажет real-user intake, пока не приедет шифрованная модель (M13.4.3/ADR-0025). Risk-0 к живым пайплайнам.
