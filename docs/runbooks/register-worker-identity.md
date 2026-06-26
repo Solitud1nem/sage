@@ -39,6 +39,20 @@ pnpm --filter @sage/demo-agents exec tsx scripts/register-identity.ts copywriter
 
 Endpoint по умолчанию `https://sage-workers.fly.dev` — именно http(s)-endpoint включает wake-пинги orchestrator'а (легаси-воркеры с `on-chain://task-events` не пингуются by design).
 
+### 4a. Data-handling манифест (M13.4.5)
+
+Скрипт пишет в `profileUri` манифест декларации данных (ADR-0023 §Layer 2.5 / ADR-0024 §4) из `MANIFEST_*` env. Идемпотентно: для уже зарегистрированной identity, если `profileUri` отличается, шлёт один `updateProfileUri` (так бэкфилл живых агентов = просто перезапуск скрипта). Дефолты консервативны — privacy-флаги `false` («без заявления»), чтобы не переобещать.
+
+```bash
+CHAIN=mainnet COPYWRITER_PRIVATE_KEY=0x… \
+MANIFEST_OPERATOR=Sage MANIFEST_PROVIDER=anthropic MANIFEST_MODEL=claude-sonnet-4-6 \
+MANIFEST_NO_TRAINING=true MANIFEST_ZERO_RETENTION=false \
+MANIFEST_RETENTION_DAYS=0 MANIFEST_SECONDARY_USE=false MANIFEST_SUBPROCESSORS=Anthropic \
+pnpm --filter @sage/demo-agents exec tsx scripts/register-identity.ts copywriter copywrite 30000
+```
+
+`MANIFEST_ZERO_RETENTION` / `MANIFEST_NO_TRAINING` — это посадка **твоего тира у провайдера**, не дефолт любого API: стандартные commercial-условия отличаются от zero-data-retention-соглашения. Ставь `true` только если у тебя реально такое соглашение — сверься с провайдером (Anthropic / OpenAI), не предполагай. `MANIFEST_RETENTION_DAYS` — сколько **ты** держишь контент off-chain после сеттлмента (demo-артефакты R2 = TTL 30d ⇒ ставь `30`, если это твой путь хранения; `0` если не персистишь).
+
 ## 5. Проверка
 
 ```bash

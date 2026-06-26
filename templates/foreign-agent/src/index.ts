@@ -17,7 +17,15 @@ import { createServer } from 'node:http';
 import { createPublicClient, createWalletClient, http, nonceManager } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base as baseChainDef, baseSepolia as baseSepoliaChainDef } from 'viem/chains';
-import { TaskStatus, agentId, taskId, capability, type TaskId } from '@sage/core';
+import {
+  TaskStatus,
+  agentId,
+  taskId,
+  capability,
+  encodeAgentManifest,
+  type AgentManifest,
+  type TaskId,
+} from '@sage/core';
 import {
   base,
   baseSepolia,
@@ -56,6 +64,48 @@ const minDeadlineMarginS = Number(process.env['MIN_DEADLINE_MARGIN_S'] ?? 120);
 const maxMaterialChars = Number(process.env['MAX_MATERIAL_CHARS'] ?? 100_000);
 const bootScanBack = Number(process.env['BOOT_SCAN_BACK'] ?? 200);
 const handlerRetries = Number(process.env['HANDLER_RETRIES'] ?? 2);
+
+// ── Data-handling manifest (M13.4.5 · ADR-0023 §Layer 2.5 · ADR-0024 §4) ────
+// A conformance requirement: declare who runs this agent, what model it uses,
+// and how it treats task content. Sage cannot enforce these terms on your host,
+// so it requires the *declaration* and treats a violation as a dispute /
+// reputation event. Set the values HONESTLY — the privacy flags below default
+// to false (no claim) so an unconfigured agent never overclaims. Provider
+// zero-retention / no-training depends on YOUR provider agreement; verify it.
+function buildManifest(): AgentManifest {
+  const e = process.env;
+  const provider = (e['MANIFEST_PROVIDER'] ?? 'openai') as AgentManifest['model']['provider'];
+  const sub = e['MANIFEST_SUBPROCESSORS'];
+  const subProcessors =
+    sub !== undefined
+      ? sub.split(',').map((s) => s.trim()).filter(Boolean)
+      : provider === 'openai'
+        ? ['OpenAI']
+        : provider === 'anthropic'
+          ? ['Anthropic']
+          : [];
+  return {
+    version: 1,
+    operator: {
+      name: e['MANIFEST_OPERATOR'] ?? 'Foreign operator',
+      ...(e['MANIFEST_CONTACT'] ? { contact: e['MANIFEST_CONTACT'] } : {}),
+      // Foreign operators are pseudonymous unless they say otherwise.
+      pseudonymous: e['MANIFEST_PSEUDONYMOUS'] !== 'false',
+    },
+    model: {
+      provider,
+      model: e['MANIFEST_MODEL'] ?? 'gpt-4o-mini',
+      zeroRetention: e['MANIFEST_ZERO_RETENTION'] === 'true',
+      noTraining: e['MANIFEST_NO_TRAINING'] === 'true',
+    },
+    dataHandling: {
+      retentionDays: Number.parseInt(e['MANIFEST_RETENTION_DAYS'] ?? '0', 10) || 0,
+      secondaryUse: e['MANIFEST_SECONDARY_USE'] === 'true',
+      subProcessors,
+    },
+  };
+}
+const profileUri = encodeAgentManifest(buildManifest());
 
 const registryAddr = sageChain.contracts.agentRegistryV2;
 if (!registryAddr) {
@@ -140,12 +190,20 @@ async function ensureRegistered(): Promise<void> {
     } else {
       log(`already registered + active for "${capabilityName}" — skipping`);
     }
+    // Refresh the data-handling manifest if it drifted (M13.4.5). Idempotent:
+    // only writes when the on-chain profileUri differs from the declared one.
+    if (existing.profileUri !== profileUri) {
+      log('profileUri differs — updating data-handling manifest…');
+      const h = await registry.updateProfileUri(profileUri);
+      await publicClient.waitForTransactionReceipt({ hash: h as `0x${string}` });
+      log('manifest updated');
+    }
     return;
   }
   log(`registering for "${capabilityName}" at ${priceUnits} units…`);
   const hash = await registry.registerAgent({
     endpoint,
-    profileUri: '',
+    profileUri,
     capabilities: [{ name: capabilityName, price: priceUnits }],
   });
   await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` });

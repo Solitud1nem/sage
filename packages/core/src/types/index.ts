@@ -13,6 +13,15 @@ export type {
 } from './agent.js';
 export { agentId, capability } from './agent.js';
 
+export type {
+  ProviderType,
+  ManifestOperator,
+  ManifestModel,
+  ManifestDataHandling,
+  AgentManifest,
+} from './agent-manifest.js';
+export { encodeAgentManifest, parseAgentManifest, validateAgentManifest } from './agent-manifest.js';
+
 export type { TaskId, TaskRecord, TaskSpec, DisputeOutcome } from './task.js';
 export { taskId, TaskStatus } from './task.js';
 

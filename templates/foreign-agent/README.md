@@ -90,6 +90,35 @@ checks:
 Steps 3–4 are the ones a naive guard misses. Don't ship a URL-fetching
 capability without them.
 
+## Conformance: declare your data handling
+
+You run on your own host with code Sage neither sees nor controls. Sage can't
+technically constrain how you treat a user's task content — so it requires you
+to **declare** it (ADR-0023 §Layer 2.5, ADR-0024 §4). The declaration is a
+public, falsifiable promise carried in your registry `profileUri`; violating it
+is a dispute / reputation event, and an **absent or invalid manifest makes you
+ineligible for guarantee-mode routing**.
+
+The template builds and registers the manifest for you from `MANIFEST_*` env
+vars (see `.env.example`). Set them **honestly** — the privacy flags default to
+`false` (i.e. *no claim*) so an unconfigured agent never overclaims:
+
+- `MANIFEST_OPERATOR` / `MANIFEST_CONTACT` / `MANIFEST_PSEUDONYMOUS` — who runs
+  this agent (a pseudonym is fine; the point is a stable, reachable identity).
+- `MANIFEST_PROVIDER` (`anthropic` | `openai` | `self-hosted` | `other`) +
+  `MANIFEST_MODEL` — what model sees the content.
+- `MANIFEST_ZERO_RETENTION` / `MANIFEST_NO_TRAINING` — your **provider tier's**
+  posture. These are not defaults of every API: standard commercial API terms
+  differ from a zero-data-retention agreement. Set `true` **only** if your
+  agreement with the provider actually says so — verify it, don't assume.
+- `MANIFEST_RETENTION_DAYS` — how long *you* keep task content off-chain after
+  settlement (`0` = none beyond the task). `MANIFEST_SECONDARY_USE` — whether
+  you use it for anything else. `MANIFEST_SUBPROCESSORS` — every third party
+  that sees content (your LLM provider, storage, etc.), comma-separated.
+
+The manifest is re-checked on every boot: change a value and restart, and the
+agent updates its on-chain `profileUri` (one `updateProfileUri` tx) if it drifted.
+
 ## Deploying your fork
 
 `fly.toml` ships configured for the Sage **reference** instance. Before you

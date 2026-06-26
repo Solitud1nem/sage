@@ -22,7 +22,7 @@
 import { privateKeyToAccount } from 'viem/accounts';
 import { createPublicClient, createWalletClient, http, nonceManager } from 'viem';
 import { base as baseChainDef, baseSepolia as baseSepoliaChainDef } from 'viem/chains';
-import { agentId, capability as capBrand } from '@sage/core';
+import { agentId, capability as capBrand, encodeAgentManifest, type AgentManifest } from '@sage/core';
 import { base, baseSepolia, createAgentRegistryV2Client } from '@sage/adapter-evm';
 
 const [id, capabilityName, priceRaw, endpointArg] = process.argv.slice(2);
@@ -32,6 +32,48 @@ if (!id || !capabilityName || !priceRaw || !/^\d+$/.test(priceRaw)) {
 }
 const priceUnits = BigInt(priceRaw);
 const endpoint = endpointArg ?? 'https://sage-workers.fly.dev';
+
+/**
+ * Data-handling manifest carried in `profileUri` (M13.4.5 · ADR-0023 §Layer 2.5
+ * · ADR-0024 §4). Values come from env so the operator declares the *real*
+ * posture; defaults are deliberately conservative (no zero-retention / no
+ * no-training claim unless explicitly set) so the manifest never overclaims.
+ * Provider tiers (zero-retention / no-training) vary by your provider agreement
+ * — verify and set them honestly; see docs/runbooks/register-worker-identity.md.
+ */
+function buildManifest(): AgentManifest {
+  const env = process.env;
+  const provider = (env['MANIFEST_PROVIDER'] ?? 'anthropic') as AgentManifest['model']['provider'];
+  const sub = env['MANIFEST_SUBPROCESSORS'];
+  const subProcessors =
+    sub !== undefined
+      ? sub.split(',').map((s) => s.trim()).filter(Boolean)
+      : provider === 'anthropic'
+        ? ['Anthropic']
+        : provider === 'openai'
+          ? ['OpenAI']
+          : [];
+  return {
+    version: 1,
+    operator: {
+      name: env['MANIFEST_OPERATOR'] ?? 'Sage',
+      ...(env['MANIFEST_CONTACT'] ? { contact: env['MANIFEST_CONTACT'] } : {}),
+      pseudonymous: env['MANIFEST_PSEUDONYMOUS'] === 'true',
+    },
+    model: {
+      provider,
+      model: env['MANIFEST_MODEL'] ?? 'claude-sonnet-4-6',
+      zeroRetention: env['MANIFEST_ZERO_RETENTION'] === 'true',
+      noTraining: env['MANIFEST_NO_TRAINING'] === 'true',
+    },
+    dataHandling: {
+      retentionDays: Number.parseInt(env['MANIFEST_RETENTION_DAYS'] ?? '0', 10) || 0,
+      secondaryUse: env['MANIFEST_SECONDARY_USE'] === 'true',
+      subProcessors,
+    },
+  };
+}
+const profileUri = encodeAgentManifest(buildManifest());
 
 const CHAIN = process.env['CHAIN'];
 if (CHAIN !== 'mainnet' && CHAIN !== 'sepolia') {
@@ -84,13 +126,21 @@ async function main(): Promise<void> {
     } else {
       console.log('already registered + active — no-op');
     }
+    // Backfill / refresh the data-handling manifest if it drifted (M13.4.5).
+    // Idempotent: only writes when the on-chain profileUri differs.
+    if (existing.profileUri !== profileUri) {
+      console.log('profileUri differs — updating data-handling manifest…');
+      const h = await registry.updateProfileUri(profileUri);
+      await publicClient.waitForTransactionReceipt({ hash: h as `0x${string}` });
+      console.log(`manifest updated (tx ${h})`);
+    }
     return;
   }
 
   console.log(`registering "${capabilityName}" @ ${priceUnits} units, endpoint ${endpoint}…`);
   const hash = await registry.registerAgent({
     endpoint,
-    profileUri: '',
+    profileUri,
     capabilities: [{ name: capBrand(capabilityName), price: priceUnits }],
   });
   await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` });
