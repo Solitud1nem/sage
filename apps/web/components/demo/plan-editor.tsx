@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
   fetchRegistryAgents,
+  fetchReputation,
   type RegistryAgent,
   type WirePlan,
   type WireSubTask,
@@ -31,8 +32,14 @@ import { formatUsdc } from '@/lib/format-usdc';
  * the env-var four were the only executors the editor used to know, none of
  * which serve the website/research pipelines. Registry fetch is best-effort;
  * on failure the editor falls back to the env-var executors plus a free-text
- * "Custom address…" field. Reputation-ranked default selection is the
- * follow-up (M13.1.2); here candidates are listed as the registry returns them.
+ * "Custom address…" field.
+ *
+ * Reputation ranking (M13.1.2): candidates are ordered best-reputation first
+ * (tiebreak cheapest), mirroring the backend resolver
+ * (`registry-resolver.pickAgentForCapability`); the score is shown in the
+ * label and the top pick marked. An unassigned sub-task is pre-filled with the
+ * best candidate. Reputation fetch is best-effort — an empty map degrades to
+ * the registry's own order (neutral ranking), never blocking the editor.
  */
 
 const COMMON_TYPES = [
@@ -69,46 +76,88 @@ interface ExecutorOption {
   address: `0x${string}`;
 }
 
+/** Parse a USDC-base-unit decimal string to bigint; null on malformed input. */
+function safeBig(s: string): bigint | null {
+  try {
+    return BigInt(s);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build the executor dropdown options for a sub-task of capability `type`.
  * Priority: registry agents that declare this exact capability → (if none)
  * any registry agent labelled by its capability → env-var known executors.
  * Deduped by address. The caller always appends "unassigned" / "custom".
+ *
+ * Options are ranked best-reputation first, tiebreak cheapest — the same order
+ * `registry-resolver.pickAgentForCapability` uses server-side. Unknown agents
+ * score the neutral 0.5, so with no reputation data the order falls back to the
+ * registry's own sequence. When any candidate has real history the label shows
+ * `rep NN%` and the top pick gets a ★.
  */
 function executorOptionsFor(
   type: string,
   registryAgents: readonly RegistryAgent[],
   envKnown: readonly KnownExecutor[],
+  reputation: ReadonlyMap<string, number>,
 ): ExecutorOption[] {
-  const out: ExecutorOption[] = [];
+  const NEUTRAL = 0.5;
+  interface Cand {
+    label: string;
+    address: `0x${string}`;
+    price: bigint | null;
+    score: number;
+  }
+  const cands: Cand[] = [];
   const seen = new Set<string>();
-  const push = (label: string, address: `0x${string}`) => {
+  const push = (label: string, address: `0x${string}`, price: bigint | null) => {
     const key = address.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ label, address });
+    cands.push({ label, address, price, score: reputation.get(key) ?? NEUTRAL });
   };
 
   for (const a of registryAgents) {
     const cap = a.capabilities.find((c) => c.name === type);
-    if (cap) push(`${type} · ${shortAddr(a.address)} · ${formatUsdc(cap.price)}`, a.address);
+    if (cap)
+      push(`${type} · ${shortAddr(a.address)} · ${formatUsdc(cap.price)}`, a.address, safeBig(cap.price));
   }
   // No exact-capability match (e.g. a composite plan whose `type` is a free
   // descriptor): still offer every registry agent so the dropdown isn't empty.
-  if (out.length === 0) {
+  if (cands.length === 0) {
     for (const a of registryAgents) {
       const cap = a.capabilities[0];
-      push(cap ? `${cap.name} · ${shortAddr(a.address)}` : shortAddr(a.address), a.address);
+      push(
+        cap ? `${cap.name} · ${shortAddr(a.address)}` : shortAddr(a.address),
+        a.address,
+        cap ? safeBig(cap.price) : null,
+      );
     }
   }
   // Env-var executors are a last-resort fallback ONLY when the registry gave
   // us nothing at all (backend not deployed, or a chain without a V2 registry
   // such as Arc). When the registry is live it is authoritative — the legacy
   // four are nonsensical options for a copywrite / web-search step.
-  if (out.length === 0) {
-    for (const k of envKnown) push(`${k.label} (${shortAddr(k.address)})`, k.address);
+  if (cands.length === 0) {
+    for (const k of envKnown) push(`${k.label} (${shortAddr(k.address)})`, k.address, null);
   }
-  return out;
+
+  // Rank by reputation desc, tiebreak price asc — mirrors the backend resolver.
+  cands.sort((x, y) => {
+    if (y.score !== x.score) return y.score - x.score;
+    if (x.price !== null && y.price !== null && x.price !== y.price) return x.price < y.price ? -1 : 1;
+    return 0;
+  });
+
+  // Only annotate with rep when at least one candidate has real settled history
+  // (otherwise every option is a neutral 0.5 and "rep 50%" is just noise).
+  const hasHistory = cands.some((c) => reputation.has(c.address.toLowerCase()));
+  return cands.map((c, i) => ({
+    label: hasHistory ? `${c.label} · rep ${Math.round(c.score * 100)}%${i === 0 ? ' ★' : ''}` : c.label,
+    address: c.address,
+  }));
 }
 
 interface PlanEditorProps {
@@ -136,16 +185,37 @@ export function PlanEditor({
   const [subtasks, setSubtasks] = useState<WireSubTask[]>(initialPlan.subtasks);
   const envKnown = useMemo(loadKnownExecutors, []);
   const [registryAgents, setRegistryAgents] = useState<RegistryAgent[]>([]);
+  const [reputation, setReputation] = useState<ReadonlyMap<string, number>>(new Map());
 
   useEffect(() => {
     let live = true;
     void fetchRegistryAgents(chainId).then((agents) => {
       if (live) setRegistryAgents(agents);
     });
+    // Reputation is gateway-native and Base-only, so it isn't chain-scoped; we
+    // still refetch on chain change (harmless) to keep the two in lockstep.
+    void fetchReputation().then((r) => {
+      if (live) setReputation(r);
+    });
     return () => {
       live = false;
     };
   }, [chainId]);
+
+  // Pre-fill the best-reputation executor for any sub-task the plan left
+  // unassigned (M13.1.2). Runs only when the registry/reputation data lands;
+  // it touches empty slots only, so it never overrides a template's or the
+  // user's explicit choice and cannot loop (a filled slot is skipped next pass).
+  useEffect(() => {
+    if (registryAgents.length === 0) return;
+    setSubtasks((prev) =>
+      prev.map((s) => {
+        if (s.executor_address) return s;
+        const best = executorOptionsFor(s.type, registryAgents, envKnown, reputation)[0];
+        return best ? { ...s, executor_address: best.address } : s;
+      }),
+    );
+  }, [registryAgents, reputation, envKnown]);
 
   const totalCost = useMemo(
     () =>
@@ -258,7 +328,7 @@ export function PlanEditor({
             key={sub.id}
             sub={sub}
             locked={locked}
-            executorOptions={executorOptionsFor(sub.type, registryAgents, envKnown)}
+            executorOptions={executorOptionsFor(sub.type, registryAgents, envKnown, reputation)}
             allIds={subtasks.map((s) => s.id).filter((id) => id !== sub.id)}
             canMoveUp={idx > 0}
             canMoveDown={idx < subtasks.length - 1}

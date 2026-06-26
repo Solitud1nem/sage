@@ -914,6 +914,34 @@ export async function fetchRegistryAgents(chainId: number): Promise<RegistryAgen
 }
 
 /**
+ * Fetch per-executor reputation scores from the gateway indexer (M13.3),
+ * keyed by lowercased address. Score ∈ [0,1]; 0.5 is neutral (no settled
+ * history). Best-effort: returns an empty map on any failure so the editor
+ * falls back to registry order — exactly the resolver's safe degradation
+ * (`registry-resolver.ts`). The endpoint is gateway-native and Base-only, so
+ * it is not chain-scoped; on Arc the map is simply empty (neutral ranking).
+ */
+export async function fetchReputation(): Promise<Map<string, number>> {
+  try {
+    const res = await fetch(`${ORCHESTRATOR_URL}/api/agents/reputation`, { method: 'GET' });
+    if (!res.ok) return new Map();
+    const data = (await res.json()) as { agents?: unknown };
+    if (!Array.isArray(data.agents)) return new Map();
+    const out = new Map<string, number>();
+    for (const a of data.agents) {
+      if (!a || typeof a !== 'object') continue;
+      const { address, score } = a as Record<string, unknown>;
+      if (typeof address === 'string' && typeof score === 'number' && Number.isFinite(score)) {
+        out.set(address.toLowerCase(), score);
+      }
+    }
+    return out;
+  } catch {
+    return new Map();
+  }
+}
+
+/**
  * Derive a `WirePlan` from a `WireClassification` — drops classifier-only fields.
  * The plan-card uses this for the "Approve as-is" path; the editor can splice
  * in changes before passing the result to `approve()`.
