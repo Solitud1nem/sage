@@ -194,7 +194,7 @@ export function PlanEditor({
     });
     // Reputation is gateway-native and Base-only, so it isn't chain-scoped; we
     // still refetch on chain change (harmless) to keep the two in lockstep.
-    void fetchReputation().then((r) => {
+    void fetchReputation(chainId).then((r) => {
       if (live) setReputation(r);
     });
     return () => {

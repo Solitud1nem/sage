@@ -40,6 +40,15 @@ export interface Env {
   ESCROW_ADDRESS: string;
   /** Block the escrow was deployed at — the indexer's backfill floor. */
   ESCROW_FROM_BLOCK: string;
+  /**
+   * Arc-testnet reputation index (ADR-0015). All optional — the indexer tracks
+   * Arc only when `ARC_RPC_URL` *and* `ARC_ESCROW_ADDRESS` are both set;
+   * otherwise it stays Base-only. Arc isn't on Alchemy, so it reads its own
+   * public RPC directly rather than the `/api/rpc` proxy.
+   */
+  ARC_RPC_URL?: string;
+  ARC_ESCROW_ADDRESS?: string;
+  ARC_ESCROW_FROM_BLOCK?: string;
   DAILY_LIMIT: string;
   ALLOWED_ORIGINS: string;
   /**

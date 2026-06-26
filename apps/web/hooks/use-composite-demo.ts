@@ -918,12 +918,13 @@ export async function fetchRegistryAgents(chainId: number): Promise<RegistryAgen
  * keyed by lowercased address. Score ∈ [0,1]; 0.5 is neutral (no settled
  * history). Best-effort: returns an empty map on any failure so the editor
  * falls back to registry order — exactly the resolver's safe degradation
- * (`registry-resolver.ts`). The endpoint is gateway-native and Base-only, so
- * it is not chain-scoped; on Arc the map is simply empty (neutral ranking).
+ * (`registry-resolver.ts`). `?chain=` selects the chain's index (ADR-0015);
+ * the indexer tracks Arc as well as Base (M13.3 Arc extension).
  */
-export async function fetchReputation(): Promise<Map<string, number>> {
+export async function fetchReputation(chainId?: number): Promise<Map<string, number>> {
+  const chain = chainId === ARC_TESTNET_CHAIN_ID ? 'arc' : 'base';
   try {
-    const res = await fetch(`${ORCHESTRATOR_URL}/api/agents/reputation`, { method: 'GET' });
+    const res = await fetch(`${ORCHESTRATOR_URL}/api/agents/reputation?chain=${chain}`, { method: 'GET' });
     if (!res.ok) return new Map();
     const data = (await res.json()) as { agents?: unknown };
     if (!Array.isArray(data.agents)) return new Map();

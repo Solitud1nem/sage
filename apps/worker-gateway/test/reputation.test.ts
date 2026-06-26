@@ -26,7 +26,7 @@ interface Stmt {
   args: unknown[];
 }
 
-function fakeEnv(opts: { rows?: unknown[]; cursor?: number | null } = {}): { env: Env; batched: Stmt[] } {
+function fakeEnv(opts: { rows?: unknown[]; cursor?: number | null; arc?: boolean } = {}): { env: Env; batched: Stmt[] } {
   const batched: Stmt[] = [];
   const DB = {
     prepare(sql: string) {
@@ -51,6 +51,9 @@ function fakeEnv(opts: { rows?: unknown[]; cursor?: number | null } = {}): { env
     ALCHEMY_KEY: 'k',
     ESCROW_ADDRESS: '0xescrow',
     ESCROW_FROM_BLOCK: '100',
+    ...(opts.arc
+      ? { ARC_RPC_URL: 'https://arc.example', ARC_ESCROW_ADDRESS: '0xarcescrow', ARC_ESCROW_FROM_BLOCK: '50' }
+      : {}),
     DB,
   } as unknown as Env;
   return { env, batched };
@@ -143,5 +146,83 @@ describe('indexReputation decode + status mapping', () => {
     );
     const { env } = fakeEnv({ cursor: 200 });
     await indexReputation(env, { maxChunks: 1 });
+  });
+});
+
+describe('multi-chain indexing (Arc, ADR-0015)', () => {
+  const exec = '0x2222222222222222222222222222222222222222';
+
+  it('stays Base-only when Arc env is unset', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_u: string, init: { body: string }) => {
+        const { method } = JSON.parse(init.body) as { method: string };
+        return new Response(JSON.stringify({ result: method === 'eth_blockNumber' ? '0x66' : [] }));
+      }),
+    );
+    const out = await indexReputation(fakeEnv({ cursor: null }).env, { maxChunks: 1 });
+    expect(out.chains.map((c) => c.chain)).toEqual(['base']);
+  });
+
+  it('indexes Base and Arc when both configured, tagging each write per chain', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: { body: string }) => {
+        const { method } = JSON.parse(init.body) as { method: string };
+        if (method === 'eth_blockNumber') return new Response(JSON.stringify({ result: '0x66' }));
+        const onArc = url.includes('arc'); // ARC_RPC_URL contains "arc"; the Base URL doesn't
+        const log = {
+          topics: [T.created, tid(onArc ? 7 : 1), addrTopic('0x0000000000000000000000000000000000000009'), addrTopic(exec)],
+          data: '0x',
+          blockNumber: '0x64',
+          logIndex: '0x0',
+        };
+        return new Response(JSON.stringify({ result: [log] }));
+      }),
+    );
+    const { env, batched } = fakeEnv({ cursor: null, arc: true });
+    const out = await indexReputation(env, { maxChunks: 2 });
+    expect(out.chains.map((c) => c.chain).sort()).toEqual(['arc', 'base']);
+    expect(out.indexed).toBe(2);
+    const created = batched.filter((s) => s.sql.includes('INSERT INTO task_index'));
+    expect(created.map((s) => s.args[0]).sort()).toEqual(['arc', 'base']);
+    // Each chain's cursor advances under its own chain key.
+    const cursors = batched.filter((s) => s.sql.includes('INSERT INTO index_cursor'));
+    expect(cursors.map((s) => s.args[0]).sort()).toEqual(['arc', 'base']);
+  });
+
+  it('isolates a chain RPC failure — Arc down, Base still indexes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: { body: string }) => {
+        if (url.includes('arc')) throw new Error('arc rpc down');
+        const { method } = JSON.parse(init.body) as { method: string };
+        return new Response(JSON.stringify({ result: method === 'eth_blockNumber' ? '0x66' : [] }));
+      }),
+    );
+    const out = await indexReputation(fakeEnv({ cursor: null, arc: true }).env, { maxChunks: 2 });
+    expect(out.chains.find((c) => c.chain === 'arc')!.error).toContain('arc rpc down');
+    expect(out.chains.find((c) => c.chain === 'base')!.error).toBeUndefined();
+  });
+});
+
+describe('getReputation chain selection', () => {
+  it('reads the requested chain (default base)', async () => {
+    let bound: unknown;
+    const DB = {
+      prepare() {
+        return {
+          bind(...args: unknown[]) {
+            bound = args[0];
+            return { all: async () => ({ results: [] }) };
+          },
+        };
+      },
+    };
+    const env = { DB } as unknown as Env;
+    await getReputation(env, 'arc');
+    expect(bound).toBe('arc');
+    await getReputation(env);
+    expect(bound).toBe('base');
   });
 });

@@ -28,6 +28,13 @@ ALCHEMY_BASE_URL = "https://base-mainnet.g.alchemy.com/v2"
 # and its deploy block (the backfill floor).
 ESCROW_ADDRESS = "0x61c585630B32eee0b8c00306047c301B56419a81"
 ESCROW_FROM_BLOCK = "47057463"
+# ADR-0015 Arc-testnet reputation index. Arc TaskEscrow (deployed 2026-05-21 via
+# Arachnid CREATE2, DeployArc.s.sol) + its deploy block. Arc isn't on Alchemy, so
+# the indexer reads its public RPC directly. Both ARC_RPC_URL + ARC_ESCROW_ADDRESS
+# must be set for Arc to index (else Base-only). `?chain=arc` serves Arc scores.
+ARC_RPC_URL = "https://rpc.testnet.arc.network"
+ARC_ESCROW_ADDRESS = "0xA9e6Dc31F21149868C0fd43C83038C74cC8Ffcdb"
+ARC_ESCROW_FROM_BLOCK = "43314119"
 DAILY_LIMIT = "30"  # TEMPORARY test rebaseline (Alex 2026-06-11, M12.1.3 hands-on testing) — public positioning is 3/IP/day (README/KB, Alex 2026-06-10); REVERT to "3" at M12.4.3 before the public narrative ships.
 ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage-web.pages.dev,http://localhost:3000,http://localhost:3001"
 

@@ -32,10 +32,13 @@ const ALL_TOPICS = Object.values(TOPIC);
 const OUTCOME_REFUNDED = 5;
 const OUTCOME_SPLIT = 7;
 
-const CHAIN = 'base';
+const DEFAULT_CHAIN = 'base';
+/** Chains the endpoint will serve / the indexer may track. */
+const KNOWN_CHAINS: ReadonlySet<string> = new Set(['base', 'arc']);
 const CHUNK_BLOCKS = 5_000n;
-/** Bound a single cron invocation under the Worker subrequest cap; the first
- *  backfill catches up over several runs, steady-state is 1–2 chunks. */
+/** Bound a single cron invocation under the Worker subrequest cap. The budget is
+ *  SHARED across chains (total chunks ≤ this), so adding a chain doesn't multiply
+ *  subrequests; each backfill catches up over several runs, steady-state 1–2. */
 const DEFAULT_MAX_CHUNKS = 45;
 
 const SUCCESS_STATUS = new Set(['paid', 'resolved_paid', 'resolved_split']);
@@ -48,9 +51,43 @@ interface RpcLog {
   logIndex: string;
 }
 
-async function rpc(env: Env, method: string, params: unknown[]): Promise<unknown> {
-  if (!env.ALCHEMY_KEY) throw new Error('ALCHEMY_KEY unset');
-  const res = await fetch(`${env.ALCHEMY_BASE_URL}/${env.ALCHEMY_KEY}`, {
+/** One chain the indexer tracks: its name, RPC endpoint, escrow, and backfill floor. */
+interface ChainCfg {
+  chain: string;
+  rpcUrl: string;
+  escrow: string;
+  fromBlock: bigint;
+}
+
+/**
+ * Build the chain list from env. Base reads through the Alchemy proxy URL; Arc
+ * (per ADR-0015) reads its own public RPC. Each is opt-in — a chain only indexes
+ * when both its RPC and escrow address are configured, so an unconfigured Arc is
+ * simply skipped (Base-only, unchanged).
+ */
+function chainConfigs(env: Env): ChainCfg[] {
+  const cfgs: ChainCfg[] = [];
+  if (env.ESCROW_ADDRESS && env.ALCHEMY_BASE_URL && env.ALCHEMY_KEY) {
+    cfgs.push({
+      chain: 'base',
+      rpcUrl: `${env.ALCHEMY_BASE_URL}/${env.ALCHEMY_KEY}`,
+      escrow: env.ESCROW_ADDRESS,
+      fromBlock: BigInt(env.ESCROW_FROM_BLOCK || '0'),
+    });
+  }
+  if (env.ARC_RPC_URL && env.ARC_ESCROW_ADDRESS) {
+    cfgs.push({
+      chain: 'arc',
+      rpcUrl: env.ARC_RPC_URL,
+      escrow: env.ARC_ESCROW_ADDRESS,
+      fromBlock: BigInt(env.ARC_ESCROW_FROM_BLOCK || '0'),
+    });
+  }
+  return cfgs;
+}
+
+async function rpc(rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
+  const res = await fetch(rpcUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
@@ -64,27 +101,30 @@ function topicToAddress(topic: string): string {
   return `0x${topic.slice(26)}`.toLowerCase();
 }
 
-export interface IndexResult {
+export interface ChainIndexResult {
+  chain: string;
   indexed: number;
   fromBlock: number;
   toBlock: number;
   caughtUp: boolean;
+  chunks: number;
+  error?: string;
 }
 
-/** Read new escrow events into D1, resuming from the stored cursor. */
-export async function indexReputation(env: Env, opts: { maxChunks?: number } = {}): Promise<IndexResult> {
-  const escrow = env.ESCROW_ADDRESS;
-  if (!escrow) return { indexed: 0, fromBlock: 0, toBlock: 0, caughtUp: true };
-  const floor = BigInt(env.ESCROW_FROM_BLOCK || '0');
+export interface IndexResult {
+  indexed: number;
+  chains: ChainIndexResult[];
+}
 
+/** Read new escrow events for one chain into D1, resuming from its cursor. */
+async function indexChain(env: Env, cfg: ChainCfg, maxChunks: number): Promise<ChainIndexResult> {
   const cursor = await env.DB.prepare('SELECT last_block FROM index_cursor WHERE chain = ?')
-    .bind(CHAIN)
+    .bind(cfg.chain)
     .first<{ last_block: number }>();
-  let from = cursor ? BigInt(cursor.last_block) + 1n : floor;
-  if (from < floor) from = floor;
+  let from = cursor ? BigInt(cursor.last_block) + 1n : cfg.fromBlock;
+  if (from < cfg.fromBlock) from = cfg.fromBlock;
 
-  const latest = BigInt((await rpc(env, 'eth_blockNumber', [])) as string);
-  const maxChunks = opts.maxChunks ?? DEFAULT_MAX_CHUNKS;
+  const latest = BigInt((await rpc(cfg.rpcUrl, 'eth_blockNumber', [])) as string);
 
   let indexed = 0;
   let chunks = 0;
@@ -92,9 +132,9 @@ export async function indexReputation(env: Env, opts: { maxChunks?: number } = {
   while (from <= latest && chunks < maxChunks) {
     const to = from + CHUNK_BLOCKS - 1n > latest ? latest : from + CHUNK_BLOCKS - 1n;
     const logs =
-      ((await rpc(env, 'eth_getLogs', [
+      ((await rpc(cfg.rpcUrl, 'eth_getLogs', [
         {
-          address: escrow,
+          address: cfg.escrow,
           fromBlock: `0x${from.toString(16)}`,
           toBlock: `0x${to.toString(16)}`,
           topics: [ALL_TOPICS],
@@ -117,25 +157,25 @@ export async function indexReputation(env: Env, opts: { maxChunks?: number } = {
           env.DB.prepare(
             `INSERT INTO task_index (chain, task_id, executor, status, disputed) VALUES (?, ?, ?, 'created', 0)
              ON CONFLICT(chain, task_id) DO UPDATE SET executor = excluded.executor`,
-          ).bind(CHAIN, taskId, topicToAddress(lg.topics[3])),
+          ).bind(cfg.chain, taskId, topicToAddress(lg.topics[3])),
         );
       } else if (t0 === TOPIC.paid) {
-        stmts.push(env.DB.prepare(`UPDATE task_index SET status = 'paid' WHERE chain = ? AND task_id = ?`).bind(CHAIN, taskId));
+        stmts.push(env.DB.prepare(`UPDATE task_index SET status = 'paid' WHERE chain = ? AND task_id = ?`).bind(cfg.chain, taskId));
       } else if (t0 === TOPIC.disputed) {
-        stmts.push(env.DB.prepare(`UPDATE task_index SET disputed = 1 WHERE chain = ? AND task_id = ?`).bind(CHAIN, taskId));
+        stmts.push(env.DB.prepare(`UPDATE task_index SET disputed = 1 WHERE chain = ? AND task_id = ?`).bind(cfg.chain, taskId));
       } else if (t0 === TOPIC.expired) {
-        stmts.push(env.DB.prepare(`UPDATE task_index SET status = 'expired' WHERE chain = ? AND task_id = ?`).bind(CHAIN, taskId));
+        stmts.push(env.DB.prepare(`UPDATE task_index SET status = 'expired' WHERE chain = ? AND task_id = ?`).bind(cfg.chain, taskId));
       } else if (t0 === TOPIC.resolved) {
         const outcome = Number(BigInt(`0x${lg.data.slice(2, 66) || '0'}`));
         const status =
           outcome === OUTCOME_REFUNDED ? 'resolved_refunded' : outcome === OUTCOME_SPLIT ? 'resolved_split' : 'resolved_paid';
-        stmts.push(env.DB.prepare(`UPDATE task_index SET status = ?, disputed = 1 WHERE chain = ? AND task_id = ?`).bind(status, CHAIN, taskId));
+        stmts.push(env.DB.prepare(`UPDATE task_index SET status = ?, disputed = 1 WHERE chain = ? AND task_id = ?`).bind(status, cfg.chain, taskId));
       }
     }
     stmts.push(
       env.DB.prepare(
         `INSERT INTO index_cursor (chain, last_block) VALUES (?, ?) ON CONFLICT(chain) DO UPDATE SET last_block = excluded.last_block`,
-      ).bind(CHAIN, Number(to)),
+      ).bind(cfg.chain, Number(to)),
     );
     await env.DB.batch(stmts);
 
@@ -144,7 +184,42 @@ export async function indexReputation(env: Env, opts: { maxChunks?: number } = {
     from = to + 1n;
     chunks++;
   }
-  return { indexed, fromBlock: Number(floor), toBlock: Number(lastTo), caughtUp: from > latest };
+  return { chain: cfg.chain, indexed, fromBlock: Number(cfg.fromBlock), toBlock: Number(lastTo), caughtUp: from > latest, chunks };
+}
+
+/**
+ * Read new escrow events into D1 across every configured chain, resuming from
+ * each chain's cursor. The chunk budget is shared, and a single chain's RPC
+ * failure is isolated (recorded, doesn't abort the others) so an Arc-testnet RPC
+ * hiccup never stalls Base indexing.
+ */
+export async function indexReputation(env: Env, opts: { maxChunks?: number } = {}): Promise<IndexResult> {
+  let remaining = opts.maxChunks ?? DEFAULT_MAX_CHUNKS;
+  const chains: ChainIndexResult[] = [];
+  let indexed = 0;
+  for (const cfg of chainConfigs(env)) {
+    if (remaining <= 0) {
+      chains.push({ chain: cfg.chain, indexed: 0, fromBlock: Number(cfg.fromBlock), toBlock: 0, caughtUp: false, chunks: 0 });
+      continue;
+    }
+    try {
+      const r = await indexChain(env, cfg, remaining);
+      chains.push(r);
+      indexed += r.indexed;
+      remaining -= r.chunks;
+    } catch (err) {
+      chains.push({
+        chain: cfg.chain,
+        indexed: 0,
+        fromBlock: Number(cfg.fromBlock),
+        toBlock: 0,
+        caughtUp: false,
+        chunks: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return { indexed, chains };
 }
 
 export interface AgentReputation {
@@ -158,10 +233,10 @@ export interface AgentReputation {
   score: number;
 }
 
-/** Aggregate the per-task index into a per-executor reputation score. */
-export async function getReputation(env: Env): Promise<AgentReputation[]> {
+/** Aggregate one chain's per-task index into a per-executor reputation score. */
+export async function getReputation(env: Env, chain: string = DEFAULT_CHAIN): Promise<AgentReputation[]> {
   const rows = await env.DB.prepare(`SELECT executor, status, disputed FROM task_index WHERE chain = ?`)
-    .bind(CHAIN)
+    .bind(chain)
     .all<{ executor: string; status: string; disputed: number }>();
 
   const agg = new Map<string, { total: number; success: number; failure: number; disputed: number }>();
@@ -206,8 +281,18 @@ export async function handleReputation(req: Request, env: Env): Promise<Response
   }
 
   if (req.method !== 'GET') return jsonResponse(405, { error: 'method not allowed' });
+  // `?chain=` selects which chain's index to read (ADR-0015 multi-chain). Default
+  // base; an unknown value is rejected rather than silently served as base.
+  const chain = url.searchParams.get('chain') ?? DEFAULT_CHAIN;
+  if (!KNOWN_CHAINS.has(chain)) {
+    return jsonResponse(400, { error: `unknown chain "${chain}"` });
+  }
   try {
-    return jsonResponse(200, { agents: await getReputation(env) }, { 'cache-control': 'public, max-age=60' });
+    return jsonResponse(
+      200,
+      { chain, agents: await getReputation(env, chain) },
+      { 'cache-control': 'public, max-age=60' },
+    );
   } catch (err) {
     return jsonResponse(502, { error: err instanceof Error ? err.message : 'read failed' });
   }
