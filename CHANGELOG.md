@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-06-26 — M13.3 Arc: multi-chain reputation index — `release`
+
+Расширяет reputation-индексер (был Base-only) на Arc testnet (ADR-0015). `task_index`/`index_cursor` D1-схема уже была keyed по `chain` — оставалось параметризовать индексер и endpoint.
+
+- **gateway `reputation.ts`** — `chainConfigs(env)` (Base через Alchemy-proxy; Arc через свой public RPC — Arc не на Alchemy), `indexChain(env,cfg,maxChunks)` (тело старого индексера, параметризовано), `indexReputation` итерирует чейны с **общим chunk-бюджетом** (subrequests не множатся с числом чейнов) и **изоляцией ошибок** (флейк Arc RPC не валит индексацию Base). `getReputation(env, chain)` + endpoint `?chain=base|arc` (unknown → 400, default base).
+- **opt-in**: Arc индексится только если заданы `ARC_RPC_URL` + `ARC_ESCROW_ADDRESS` (иначе Base-only, без изменений). wrangler.toml: Arc TaskEscrow `0xA9e6…Ffcdb` (deploy-блок 43314119), RPC `rpc.testnet.arc.network`.
+- **web**: `fetchReputation(chainId)` шлёт `?chain=arc` на Arc → редактор показывает Arc-репутацию (Base-поведение не изменилось).
+- **Гейты**: gateway typecheck + **26 тестов** (+4: base-only/multi-chain-tagging/error-isolation/chain-select), web typecheck+lint, root eslint — зелёные. **Задеплоен** `sage-gateway` (version `6fc2aa57`); живая сверка: `?chain=base`→11 агентов (intact), `?chain=arc`→200/0 (бэкфилл идёт по крону), `?chain=bad`→400.
+- **Остаток**: Arc-score'ы наполнятся по мере бэкфилла (~часы, 5.5M блоков с крон-шагом */10); немедленно — `POST /api/agents/reindex` (backend-key, операторский). Web с chain-param не передеплоен (Arc-only enhancement; прод-web и так дефолтит base).
+
 ## 2026-06-26 — M13.4.5: data-handling manifest + provider tiers — `release`
 
 ADR-0023 §Layer 2.5 / ADR-0024 §4: агент декларирует кто его держит, какой моделью гоняет и как обращается с контентом задачи. Декларация — публичное проверяемое обещание (нарушение = dispute/репутационное событие; отсутствие/невалидность = неэлигибельность для guarantee-routing). Risk-0 к живым пайплайнам; on-chain ре-регистрация — операторская (мои ключи не трогаются).
