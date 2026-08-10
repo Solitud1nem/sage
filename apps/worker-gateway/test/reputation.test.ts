@@ -26,7 +26,9 @@ interface Stmt {
   args: unknown[];
 }
 
-function fakeEnv(opts: { rows?: unknown[]; cursor?: number | null; arc?: boolean } = {}): { env: Env; batched: Stmt[] } {
+function fakeEnv(
+  opts: { rows?: unknown[]; cursor?: number | null; arc?: boolean; monad?: boolean; baseDisabled?: boolean } = {},
+): { env: Env; batched: Stmt[] } {
   const batched: Stmt[] = [];
   const DB = {
     prepare(sql: string) {
@@ -54,6 +56,10 @@ function fakeEnv(opts: { rows?: unknown[]; cursor?: number | null; arc?: boolean
     ...(opts.arc
       ? { ARC_RPC_URL: 'https://arc.example', ARC_ESCROW_ADDRESS: '0xarcescrow', ARC_ESCROW_FROM_BLOCK: '50' }
       : {}),
+    ...(opts.monad
+      ? { MONAD_RPC_URL: 'https://monad.example', MONAD_ESCROW_ADDRESS: '0xmonadescrow', MONAD_ESCROW_FROM_BLOCK: '1000' }
+      : {}),
+    ...(opts.baseDisabled ? { BASE_INDEX_DISABLED: 'true' } : {}),
     DB,
   } as unknown as Env;
   return { env, batched };
@@ -191,6 +197,44 @@ describe('multi-chain indexing (Arc, ADR-0015)', () => {
     expect(cursors.map((s) => s.args[0]).sort()).toEqual(['arc', 'base']);
   });
 
+  it('indexes Monad with ≤100-block getLogs chunks (ADR-0026)', async () => {
+    const ranges: Array<{ from: bigint; to: bigint }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: { body: string }) => {
+        const { method, params } = JSON.parse(init.body) as {
+          method: string;
+          params: Array<{ fromBlock: string; toBlock: string }>;
+        };
+        if (method === 'eth_blockNumber') return new Response(JSON.stringify({ result: '0x5dc' })); // 1500
+        if (url.includes('monad')) ranges.push({ from: BigInt(params[0]!.fromBlock), to: BigInt(params[0]!.toBlock) });
+        return new Response(JSON.stringify({ result: [] }));
+      }),
+    );
+    const out = await indexReputation(fakeEnv({ cursor: null, monad: true, baseDisabled: true }).env, {
+      maxChunks: 3,
+    });
+    expect(out.chains.map((c) => c.chain)).toEqual(['monad']);
+    expect(ranges.length).toBeGreaterThan(0);
+    for (const r of ranges) expect(r.to - r.from + 1n).toBeLessThanOrEqual(100n);
+    // fromBlock floor respected (MONAD_ESCROW_FROM_BLOCK = 1000).
+    expect(ranges[0]!.from).toBe(1000n);
+  });
+
+  it('BASE_INDEX_DISABLED removes Base from the cron; other chains unaffected', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_u: string, init: { body: string }) => {
+        const { method } = JSON.parse(init.body) as { method: string };
+        return new Response(JSON.stringify({ result: method === 'eth_blockNumber' ? '0x66' : [] }));
+      }),
+    );
+    const out = await indexReputation(fakeEnv({ cursor: null, arc: true, baseDisabled: true }).env, {
+      maxChunks: 2,
+    });
+    expect(out.chains.map((c) => c.chain)).toEqual(['arc']);
+  });
+
   it('isolates a chain RPC failure — Arc down, Base still indexes', async () => {
     vi.stubGlobal(
       'fetch',
@@ -222,6 +266,8 @@ describe('getReputation chain selection', () => {
     const env = { DB } as unknown as Env;
     await getReputation(env, 'arc');
     expect(bound).toBe('arc');
+    await getReputation(env, 'monad');
+    expect(bound).toBe('monad');
     await getReputation(env);
     expect(bound).toBe('base');
   });

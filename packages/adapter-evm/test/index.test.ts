@@ -4,6 +4,7 @@ import {
   baseSepolia,
   base,
   arcTestnet,
+  monadTestnet,
   createSageClient,
   createTaskEscrowV2Client,
   createAgentRegistryV2Client,
@@ -80,6 +81,35 @@ describe('chain configs', () => {
     expect(arcTestnet.contracts.easSchemaRegistry).toBeUndefined();
     expect(arcTestnet.contracts.createX).toBeUndefined();
     expect(arcTestnet.x402FacilitatorDefault).toBeUndefined();
+  });
+
+  it('monadTestnet has Monad chainId + WMON settlement + no-permit flag', () => {
+    // Per ADR-0026: WMON settlement (18 decimals, WETH9-style — no EIP-2612),
+    // V2-only chain (v1 registry = zero sentinel), registry V2 address shared
+    // with Base via CREATE3, escrow at the new sage:escrow-wmon:v1 salt.
+    expect(monadTestnet.chainId).toBe(10143);
+    expect(monadTestnet.name).toBe('monad-testnet');
+    expect(monadTestnet.rpc).toBe('https://testnet-rpc.monad.xyz');
+    expect(monadTestnet.explorer).toBe('https://testnet.monadscan.com');
+    // Settlement token field holds WMON (name historical, ADR-0004 era).
+    expect(monadTestnet.contracts.usdc).toBe('0xFb8bf4c1CC7a94c73D209a149eA2AbEa852BC541');
+    // v1 registry not deployed — fail-loud zero sentinel.
+    expect(monadTestnet.contracts.agentRegistry).toBe(
+      '0x0000000000000000000000000000000000000000',
+    );
+    // Same V2 registry address as Base (ADR-0001 CREATE3 invariant).
+    expect(monadTestnet.contracts.agentRegistryV2).toBe(base.contracts.agentRegistryV2);
+    expect(monadTestnet.contracts.taskEscrow).toBe('0xcc01a4F195f9c991A7BEB2c513cc30267fFfdAac');
+    expect(monadTestnet.contracts.createX).toBe('0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed');
+    expect(monadTestnet.settlement).toEqual({ symbol: 'WMON', decimals: 18, permit: false });
+    expect(monadTestnet.x402FacilitatorDefault).toBeUndefined();
+    expect(monadTestnet.contracts.eas).toBeUndefined();
+  });
+
+  it('pre-Monad chains carry no settlement override (USDC posture by default)', () => {
+    expect(base.settlement).toBeUndefined();
+    expect(baseSepolia.settlement).toBeUndefined();
+    expect(arcTestnet.settlement).toBeUndefined();
   });
 });
 

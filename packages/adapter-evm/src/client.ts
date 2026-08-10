@@ -68,6 +68,9 @@ export function createSageClient(options: CreateSageClientOptions): SageClient {
     walletClient,
     chain.contracts.taskEscrow,
     chain.contracts.usdc,
+    // Settlement tokens without EIP-2612 (WMON on Monad, ADR-0026) route
+    // createTask through the approve-path instead of permit signing.
+    chain.settlement && !chain.settlement.permit ? { permit: false } : undefined,
   );
 
   // `walletClient` is typed with a bound Account, so the old no-account

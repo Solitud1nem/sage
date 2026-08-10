@@ -9,7 +9,8 @@ import {
   type WirePlan,
   type WireSubTask,
 } from '@/hooks/use-composite-demo';
-import { formatUsdc } from '@/lib/format-usdc';
+import { formatUsdc, type Settlement } from '@/lib/format-usdc';
+import { settlementOf } from '@/chains/base';
 
 /**
  * Editable variant of `plan-card`. Toggles in via the parent page when the
@@ -102,6 +103,7 @@ function executorOptionsFor(
   registryAgents: readonly RegistryAgent[],
   envKnown: readonly KnownExecutor[],
   reputation: ReadonlyMap<string, number>,
+  settlement?: Settlement,
 ): ExecutorOption[] {
   const NEUTRAL = 0.5;
   interface Cand {
@@ -122,7 +124,11 @@ function executorOptionsFor(
   for (const a of registryAgents) {
     const cap = a.capabilities.find((c) => c.name === type);
     if (cap)
-      push(`${type} · ${shortAddr(a.address)} · ${formatUsdc(cap.price)}`, a.address, safeBig(cap.price));
+      push(
+        `${type} · ${shortAddr(a.address)} · ${formatUsdc(cap.price, settlement)}`,
+        a.address,
+        safeBig(cap.price),
+      );
   }
   // No exact-capability match (e.g. a composite plan whose `type` is a free
   // descriptor): still offer every registry agent so the dropdown isn't empty.
@@ -183,6 +189,9 @@ export function PlanEditor({
 }: PlanEditorProps) {
   const [brief] = useState(initialPlan.brief);
   const [subtasks, setSubtasks] = useState<WireSubTask[]>(initialPlan.subtasks);
+  // Settlement-token metadata for price labels (ADR-0026): WMON on Monad.
+  // Memoized so effects depending on it don't re-fire on identity churn.
+  const settlement = useMemo(() => settlementOf(chainId), [chainId]);
   const envKnown = useMemo(loadKnownExecutors, []);
   const [registryAgents, setRegistryAgents] = useState<RegistryAgent[]>([]);
   const [reputation, setReputation] = useState<ReadonlyMap<string, number>>(new Map());
@@ -211,11 +220,11 @@ export function PlanEditor({
     setSubtasks((prev) =>
       prev.map((s) => {
         if (s.executor_address) return s;
-        const best = executorOptionsFor(s.type, registryAgents, envKnown, reputation)[0];
+        const best = executorOptionsFor(s.type, registryAgents, envKnown, reputation, settlement)[0];
         return best ? { ...s, executor_address: best.address } : s;
       }),
     );
-  }, [registryAgents, reputation, envKnown]);
+  }, [registryAgents, reputation, envKnown, settlement]);
 
   const totalCost = useMemo(
     () =>
@@ -328,7 +337,7 @@ export function PlanEditor({
             key={sub.id}
             sub={sub}
             locked={locked}
-            executorOptions={executorOptionsFor(sub.type, registryAgents, envKnown, reputation)}
+            executorOptions={executorOptionsFor(sub.type, registryAgents, envKnown, reputation, settlement)}
             allIds={subtasks.map((s) => s.id).filter((id) => id !== sub.id)}
             canMoveUp={idx > 0}
             canMoveDown={idx < subtasks.length - 1}
@@ -358,7 +367,7 @@ export function PlanEditor({
             Total cost
           </div>
           <div className="font-mono text-[16px] text-text font-medium">
-            {formatUsdc(totalCost.toString())}
+            {formatUsdc(totalCost.toString(), settlement)}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

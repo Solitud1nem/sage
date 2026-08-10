@@ -14,6 +14,7 @@
  */
 
 import { ARC_TESTNET, ARC_TESTNET_CHAIN_ID } from './arc';
+import { MONAD_TESTNET, MONAD_TESTNET_CHAIN_ID } from './monad';
 
 /** Base chain ids — single source for the literals (CR.14). */
 export const BASE_MAINNET_CHAIN_ID = 8453;
@@ -23,7 +24,8 @@ export const BASE_SEPOLIA_CHAIN_ID = 84532;
 export type SageChainId =
   | typeof BASE_MAINNET_CHAIN_ID
   | typeof BASE_SEPOLIA_CHAIN_ID
-  | typeof ARC_TESTNET_CHAIN_ID;
+  | typeof ARC_TESTNET_CHAIN_ID
+  | typeof MONAD_TESTNET_CHAIN_ID;
 
 export interface SageChainConfig {
   chainId: SageChainId;
@@ -46,6 +48,18 @@ export interface SageChainConfig {
   };
   /** Coinbase x402 facilitator — supports Base; not Arc. */
   x402FacilitatorDefault?: string;
+  /**
+   * Settlement-token metadata (ADR-0026). Absent = USDC posture (6 decimals,
+   * "USDC" label) — Base / Sepolia / Arc. Monad settles in WMON (18 decimals);
+   * amount formatting and labels follow this field via `settlementOf()`.
+   */
+  settlement?: { symbol: string; decimals: number };
+}
+
+/** Settlement metadata for a chain id — USDC/6 unless the config overrides. */
+export function settlementOf(chainId: number): { symbol: string; decimals: number } {
+  const cfg = SAGE_CHAINS[chainId as keyof typeof SAGE_CHAINS] as SageChainConfig | undefined;
+  return cfg?.settlement ?? { symbol: 'USDC', decimals: 6 };
 }
 
 export const BASE_MAINNET: SageChainConfig = {
@@ -96,6 +110,7 @@ export const SAGE_CHAINS = {
   [BASE_MAINNET_CHAIN_ID]: BASE_MAINNET,
   [BASE_SEPOLIA_CHAIN_ID]: BASE_SEPOLIA,
   [ARC_TESTNET_CHAIN_ID]: ARC_TESTNET,
+  [MONAD_TESTNET_CHAIN_ID]: MONAD_TESTNET,
 } as const satisfies Record<SageChainId, SageChainConfig>;
 
 /** Default chain for landing + demo. */

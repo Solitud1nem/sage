@@ -13,7 +13,7 @@
  */
 
 import type { Address, PublicClient } from 'viem';
-import { base, baseSepolia, arcTestnet } from '@sage/adapter-evm';
+import { base, baseSepolia, arcTestnet, monadTestnet } from '@sage/adapter-evm';
 
 import { createSageFromConfig, type AgentConfig, type ChainKey } from '../shared/config.js';
 import type { LoadedIdentity } from './identities.js';
@@ -45,12 +45,14 @@ export function resolveChainStrict(env: Record<string, string | undefined>): Cha
   if (chain === 'mainnet' || chain === 'base') return 'mainnet';
   if (chain === 'sepolia' || chain === 'base-sepolia') return 'sepolia';
   if (chain === 'arc' || chain === 'arc-testnet') return 'arc-testnet';
+  if (chain === 'monad' || chain === 'monad-testnet') return 'monad-testnet';
   const chainId = env['CHAIN_ID'];
   if (chainId === '8453') return 'mainnet';
   if (chainId === '84532') return 'sepolia';
   if (chainId === '5042002') return 'arc-testnet';
+  if (chainId === '10143') return 'monad-testnet';
   throw new Error(
-    'Generic worker requires an explicit CHAIN (mainnet|sepolia|arc) or CHAIN_ID — ' +
+    'Generic worker requires an explicit CHAIN (mainnet|sepolia|arc|monad) or CHAIN_ID — ' +
       'no RPC-URL sniffing here, see GOTCHAS (a missing CHAIN once sent prod to Sepolia).',
   );
 }
@@ -60,6 +62,7 @@ const DEFAULT_RPC: Record<ChainKey, string> = {
   mainnet: base.rpc,
   sepolia: baseSepolia.rpc,
   'arc-testnet': arcTestnet.rpc,
+  'monad-testnet': monadTestnet.rpc,
 };
 
 export function buildWorkerRuntime(

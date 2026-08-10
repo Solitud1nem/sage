@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import type { SubTaskRuntime, WireSubTask } from '@/hooks/use-composite-demo';
-import { formatUsdc } from '@/lib/format-usdc';
+import { formatUsdc, type Settlement } from '@/lib/format-usdc';
 
 /**
  * Slide-out drawer surfacing one sub-task's runtime detail. Renders when a
@@ -27,6 +27,8 @@ interface SubtaskDrawerProps {
   subtask: WireSubTask | null;
   runtime: SubTaskRuntime | undefined;
   explorerUrl: string | null;
+  /** Settlement-token metadata (ADR-0026) — USDC default, WMON on Monad. */
+  settlement?: Settlement;
   onClose: () => void;
 }
 
@@ -34,6 +36,7 @@ export function SubtaskDrawer({
   subtask,
   runtime,
   explorerUrl,
+  settlement,
   onClose,
 }: SubtaskDrawerProps) {
   // Escape-to-close.
@@ -140,7 +143,7 @@ export function SubtaskDrawer({
 
           <Section title="Cost">
             <span className="font-mono text-[13px] text-text">
-              {formatUsdc(subtask.estimated_cost_units)}
+              {formatUsdc(subtask.estimated_cost_units, settlement)}
             </span>
           </Section>
 

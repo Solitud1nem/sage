@@ -36,7 +36,12 @@ export type { CreateSageClientOptions, SageClient } from './client.js';
 // Chain configs
 export { base, baseSepolia } from './chains/base.js';
 export { arcTestnet } from './chains/arc.js';
+export { monadTestnet } from './chains/monad.js';
 export type { ChainConfig } from './chains/base.js';
+
+// Approve-path (no-permit settlement tokens, ADR-0026)
+export { createAllowanceEnsurer, ZERO_PERMIT } from './approve.js';
+export type { TaskEscrowClientOptions } from './task-escrow.js';
 
 // x402 pay-per-call
 export { createX402Client } from './x402.js';

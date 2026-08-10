@@ -8,10 +8,10 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base as baseMainnetChain, baseSepolia as baseSepoliaChain } from 'viem/chains';
-import { createSageClient, base, baseSepolia, arcTestnet } from '@sage/adapter-evm';
+import { createSageClient, base, baseSepolia, arcTestnet, monadTestnet } from '@sage/adapter-evm';
 import type { ChainConfig } from '@sage/adapter-evm';
 
-export type ChainKey = 'mainnet' | 'sepolia' | 'arc-testnet';
+export type ChainKey = 'mainnet' | 'sepolia' | 'arc-testnet' | 'monad-testnet';
 
 export interface AgentConfig {
   privateKey: `0x${string}`;
@@ -31,17 +31,20 @@ function resolveChain(env: string | undefined): ChainKey {
   if (env === 'mainnet' || env === 'base') return 'mainnet';
   if (env === 'sepolia' || env === 'base-sepolia') return 'sepolia';
   if (env === 'arc' || env === 'arc-testnet') return 'arc-testnet';
+  if (env === 'monad' || env === 'monad-testnet') return 'monad-testnet';
   // CHAIN_ID is authoritative when set. Falls through to RPC sniffing
   // for legacy configs.
   const chainId = process.env['CHAIN_ID'];
   if (chainId === '8453') return 'mainnet';
   if (chainId === '84532') return 'sepolia';
   if (chainId === '5042002') return 'arc-testnet';
+  if (chainId === '10143') return 'monad-testnet';
   // Last-resort URL sniff. Note: proxied RPCs (e.g. through a Cloudflare
   // Worker) won't contain 'mainnet'/'sepolia' tokens -- set CHAIN or
   // CHAIN_ID explicitly in those deployments.
   const rpc = process.env['RPC_URL'] ?? '';
   if (rpc.includes('arc.network')) return 'arc-testnet';
+  if (rpc.includes('monad')) return 'monad-testnet';
   if (rpc.includes('mainnet') && !rpc.includes('sepolia')) return 'mainnet';
   return 'sepolia';
 }
@@ -62,10 +65,27 @@ const arcTestnetViem: Chain = defineChain({
   testnet: true,
 });
 
+// viem doesn't ship a Monad testnet definition either. Native currency MON,
+// 18 decimals; settlement runs in WMON through the same escrow bytecode
+// (ADR-0026 — approve-path, wrap at the edges).
+const monadTestnetViem: Chain = defineChain({
+  id: 10143,
+  name: 'Monad Testnet',
+  nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://testnet-rpc.monad.xyz'] },
+  },
+  blockExplorers: {
+    default: { name: 'Monadscan', url: 'https://testnet.monadscan.com' },
+  },
+  testnet: true,
+});
+
 const CHAIN_MAP: Record<ChainKey, { viem: Chain; sage: ChainConfig }> = {
   mainnet: { viem: baseMainnetChain, sage: base },
   sepolia: { viem: baseSepoliaChain, sage: baseSepolia },
   'arc-testnet': { viem: arcTestnetViem, sage: arcTestnet },
+  'monad-testnet': { viem: monadTestnetViem, sage: monadTestnet },
 };
 
 export function loadConfig(defaultPort: number): AgentConfig {

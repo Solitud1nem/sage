@@ -20,10 +20,10 @@
 
 /* eslint-disable no-console -- CLI tool: stdout is the interface */
 import { privateKeyToAccount } from 'viem/accounts';
-import { createPublicClient, createWalletClient, http, nonceManager } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, http, nonceManager } from 'viem';
 import { base as baseChainDef, baseSepolia as baseSepoliaChainDef } from 'viem/chains';
 import { agentId, capability as capBrand, encodeAgentManifest, type AgentManifest } from '@sage/core';
-import { base, baseSepolia, createAgentRegistryV2Client } from '@sage/adapter-evm';
+import { base, baseSepolia, monadTestnet, createAgentRegistryV2Client } from '@sage/adapter-evm';
 
 const [id, capabilityName, priceRaw, endpointArg] = process.argv.slice(2);
 if (!id || !capabilityName || !priceRaw || !/^\d+$/.test(priceRaw)) {
@@ -75,14 +75,26 @@ function buildManifest(): AgentManifest {
 }
 const profileUri = encodeAgentManifest(buildManifest());
 
+// Mirror of shared/config.ts monadTestnetViem — this script stays standalone
+// (no src/ imports) like the rest of its chain handling.
+const monadTestnetChainDef = defineChain({
+  id: 10143,
+  name: 'Monad Testnet',
+  nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+  rpcUrls: { default: { http: [monadTestnet.rpc] } },
+  blockExplorers: { default: { name: 'Monadscan', url: monadTestnet.explorer } },
+  testnet: true,
+});
+
 const CHAIN = process.env['CHAIN'];
-if (CHAIN !== 'mainnet' && CHAIN !== 'sepolia') {
+if (CHAIN !== 'mainnet' && CHAIN !== 'sepolia' && CHAIN !== 'monad-testnet') {
   // Same explicit-only posture as the worker runtime (GOTCHAS: silent Sepolia).
-  console.error('Set CHAIN=mainnet or CHAIN=sepolia explicitly.');
+  console.error('Set CHAIN=mainnet, CHAIN=sepolia or CHAIN=monad-testnet explicitly.');
   process.exit(1);
 }
-const sageChain = CHAIN === 'sepolia' ? baseSepolia : base;
-const viemChain = CHAIN === 'sepolia' ? baseSepoliaChainDef : baseChainDef;
+const sageChain = CHAIN === 'sepolia' ? baseSepolia : CHAIN === 'monad-testnet' ? monadTestnet : base;
+const viemChain =
+  CHAIN === 'sepolia' ? baseSepoliaChainDef : CHAIN === 'monad-testnet' ? monadTestnetChainDef : baseChainDef;
 const rpcUrl = process.env['RPC_URL'] ?? sageChain.rpc;
 
 const envName = `${id.toUpperCase().replace(/-/g, '_')}_PRIVATE_KEY`;

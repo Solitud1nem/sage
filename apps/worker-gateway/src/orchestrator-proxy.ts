@@ -58,15 +58,18 @@ export async function handleOrchestrator(
     }
   }
 
-  // Chain selection: `?chain=arc` routes to the Arc Fly app per ADR-0015.
-  // Everything else (default, `?chain=base`, malformed values) goes to the
-  // Base mainnet app. We intentionally keep the rate limit shared across
-  // chains — a prototype-stage chain switch shouldn't double the budget.
+  // Chain selection: `?chain=arc` routes to the Arc Fly app (ADR-0015),
+  // `?chain=monad` to the Monad-testnet app (ADR-0026). Everything else
+  // (default, `?chain=base`, malformed values) goes to the Base mainnet app.
+  // We intentionally keep the rate limit shared across chains — a
+  // prototype-stage chain switch shouldn't double the budget.
   const chainParam = url.searchParams.get('chain');
   const upstreamBase =
     chainParam === 'arc' && env.ORCHESTRATOR_URL_ARC
       ? env.ORCHESTRATOR_URL_ARC
-      : env.ORCHESTRATOR_URL;
+      : chainParam === 'monad' && env.ORCHESTRATOR_URL_MONAD
+        ? env.ORCHESTRATOR_URL_MONAD
+        : env.ORCHESTRATOR_URL;
 
   // Forward to Fly.io. Strip the `chain` param from the forwarded URL so
   // the orchestrator sees clean paths; it already knows which chain it's

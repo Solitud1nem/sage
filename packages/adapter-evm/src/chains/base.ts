@@ -37,6 +37,20 @@ export interface ChainConfig {
    * Arc works independently of x402 — ADR-0003).
    */
   readonly x402FacilitatorDefault?: string;
+  /**
+   * Settlement-token metadata. Absent = the Circle-USDC posture every chain
+   * had before ADR-0026: 6 decimals, EIP-2612 permit intact. Chains whose
+   * settlement token lacks permit (WMON on Monad is WETH9-style) set
+   * `permit: false`, which routes `createTask` through the approve-path
+   * (allowance top-up + zeroed PermitData; the escrow's try/catch permit
+   * call tolerates both shapes). `decimals` is the display/parsing hint for
+   * amount-handling callers — on-chain amounts are always base units.
+   */
+  readonly settlement?: {
+    readonly symbol: string;
+    readonly decimals: number;
+    readonly permit: boolean;
+  };
 }
 
 export const baseSepolia: ChainConfig = {

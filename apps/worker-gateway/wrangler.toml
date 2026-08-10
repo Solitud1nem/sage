@@ -35,6 +35,18 @@ ESCROW_FROM_BLOCK = "47057463"
 ARC_RPC_URL = "https://rpc.testnet.arc.network"
 ARC_ESCROW_ADDRESS = "0xA9e6Dc31F21149868C0fd43C83038C74cC8Ffcdb"
 ARC_ESCROW_FROM_BLOCK = "43314119"
+# ADR-0026 Monad testnet (M14.4). `?chain=monad` routes demo traffic to the
+# Monad Fly app and serves Monad reputation scores. Indexer reads the public
+# QuickNode RPC directly (chunk ≤100 blocks — enforced per-chain in code).
+# TaskEscrowV2(WMON) deployed 2026-08-10, salt sage:escrow-wmon:v1.
+ORCHESTRATOR_URL_MONAD = "https://sage-demo-agents-monad.fly.dev"
+MONAD_RPC_URL = "https://testnet-rpc.monad.xyz"
+MONAD_ESCROW_ADDRESS = "0xcc01a4F195f9c991A7BEB2c513cc30267fFfdAac"
+MONAD_ESCROW_FROM_BLOCK = "52461965"
+# Hibernation switch (ADR-0026): Base prod sleeps since 2026-08-05 — "true"
+# keeps the restored cron from hitting Alchemy for Base; `?chain=base` reads
+# keep serving frozen D1 data. Flip to "false" (or delete) on Base wake-up.
+BASE_INDEX_DISABLED = "true"
 DAILY_LIMIT = "30"  # TEMPORARY test rebaseline (Alex 2026-06-11, M12.1.3 hands-on testing) — public positioning is 3/IP/day (README/KB, Alex 2026-06-10); REVERT to "3" at M12.4.3 before the public narrative ships.
 ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage-web.pages.dev,http://localhost:3000,http://localhost:3001"
 

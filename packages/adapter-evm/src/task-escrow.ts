@@ -3,7 +3,8 @@ import type { TaskId, TaskRecord, TaskSpec } from '@sage/core';
 import type { TaskClient } from '@sage/core';
 import { agentId, taskId, TaskStatus } from '@sage/core';
 import { taskEscrowAbi } from './abi/index.js';
-import { createPermitSigner } from './permit.js';
+import { createPermitSigner, type PermitSignature } from './permit.js';
+import { createAllowanceEnsurer, ZERO_PERMIT } from './approve.js';
 
 /**
  * WalletClient with chain + account bound. Required for `writeContract` to
@@ -46,19 +47,38 @@ function decodeStatus(raw: number): TaskStatus {
   return status;
 }
 
+export interface TaskEscrowClientOptions {
+  /**
+   * `false` = the settlement token has no EIP-2612 permit (WMON on Monad,
+   * ADR-0026): `createTask` ensures an allowance via `approve` and passes a
+   * zeroed PermitData instead of signing. Default `true` (USDC posture).
+   */
+  readonly permit?: boolean;
+}
+
 export function createTaskEscrowClient(
   publicClient: PublicClient,
   walletClient: BoundWalletClient,
   escrowAddress: `0x${string}`,
   usdcAddress: `0x${string}`,
+  opts?: TaskEscrowClientOptions,
 ): TaskClient {
+  const usePermit = opts?.permit !== false;
   // EIP-2612 permit signing is shared across the v1/v2 clients —
   // see permit.ts (EIP-5267 domain discovery + per-token cache, CR.13).
+  // The approve-path twin lives in approve.ts (ADR-0026).
   const signPermit = createPermitSigner(publicClient, walletClient, usdcAddress, escrowAddress);
+  const ensureAllowance = createAllowanceEnsurer(publicClient, walletClient, usdcAddress, escrowAddress);
 
   return {
     async createTask(spec: TaskSpec): Promise<TaskId> {
-      const permit = await signPermit(spec.amount);
+      let permit: PermitSignature;
+      if (usePermit) {
+        permit = await signPermit(spec.amount);
+      } else {
+        await ensureAllowance(spec.amount);
+        permit = ZERO_PERMIT;
+      }
 
       const hash = await walletClient.writeContract({
         address: escrowAddress,

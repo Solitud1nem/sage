@@ -13,9 +13,10 @@ import { ReplanPrompt } from '@/components/demo/replan-prompt';
 import { ReviewPrompt } from '@/components/demo/review-prompt';
 import { ErrorPanel } from '@/components/demo/error-panel';
 import { track } from '@/lib/posthog';
-import { formatUsdc } from '@/lib/format-usdc';
+import { formatUsdc, type Settlement } from '@/lib/format-usdc';
 import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
-import { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
+import { MONAD_TESTNET_CHAIN_ID } from '@/chains/monad';
+import { BASE_MAINNET_CHAIN_ID, settlementOf } from '@/chains/base';
 import {
   useCompositeDemo,
   planFromClassification,
@@ -91,15 +92,28 @@ function CompositePageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  // Monad is the DEFAULT while Base/Arc demo stacks hibernate (2026-08):
+  // a bare /demo/composite must land on the chain that actually runs.
+  // Explicit ?chain=base / ?chain=arc deep-links still resolve (legacy
+  // links, ops checks) — the picker just renders those pills paused.
+  const chainParam = searchParams.get('chain');
   const chainId: CompositeChainId =
-    searchParams.get('chain') === 'arc' ? ARC_TESTNET_CHAIN_ID : BASE_MAINNET_CHAIN_ID;
+    chainParam === 'arc'
+      ? ARC_TESTNET_CHAIN_ID
+      : chainParam === 'base'
+        ? BASE_MAINNET_CHAIN_ID
+        : MONAD_TESTNET_CHAIN_ID;
 
   const demo = useCompositeDemo(chainId);
+  // Settlement-token metadata for amount rendering (ADR-0026): USDC on
+  // Base/Arc, WMON (18 decimals) on Monad.
+  const settlement = settlementOf(chainId);
 
   const setChain = useCallback(
     (next: CompositeChainId) => {
       const params = new URLSearchParams(searchParams.toString());
       if (next === ARC_TESTNET_CHAIN_ID) params.set('chain', 'arc');
+      else if (next === BASE_MAINNET_CHAIN_ID) params.set('chain', 'base');
       else params.delete('chain');
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -343,6 +357,7 @@ function CompositePageInner() {
               estimated_total_cost_units: planForDisplay.estimated_total_cost_units,
             }}
             brief={brief}
+            settlement={settlement}
             onApprove={handleApprove}
             // Editing is available in every mode (M13.1.1). Website & research
             // are fixed templates, so the editor opens in `locked` mode — it
@@ -388,6 +403,7 @@ function CompositePageInner() {
             startedAt={demo.startedAt}
             completedAt={demo.completedAt}
             totalCost={planForDisplay.estimated_total_cost_units}
+            settlement={settlement}
           />
           <PlanGraph
             subtasks={planForDisplay.subtasks}
@@ -608,6 +624,7 @@ function CompositePageInner() {
         subtask={selectedSubtask}
         runtime={selectedSubId !== null ? demo.runtimes[selectedSubId] : undefined}
         explorerUrl={demo.explorerUrl}
+        settlement={settlement}
         onClose={() => setSelectedSubId(null)}
       />
     </div>
@@ -623,6 +640,7 @@ function RunHeader({
   startedAt,
   completedAt,
   totalCost,
+  settlement,
 }: {
   status: string;
   chainName: string | null;
@@ -630,6 +648,7 @@ function RunHeader({
   startedAt: number | null;
   completedAt: number | null;
   totalCost: string;
+  settlement: Settlement;
 }) {
   const elapsed = startedAt
     ? Math.round(((completedAt ?? Date.now()) - startedAt) / 1000)
@@ -652,7 +671,7 @@ function RunHeader({
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[12px]">
         <Metric label="Elapsed" value={`${elapsed}s`} />
-        <Metric label="Total cost" value={formatUsdc(totalCost)} />
+        <Metric label="Total cost" value={formatUsdc(totalCost, settlement)} />
         <span
           className="inline-flex items-center gap-2 h-[26px] px-3 rounded-full border font-mono text-[11px] uppercase tracking-[0.08em]"
           style={{ borderColor: accent, color: accent }}

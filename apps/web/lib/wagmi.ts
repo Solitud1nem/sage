@@ -15,6 +15,7 @@ import { base, baseSepolia, mainnet } from 'wagmi/chains';
 import { coinbaseWallet, injected, metaMask, walletConnect } from 'wagmi/connectors';
 
 import { ARC_TESTNET, arcTestnetChain } from '@/chains/arc';
+import { MONAD_TESTNET, monadTestnetChain } from '@/chains/monad';
 
 const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? '';
 
@@ -27,11 +28,12 @@ const rpcBaseSepolia = 'https://sepolia.base.org';
 const rpcEthMainnet = 'https://cloudflare-eth.com';
 
 export const wagmiConfig: ReturnType<typeof createConfig> = createConfig({
-  chains: [base, baseSepolia, arcTestnetChain, mainnet],
+  chains: [base, baseSepolia, arcTestnetChain, monadTestnetChain, mainnet],
   transports: {
     [base.id]: http(rpcBase),
     [baseSepolia.id]: http(rpcBaseSepolia),
     [arcTestnetChain.id]: http(ARC_TESTNET.rpcUrl),
+    [monadTestnetChain.id]: http(MONAD_TESTNET.rpcUrl),
     [mainnet.id]: http(rpcEthMainnet),
   },
   // Bumped from wagmi's 4s default. Live tx stream + any watch-event

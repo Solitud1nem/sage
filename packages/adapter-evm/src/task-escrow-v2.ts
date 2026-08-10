@@ -20,7 +20,9 @@ import type { Account, Chain, PublicClient, Transport, WalletClient } from 'viem
 import type { DisputeOutcome, TaskClientV2, TaskId, TaskRecord, TaskSpec } from '@sage/core';
 import { agentId, taskId, TaskStatus } from '@sage/core';
 import { taskEscrowV2Abi } from './abi/index.js';
-import { createPermitSigner } from './permit.js';
+import { createPermitSigner, type PermitSignature } from './permit.js';
+import { createAllowanceEnsurer, ZERO_PERMIT } from './approve.js';
+import type { TaskEscrowClientOptions } from './task-escrow.js';
 
 type BoundWalletClient = WalletClient<Transport, Chain, Account>;
 
@@ -62,14 +64,24 @@ export function createTaskEscrowV2Client(
   walletClient: BoundWalletClient,
   escrowAddress: `0x${string}`,
   usdcAddress: `0x${string}`,
+  opts?: TaskEscrowClientOptions,
 ): TaskClientV2 {
+  const usePermit = opts?.permit !== false;
   // EIP-2612 permit signing is shared across the v1/v2 clients —
   // see permit.ts (EIP-5267 domain discovery + per-token cache, CR.13).
+  // The approve-path twin lives in approve.ts (ADR-0026).
   const signPermit = createPermitSigner(publicClient, walletClient, usdcAddress, escrowAddress);
+  const ensureAllowance = createAllowanceEnsurer(publicClient, walletClient, usdcAddress, escrowAddress);
 
   return {
     async createTask(spec: TaskSpec): Promise<TaskId> {
-      const permit = await signPermit(spec.amount);
+      let permit: PermitSignature;
+      if (usePermit) {
+        permit = await signPermit(spec.amount);
+      } else {
+        await ensureAllowance(spec.amount);
+        permit = ZERO_PERMIT;
+      }
 
       const hash = await walletClient.writeContract({
         address: escrowAddress,

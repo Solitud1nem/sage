@@ -4,13 +4,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
 
 import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
+import { MONAD_TESTNET_CHAIN_ID } from '@/chains/monad';
 import type { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
 import { track, readConsent } from '@/lib/posthog';
 
-/** Chains the composite-demo orchestrators run on (per ADR-0015). */
+/** Chains the composite-demo orchestrators run on (ADR-0015 / ADR-0026). */
 export type CompositeChainId =
   | typeof BASE_MAINNET_CHAIN_ID
-  | typeof ARC_TESTNET_CHAIN_ID;
+  | typeof ARC_TESTNET_CHAIN_ID
+  | typeof MONAD_TESTNET_CHAIN_ID;
 
 /**
  * Capture an exception to Sentry with the composite-flow tags so we can
@@ -67,7 +69,9 @@ const ORCHESTRATOR_URL =
  * Worker treats absence and `chain=base` identically.
  */
 function chainQs(chainId: number): string {
-  return chainId === ARC_TESTNET_CHAIN_ID ? '?chain=arc' : '';
+  if (chainId === ARC_TESTNET_CHAIN_ID) return '?chain=arc';
+  if (chainId === MONAD_TESTNET_CHAIN_ID) return '?chain=monad';
+  return '';
 }
 
 /**
@@ -922,7 +926,8 @@ export async function fetchRegistryAgents(chainId: number): Promise<RegistryAgen
  * the indexer tracks Arc as well as Base (M13.3 Arc extension).
  */
 export async function fetchReputation(chainId?: number): Promise<Map<string, number>> {
-  const chain = chainId === ARC_TESTNET_CHAIN_ID ? 'arc' : 'base';
+  const chain =
+    chainId === ARC_TESTNET_CHAIN_ID ? 'arc' : chainId === MONAD_TESTNET_CHAIN_ID ? 'monad' : 'base';
   try {
     const res = await fetch(`${ORCHESTRATOR_URL}/api/agents/reputation?chain=${chain}`, { method: 'GET' });
     if (!res.ok) return new Map();

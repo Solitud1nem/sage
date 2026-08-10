@@ -13,6 +13,10 @@ const USDC_BY_CHAIN: Record<number, Address> = {
   8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Base mainnet
   84532: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', // Base Sepolia
   5042002: '0x3600000000000000000000000000000000000000', // Arc testnet (verified per ADR-0015)
+  // Monad testnet settles in WMON (18 decimals, ADR-0026) — the guard
+  // compares raw base units, so SPONSOR_MIN_BALANCE_USDC must be set in
+  // WMON base units (1 WMON = 1e18) on Monad deployments.
+  10143: '0xFb8bf4c1CC7a94c73D209a149eA2AbEa852BC541', // Monad testnet WMON
 };
 
 const ERC20_BALANCE_OF_ABI = [
@@ -78,10 +82,16 @@ export async function checkSponsorStatus(
   };
 }
 
-/** Format USDC 6-decimal bigint as "0.500" style string. */
-export function formatUsdc(amount: bigint): string {
-  const whole = amount / 1_000_000n;
-  const frac = amount % 1_000_000n;
-  const fracStr = frac.toString().padStart(6, '0').slice(0, 3);
+/**
+ * Format a settlement-token base-unit bigint as "0.500" style string.
+ * Defaults to USDC's 6 decimals; pass the chain's settlement decimals for
+ * non-USDC chains (WMON = 18 on Monad, ADR-0026). Always renders 3 fraction
+ * digits — a display convention, not a precision claim.
+ */
+export function formatUsdc(amount: bigint, decimals: number = 6): string {
+  const divisor = 10n ** BigInt(decimals);
+  const whole = amount / divisor;
+  const frac = amount % divisor;
+  const fracStr = frac.toString().padStart(decimals, '0').slice(0, 3);
   return `${whole.toString()}.${fracStr}`;
 }

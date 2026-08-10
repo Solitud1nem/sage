@@ -121,6 +121,44 @@ export function loadOrchestratorEnv(): OrchestratorEnv {
   };
 }
 
+/**
+ * Fail-loud money-env check for non-6-decimal settlement tokens (ADR-0026).
+ *
+ * Every bigint knob above defaults to a USDC-sized value (6 decimals). On a
+ * chain whose settlement token has different decimals (WMON = 18 on Monad),
+ * those defaults are economic nonsense: caps become dust (every run blocked)
+ * or floors become dust (guards silently disabled). Rather than guessing a
+ * conversion (decimals ≠ FX — 1 WMON is not 1 USDC), the deployment MUST set
+ * the amounts explicitly in the settlement token's base units.
+ *
+ * Call at boot once the chain config is known. No-op for 6-decimal chains,
+ * throws with the full missing-var list otherwise — the same fail-loud
+ * posture as the CHAIN env rule (GOTCHAS).
+ */
+export function assertMoneyEnvForSettlement(
+  settlement: { readonly symbol: string; readonly decimals: number } | undefined,
+): void {
+  if (!settlement || settlement.decimals === 6) return;
+  const required = [
+    'TASK_AMOUNT',
+    'SPONSOR_MIN_BALANCE_USDC',
+    'MAX_SUBTASK_UNITS',
+    'MAX_PLAN_TOTAL_UNITS',
+    'MAX_RUN_SPEND_UNITS',
+  ];
+  // Quarantine ceiling only bites when the foreign-agent framework is armed.
+  if (process.env.FIRST_PARTY_AGENTS) required.push('QUARANTINE_MAX_UNITS');
+  const missing = required.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Settlement token ${settlement.symbol} has ${settlement.decimals} decimals — ` +
+        `the 6-decimal USDC defaults would be economic nonsense. Set explicitly (in ` +
+        `${settlement.symbol} base units, 1 ${settlement.symbol} = 1e${settlement.decimals}): ` +
+        missing.join(', '),
+    );
+  }
+}
+
 /** Parse a boolean env var. Unset → fallback; `false`/`0`/`no`/`off` → false;
  *  anything else → true. */
 function parseBoolEnv(name: string, fallback: boolean): boolean {

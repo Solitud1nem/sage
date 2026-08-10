@@ -1,0 +1,99 @@
+#
+# Sage demo-agents — Monad testnet orchestrator Fly.io app (M14.3, ADR-0026).
+#
+# Mirror of fly.arc.toml minus the legacy 3-mode workers: Monad runs ONLY the
+# composite pipelines (website + research) — workers live in the separate
+# generic-worker app (fly.workers.monad.toml), woken via registry endpoints.
+# Separate-app-per-chain reasoning is unchanged from Arc: production isolation,
+# no per-chain dual-paths in server.ts, per-chain sponsor/nonce/run-registry
+# segregation by process.
+#
+# Money envs are MANDATORY here (WMON = 18 decimals): the orchestrator boot
+# runs assertMoneyEnvForSettlement and refuses the 6-decimal USDC defaults.
+# Values below match the M14.3 demo price table (~4x below dollar parity;
+# website run ≈ 1.95 WMON, research run ≈ 2.85 WMON).
+#
+# Deploy — ALL fly commands from the REPO ROOT (monorepo build context,
+# GOTCHAS M10.2.9):
+#   fly apps create sage-demo-agents-monad --org personal      (one-time)
+#   fly secrets set -c apps/demo-agents/fly.monad.toml --stage \
+#     PRIVATE_KEY=0x…(sponsor 0x6D8a…376d) SPONSOR_ADDRESS=0x6D8aCa48c1E064e71078656f7fB946e52cd8376d \
+#     OPENAI_API_KEY=… ANTHROPIC_API_KEY=… DEMO_GATEWAY_KEY=…
+#   fly deploy -c apps/demo-agents/fly.monad.toml --ha=false --remote-only
+#     (--ha=false: org machine cap — GOTCHAS "Fly org machine limit";
+#      org was at 17/20 as of 2026-06; check `fly machines list` first)
+#
+
+app = "sage-demo-agents-monad"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  # Public QuickNode testnet RPC (50 rps, archive) — no proxy needed; the
+  # Alchemy-traffic concern that hibernated Base prod doesn't apply here.
+  RPC_URL = "https://testnet-rpc.monad.xyz"
+  # Authoritative chain selector (shared/config.ts resolveChain).
+  CHAIN = "monad-testnet"
+  CHAIN_ID = "10143"
+  ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage.xyz"
+  # ── Money envs (WMON base units, 1 WMON = 1e18) — required by the
+  #    settlement-decimals boot assert (ADR-0026, shared/env.ts): ──
+  TASK_AMOUNT = "100000000000000000"              # 0.1 WMON (legacy /api/demo/start path)
+  SPONSOR_MIN_BALANCE_USDC = "1000000000000000000" # 1 WMON floor (env name historical)
+  MAX_SUBTASK_UNITS = "2000000000000000000"        # 2 WMON per sub-task ceiling
+  MAX_PLAN_TOTAL_UNITS = "5000000000000000000"     # 5 WMON per plan
+  MAX_RUN_SPEND_UNITS = "8000000000000000000"      # 8 WMON actual-spend per run
+
+[processes]
+  orchestrator = "node dist/orchestrator/server.js"
+
+[[services]]
+  processes       = ["orchestrator"]
+  protocol        = "tcp"
+  internal_port   = 3000
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port     = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "connections"
+    soft_limit = 20
+    hard_limit = 50
+
+  [[services.tcp_checks]]
+    interval      = "15s"
+    timeout       = "2s"
+    grace_period  = "10s"
+
+  [[services.http_checks]]
+    interval      = "30s"
+    timeout       = "5s"
+    grace_period  = "20s"
+    method        = "GET"
+    path          = "/health"
+    protocol      = "http"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["orchestrator"]
+
+[deploy]
+  strategy = "rolling"
+
+[metrics]
+  port = 9091
+  path = "/metrics"

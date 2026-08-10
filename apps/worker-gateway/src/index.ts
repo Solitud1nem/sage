@@ -49,6 +49,26 @@ export interface Env {
   ARC_RPC_URL?: string;
   ARC_ESCROW_ADDRESS?: string;
   ARC_ESCROW_FROM_BLOCK?: string;
+  /**
+   * Monad-testnet orchestrator URL (ADR-0026 / M14.4). Optional — same
+   * fall-through semantics as ORCHESTRATOR_URL_ARC for `?chain=monad`.
+   */
+  ORCHESTRATOR_URL_MONAD?: string;
+  /**
+   * Monad-testnet reputation index (ADR-0026). Same opt-in shape as Arc:
+   * both MONAD_RPC_URL and MONAD_ESCROW_ADDRESS must be set to index.
+   * Monad's public RPCs cap eth_getLogs at ≤100 blocks per call (recon §5),
+   * so the Monad chain config carries its own small chunk size.
+   */
+  MONAD_RPC_URL?: string;
+  MONAD_ESCROW_ADDRESS?: string;
+  MONAD_ESCROW_FROM_BLOCK?: string;
+  /**
+   * Hibernation switch (ADR-0026): "true" removes Base from the indexer's
+   * chain list so the cron stops generating Alchemy traffic while Base prod
+   * sleeps. `?chain=base` reputation reads keep serving the frozen D1 data.
+   */
+  BASE_INDEX_DISABLED?: string;
   DAILY_LIMIT: string;
   ALLOWED_ORIGINS: string;
   /**

@@ -1,7 +1,7 @@
 'use client';
 
 import type { WireClassification, WireSubTask } from '@/hooks/use-composite-demo';
-import { formatUsdc } from '@/lib/format-usdc';
+import { formatUsdc, type Settlement } from '@/lib/format-usdc';
 
 /**
  * Read-only rendering of a `ClassificationResult` (or the snapshot derived
@@ -22,6 +22,8 @@ const CONFIDENCE_THRESHOLD = 0.7;
 interface PlanCardProps {
   classification: WireClassification;
   brief: string;
+  /** Settlement-token metadata (ADR-0026) — USDC default, WMON on Monad. */
+  settlement?: Settlement;
   onApprove: () => void;
   /** Absent for fixed-template plans (website pipeline) — hides the Edit button. */
   onEdit?: () => void;
@@ -31,6 +33,7 @@ interface PlanCardProps {
 export function PlanCard({
   classification,
   brief,
+  settlement,
   onApprove,
   onEdit,
   onCancel,
@@ -91,7 +94,7 @@ export function PlanCard({
 
       <ol className="divide-y divide-border">
         {proposed_plan.map((sub) => (
-          <SubTaskRow key={sub.id} sub={sub} />
+          <SubTaskRow key={sub.id} sub={sub} settlement={settlement} />
         ))}
       </ol>
 
@@ -102,7 +105,7 @@ export function PlanCard({
               Total cost
             </div>
             <div className="font-mono text-[16px] text-text font-medium">
-              {formatUsdc(estimated_total_cost_units)}
+              {formatUsdc(estimated_total_cost_units, settlement)}
             </div>
           </div>
           <div>
@@ -167,7 +170,15 @@ export function PlanCard({
 
 // ───────────────────────────────────────────────────────────────────────
 
-function SubTaskRow({ sub }: { sub: WireSubTask }) {
+function SubTaskRow({
+  sub,
+  settlement,
+}: {
+  sub: WireSubTask;
+  // `| undefined` explicitly: PlanCard's own prop is optional and forwards
+  // an explicit undefined (exactOptionalPropertyTypes).
+  settlement?: Settlement | undefined;
+}) {
   return (
     <li className="px-6 md:px-8 py-4 grid grid-cols-1 sm:grid-cols-[36px_1fr_auto] gap-x-4 gap-y-2 items-start">
       <div className="font-mono text-[13px] text-text-subtle">#{sub.id}</div>
@@ -205,7 +216,7 @@ function SubTaskRow({ sub }: { sub: WireSubTask }) {
             Cost
           </div>
           <div className="font-mono text-[13px] text-text">
-            {formatUsdc(sub.estimated_cost_units)}
+            {formatUsdc(sub.estimated_cost_units, settlement)}
           </div>
         </div>
         <div>

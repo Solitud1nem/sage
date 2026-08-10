@@ -34,7 +34,7 @@ const OUTCOME_SPLIT = 7;
 
 const DEFAULT_CHAIN = 'base';
 /** Chains the endpoint will serve / the indexer may track. */
-const KNOWN_CHAINS: ReadonlySet<string> = new Set(['base', 'arc']);
+const KNOWN_CHAINS: ReadonlySet<string> = new Set(['base', 'arc', 'monad']);
 const CHUNK_BLOCKS = 5_000n;
 /** Bound a single cron invocation under the Worker subrequest cap. The budget is
  *  SHARED across chains (total chunks ≤ this), so adding a chain doesn't multiply
@@ -57,6 +57,9 @@ interface ChainCfg {
   rpcUrl: string;
   escrow: string;
   fromBlock: bigint;
+  /** Per-chain eth_getLogs block-range cap. Defaults to CHUNK_BLOCKS; Monad's
+   *  public RPCs reject ranges over 100 blocks (ADR-0026 recon §5). */
+  chunkBlocks?: bigint;
 }
 
 /**
@@ -67,7 +70,15 @@ interface ChainCfg {
  */
 function chainConfigs(env: Env): ChainCfg[] {
   const cfgs: ChainCfg[] = [];
-  if (env.ESCROW_ADDRESS && env.ALCHEMY_BASE_URL && env.ALCHEMY_KEY) {
+  // BASE_INDEX_DISABLED — hibernation switch (ADR-0026): keeps the cron from
+  // generating Alchemy traffic while Base prod sleeps. Reads stay served
+  // from the frozen D1 rows.
+  if (
+    env.ESCROW_ADDRESS &&
+    env.ALCHEMY_BASE_URL &&
+    env.ALCHEMY_KEY &&
+    env.BASE_INDEX_DISABLED !== 'true'
+  ) {
     cfgs.push({
       chain: 'base',
       rpcUrl: `${env.ALCHEMY_BASE_URL}/${env.ALCHEMY_KEY}`,
@@ -81,6 +92,17 @@ function chainConfigs(env: Env): ChainCfg[] {
       rpcUrl: env.ARC_RPC_URL,
       escrow: env.ARC_ESCROW_ADDRESS,
       fromBlock: BigInt(env.ARC_ESCROW_FROM_BLOCK || '0'),
+    });
+  }
+  if (env.MONAD_RPC_URL && env.MONAD_ESCROW_ADDRESS) {
+    cfgs.push({
+      chain: 'monad',
+      rpcUrl: env.MONAD_RPC_URL,
+      escrow: env.MONAD_ESCROW_ADDRESS,
+      fromBlock: BigInt(env.MONAD_ESCROW_FROM_BLOCK || '0'),
+      // Monad public RPCs cap eth_getLogs at 100 blocks (~0.4s blocks); the
+      // shared chunk budget still applies, so steady-state stays a few calls.
+      chunkBlocks: 100n,
     });
   }
   return cfgs;
@@ -129,8 +151,9 @@ async function indexChain(env: Env, cfg: ChainCfg, maxChunks: number): Promise<C
   let indexed = 0;
   let chunks = 0;
   let lastTo = from > 0n ? from - 1n : 0n;
+  const chunkBlocks = cfg.chunkBlocks ?? CHUNK_BLOCKS;
   while (from <= latest && chunks < maxChunks) {
-    const to = from + CHUNK_BLOCKS - 1n > latest ? latest : from + CHUNK_BLOCKS - 1n;
+    const to = from + chunkBlocks - 1n > latest ? latest : from + chunkBlocks - 1n;
     const logs =
       ((await rpc(cfg.rpcUrl, 'eth_getLogs', [
         {

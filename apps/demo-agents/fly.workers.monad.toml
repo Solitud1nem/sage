@@ -1,0 +1,81 @@
+#
+# Sage generic worker — Monad testnet Fly.io app (M14.3, ADR-0026).
+#
+# Mirror of fly.workers.toml (sage-workers, Base) with Monad chain selection:
+# one machine hosting the 8 pipeline identities, scale-to-zero via the
+# worker's own idle-exit + registry-endpoint wake pings (M12.0.2 semantics —
+# auto_stop counts inbound connections and would kill a worker mid-LLM-call,
+# hence auto_stop=off / self-exit).
+#
+# Deploy — from the REPO ROOT (monorepo build context, GOTCHAS M10.2.9):
+#   fly apps create sage-workers-monad --org personal          (one-time)
+#   fly secrets set -c apps/demo-agents/fly.workers.monad.toml --stage \
+#     COPYWRITER_PRIVATE_KEY=0x… BUILDER_PRIVATE_KEY=0x… PACKAGER_PRIVATE_KEY=0x… \
+#     QA_WEBSITE_PRIVATE_KEY=0x… SEARCHER_PRIVATE_KEY=0x… EXTRACTOR_PRIVATE_KEY=0x… \
+#     SYNTHESIZER_PRIVATE_KEY=0x… FACT_CHECKER_PRIVATE_KEY=0x… \
+#     OPENAI_API_KEY=… ANTHROPIC_API_KEY=… SERPER_API_KEY=…
+#   fly deploy -c apps/demo-agents/fly.workers.monad.toml --ha=false --remote-only
+#
+# Secrets note: `fly secrets set` restarts the machine on the CURRENT image —
+# stage identities BEFORE the first deploy or deploy a fresh image right after
+# (GOTCHAS: WORKER_IDENTITIES crashloop, 2026-06-13).
+#
+
+app = "sage-workers-monad"
+primary_region = "iad"
+
+# Aligned with WORKER_DRAIN_TIMEOUT_MS (110s): SIGTERM → drain → exit.
+kill_timeout = 120
+
+[build]
+  dockerfile = "Dockerfile"
+  # Chromium-bearing stage for the QA gate (M12.1.2).
+  build-target = "workers"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3100"
+  CHAIN = "monad-testnet"
+  CHAIN_ID = "10143"
+  RPC_URL = "https://testnet-rpc.monad.xyz"
+  # RPC goes straight to QuickNode (not the gateway), so the artifact-store
+  # origin can't be derived from RPC_URL — set it explicitly. Pairs with the
+  # SAGE_BACKEND_KEY secret (same value as Base sage-workers); without both,
+  # builder/packager/QA can't move artifacts and the QA gate degrades to
+  # legacy-approve (observed on the first Monad e2e run, 2026-08-10).
+  ARTIFACTS_GATEWAY_URL = "https://sage-gateway.a-t-somnia.workers.dev"
+  # All 8 pipeline identities (deterministic config, not a secret).
+  WORKER_IDENTITIES = "copywriter,builder,packager,qa-website,searcher,extractor,synthesizer,fact-checker"
+
+[processes]
+  worker = "node dist/worker/server.js"
+
+[[services]]
+  processes       = ["worker"]
+  protocol        = "tcp"
+  internal_port   = 3100
+  auto_stop_machines   = "off"
+  auto_start_machines  = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port     = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "connections"
+    soft_limit = 20
+    hard_limit = 50
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1024mb"  # Lighthouse + chromium OOM on 512MB (M12.1.2)
+  processes = ["worker"]
+
+[deploy]
+  strategy = "immediate"

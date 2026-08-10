@@ -1,6 +1,7 @@
 'use client';
 
 import { ARC_TESTNET_CHAIN_ID } from '@/chains/arc';
+import { MONAD_TESTNET_CHAIN_ID } from '@/chains/monad';
 import { BASE_MAINNET_CHAIN_ID } from '@/chains/base';
 import type { CompositeChainId } from '@/hooks/use-composite-demo';
 
@@ -30,16 +31,25 @@ const OPTIONS: Array<{
   chainId: CompositeChainId;
   label: string;
   tag: string;
+  /** Chain's demo stack is hibernating (2026-08): pill renders disabled. */
+  paused?: boolean;
 }> = [
   {
     chainId: BASE_MAINNET_CHAIN_ID,
     label: 'Base',
-    tag: `mainnet · ${BASE_MAINNET_CHAIN_ID}`,
+    tag: 'paused',
+    paused: true,
   },
   {
     chainId: ARC_TESTNET_CHAIN_ID,
     label: 'Arc',
-    tag: 'testnet',
+    tag: 'paused',
+    paused: true,
+  },
+  {
+    chainId: MONAD_TESTNET_CHAIN_ID,
+    label: 'Monad',
+    tag: 'testnet · WMON',
   },
 ];
 
@@ -59,19 +69,23 @@ export function ChainPicker({ chainId, onChange, disabled }: ChainPickerProps) {
       >
         {OPTIONS.map((opt) => {
           const active = opt.chainId === chainId;
+          const isDisabled = disabled || opt.paused;
           return (
             <button
               key={opt.chainId}
               type="button"
               role="radio"
               aria-checked={active}
-              disabled={disabled}
+              disabled={isDisabled}
+              title={opt.paused ? 'Demo stack on this chain is paused — Monad testnet is the active demo chain.' : undefined}
               onClick={() => onChange(opt.chainId)}
               className={`h-8 px-3 rounded-[7px] font-mono text-[12px] flex items-center gap-1.5 transition-colors ${
                 active
                   ? 'bg-cyan text-[#0A0A0F]'
                   : 'text-text-muted hover:text-text disabled:cursor-not-allowed'
-              } ${disabled && !active ? 'pointer-events-none' : ''}`}
+              } ${opt.paused ? 'opacity-40 cursor-not-allowed hover:text-text-muted' : ''} ${
+                disabled && !active ? 'pointer-events-none' : ''
+              }`}
             >
               <span>{opt.label}</span>
               <span

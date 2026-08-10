@@ -18,7 +18,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 
 import { loadConfig, createSageFromConfig } from '../shared/config.js';
 import { demoRegistry } from '../shared/sse.js';
-import { loadOrchestratorEnv } from '../shared/env.js';
+import { loadOrchestratorEnv, assertMoneyEnvForSettlement } from '../shared/env.js';
 import { checkSponsorStatus, formatUsdc } from './guards.js';
 import { checkEvaluatorCoverage, checkQuarantine, isPlaintextIntakeBlocked } from './plan-guards.js';
 import { startDemoRun, type DemoMode } from './demo-run.js';
@@ -35,6 +35,17 @@ const env = loadOrchestratorEnv();
 const config = loadConfig(env.port);
 const sageBundle = createSageFromConfig(config);
 
+// Settlement-token metadata (ADR-0026): USDC posture unless the chain config
+// says otherwise (WMON 18-dec on Monad). The assert fails the boot loudly if
+// the money envs still carry 6-decimal defaults on a non-6-decimal chain —
+// dust caps would otherwise block every run (or disable every floor) silently.
+const settlement = sageBundle.chainConfig.settlement ?? {
+  symbol: 'USDC',
+  decimals: 6,
+  permit: true,
+};
+assertMoneyEnvForSettlement(sageBundle.chainConfig.settlement);
+
 // Discover which chain this orchestrator is talking to. Resolved once at boot
 // and echoed back on /health + /api/demo/start so the frontend can label the
 // demo run truthfully regardless of the user's wallet chain.
@@ -48,6 +59,7 @@ const EXPLORERS: Record<number, { displayName: string; url: string }> = {
   8453: { displayName: 'Base', url: 'https://basescan.org' },
   84532: { displayName: 'Base Sepolia', url: 'https://sepolia.basescan.org' },
   5042002: { displayName: 'Arc Testnet', url: 'https://testnet.arcscan.app' },
+  10143: { displayName: 'Monad Testnet', url: 'https://testnet.monadscan.com' },
 };
 
 async function resolveChainInfo(): Promise<void> {
@@ -304,8 +316,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
       sponsor: sponsor
         ? {
             address: sageBundle.account.address,
-            balanceUsdc: formatUsdc(sponsor.balance),
-            minBalanceUsdc: formatUsdc(sponsor.minBalance),
+            balanceUsdc: formatUsdc(sponsor.balance, settlement.decimals),
+            minBalanceUsdc: formatUsdc(sponsor.minBalance, settlement.decimals),
+            settlementSymbol: settlement.symbol,
             level: sponsor.level,
             accepting: sponsor.ok,
           }
@@ -383,9 +396,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
               error: 'sponsor_exhausted',
               message: `Sponsor wallet is below the ${formatUsdc(
                 env.sponsorMinBalanceUsdc,
-              )} USDC floor. Watch-live mode is temporarily paused — try with your wallet instead.`,
-              balanceUsdc: formatUsdc(sponsor.balance),
-              minBalanceUsdc: formatUsdc(sponsor.minBalance),
+                settlement.decimals,
+              )} ${settlement.symbol} floor. Watch-live mode is temporarily paused — try with your wallet instead.`,
+              balanceUsdc: formatUsdc(sponsor.balance, settlement.decimals),
+              minBalanceUsdc: formatUsdc(sponsor.minBalance, settlement.decimals),
             });
             return;
           }
@@ -651,9 +665,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
               error: 'sponsor_exhausted',
               message: `Sponsor wallet is below the ${formatUsdc(
                 env.sponsorMinBalanceUsdc,
-              )} USDC floor. Composite execution is temporarily paused.`,
-              balanceUsdc: formatUsdc(sponsor.balance),
-              minBalanceUsdc: formatUsdc(sponsor.minBalance),
+                settlement.decimals,
+              )} ${settlement.symbol} floor. Composite execution is temporarily paused.`,
+              balanceUsdc: formatUsdc(sponsor.balance, settlement.decimals),
+              minBalanceUsdc: formatUsdc(sponsor.minBalance, settlement.decimals),
             });
             return;
           }
@@ -770,9 +785,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
               error: 'sponsor_exhausted',
               message: `Sponsor wallet is below the ${formatUsdc(
                 env.sponsorMinBalanceUsdc,
-              )} USDC floor. Retry is temporarily paused.`,
-              balanceUsdc: formatUsdc(sponsor.balance),
-              minBalanceUsdc: formatUsdc(sponsor.minBalance),
+                settlement.decimals,
+              )} ${settlement.symbol} floor. Retry is temporarily paused.`,
+              balanceUsdc: formatUsdc(sponsor.balance, settlement.decimals),
+              minBalanceUsdc: formatUsdc(sponsor.minBalance, settlement.decimals),
             });
             return;
           }
