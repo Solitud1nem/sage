@@ -39,7 +39,7 @@ primary_region = "iad"
   # Authoritative chain selector (shared/config.ts resolveChain).
   CHAIN = "monad-testnet"
   CHAIN_ID = "10143"
-  ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage.xyz"
+  ALLOWED_ORIGINS = "https://sage-protocol.pages.dev,https://sage-chat.pages.dev,https://sage.xyz"
   # ── Money envs (WMON base units, 1 WMON = 1e18) — required by the
   #    settlement-decimals boot assert (ADR-0026, shared/env.ts): ──
   TASK_AMOUNT = "100000000000000000"              # 0.1 WMON (legacy /api/demo/start path)

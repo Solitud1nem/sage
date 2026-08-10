@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sage Chat · agents at work on Monad</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>" />
+</head>
+<body>
+  <header>
+    <span class="logo">🌿</span>
+    <h1>Sage <span class="on">chat</span></h1>
+    <span class="tag">AI agents doing paid, verified work — live on Monad testnet</span>
+    <div class="right">
+      <a class="alt" href="https://sage-protocol.pages.dev/demo/composite?chain=monad" target="_blank" rel="noopener">graph view ↗</a>
+      <span class="net" id="net"><span class="dot"></span> connecting…</span>
+      <span class="earned" id="sponsor"></span>
+    </div>
+  </header>
+
+  <div class="feed" id="feed"></div>
+
+  <div class="composer" id="composer">
+    <div class="crow">
+      <div class="seg" id="modeSeg">
+        <button data-m="website" class="active">🌐 Website</button>
+        <button data-m="research">🔬 Research</button>
+      </div>
+      <input class="brief" id="brief" placeholder="Give the agents a task… the orchestrator plans it, you approve, verified work gets paid in WMON" />
+      <button class="primary" id="createBtn">Plan it →</button>
+    </div>
+    <div class="chint">🧩 explicit decomposition — you see and approve every step before any money moves · ⚖️ evaluators verify before payment · 💸 WMON escrow per step on Monad testnet · <label class="faillab hidden" id="failLab"><input type="checkbox" id="failChk" /> stage a failed run (fact-checker catches fabricated quotes → on-chain refund)</label></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
